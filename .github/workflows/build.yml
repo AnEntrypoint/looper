@@ -8,12 +8,17 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      RASPPI: 4
+      AARCH: 64
+      PREFIX64: aarch64-none-elf-
     steps:
-      - name: Install toolchain
+      - name: Install toolchain and make
         run: |
+          sudo apt-get install -y make
           wget -q https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf.tar.xz
           tar xf arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf.tar.xz
-          sudo apt-get install -y make
+          echo "$GITHUB_WORKSPACE/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf/bin" >> $GITHUB_PATH
 
       - name: Clone circle
         run: git clone --depth=1 https://github.com/phorton1/circle circle
@@ -33,29 +38,25 @@ jobs:
 
       - name: Build circle libraries
         run: |
-          export PATH=$(readlink -f ./arm-gnu-toolchain-*/bin):$PATH
-          make -C circle/lib RASPPI=4 AARCH=64
-          make -C circle/lib/fs RASPPI=4 AARCH=64
-          make -C circle/lib/input RASPPI=4 AARCH=64
-          make -C circle/lib/net RASPPI=4 AARCH=64
-          make -C circle/lib/sched RASPPI=4 AARCH=64
-          make -C circle/lib/usb RASPPI=4 AARCH=64
-          make -C circle/addon/fatfs RASPPI=4 AARCH=64
-          make -C circle/addon/SDCard RASPPI=4 AARCH=64
+          make -C circle/lib RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/lib/fs RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/lib/input RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/lib/net RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/lib/sched RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/lib/usb RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/addon/fatfs RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/addon/SDCard RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
 
       - name: Build circle-prh libraries
         run: |
-          export PATH=$(readlink -f ./arm-gnu-toolchain-*/bin):$PATH
-          make -C circle/_prh/audio RASPPI=4 AARCH=64
-          make -C circle/_prh/devices RASPPI=4 AARCH=64
-          make -C circle/_prh/utils RASPPI=4 AARCH=64
-          make -C circle/_prh/system RASPPI=4 AARCH=64
-          make -C circle/_prh/ws RASPPI=4 AARCH=64
+          make -C circle/_prh/audio RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/_prh/devices RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/_prh/utils RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/_prh/system RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/_prh/ws RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
 
       - name: Build Looper
-        run: |
-          export PATH=$(readlink -f ./arm-gnu-toolchain-*/bin):$PATH
-          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=64
+        run: make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
 
       - name: Collect boot files
         run: |
