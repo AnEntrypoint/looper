@@ -72,9 +72,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete latest --cleanup-tag --yes 2>/dev/null || true
-          sleep 2
-          gh release create latest looper-sd.zip \
-            --title "Latest Build" \
-            --notes "Automated build from commit ${{ github.sha }}" \
-            --repo ${{ github.repository }}
+          if gh release view latest --repo ${{ github.repository }} > /dev/null 2>&1; then
+            gh release upload latest looper-sd.zip --clobber --repo ${{ github.repository }}
+            gh release edit latest \
+              --notes "Automated build from commit ${{ github.sha }}" \
+              --repo ${{ github.repository }}
+          else
+            gh release create latest looper-sd.zip \
+              --title "Latest Build" \
+              --notes "Automated build from commit ${{ github.sha }}" \
+              --repo ${{ github.repository }}
+          fi
