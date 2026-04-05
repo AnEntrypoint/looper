@@ -10,15 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RASPPI: 4
-      AARCH: 64
-      PREFIX64: aarch64-none-elf-
+      AARCH: 32
     steps:
       - name: Install toolchain and make
         run: |
-          sudo apt-get install -y make
-          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf.tar.xz
-          tar xf arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf.tar.xz
-          echo "$GITHUB_WORKSPACE/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf/bin" >> $GITHUB_PATH
+          sudo apt-get install -y make gcc-arm-none-eabi
 
       - name: Clone circle
         run: git clone --depth=1 https://github.com/phorton1/circle circle
@@ -38,30 +34,30 @@ jobs:
 
       - name: Build circle libraries
         run: |
-          make -C circle/lib RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/lib/fs RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/lib/input RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/lib/net RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/lib/sched RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/lib/usb RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/addon/fatfs RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/addon/SDCard RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/lib RASPPI=4 AARCH=32
+          make -C circle/lib/fs RASPPI=4 AARCH=32
+          make -C circle/lib/input RASPPI=4 AARCH=32
+          make -C circle/lib/net RASPPI=4 AARCH=32
+          make -C circle/lib/sched RASPPI=4 AARCH=32
+          make -C circle/lib/usb RASPPI=4 AARCH=32
+          make -C circle/addon/fatfs RASPPI=4 AARCH=32
+          make -C circle/addon/SDCard RASPPI=4 AARCH=32
 
       - name: Build circle-prh libraries
         run: |
-          make -C circle/_prh/audio RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/_prh/devices RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/_prh/utils RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/_prh/system RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
-          make -C circle/_prh/ws RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+          make -C circle/_prh/audio RASPPI=4 AARCH=32
+          make -C circle/_prh/devices RASPPI=4 AARCH=32
+          make -C circle/_prh/utils RASPPI=4 AARCH=32
+          make -C circle/_prh/system RASPPI=4 AARCH=32
+          make -C circle/_prh/ws RASPPI=4 AARCH=32
 
       - name: Build Looper
-        run: make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=64 PREFIX64=aarch64-none-elf-
+        run: make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32
 
       - name: Collect boot files
         run: |
           mkdir -p dist
-          cp circle/_prh/_apps/Looper/kernel8-rpi4.img dist/
+          cp circle/_prh/_apps/Looper/kernel7l.img dist/
           cp -r circle/_prh/boot/to_sd_card/. dist/
           echo "usbspeed=full" > dist/cmdline.txt
           cd dist && zip -r ../looper-sd.zip .
