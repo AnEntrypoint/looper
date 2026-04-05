@@ -22,6 +22,22 @@ void apcKey25::_sendLed(u8 note, u8 velocity)
     sendSerialMidiNoteOn(note, velocity);
 }
 
+u8 apcKey25::_trackLedColor(int track)
+{
+    if (track >= LOOPER_NUM_TRACKS) return APC_VEL_LED_OFF;
+
+    publicTrack *pTrack = pTheLooper->getPublicTrack(track);
+    u16 ts = pTrack->getTrackState();
+
+    if (ts & TRACK_STATE_RECORDING)       return APC_VEL_LED_RED;
+    if (ts & TRACK_STATE_PENDING_RECORD)  return APC_VEL_LED_YELLOW;
+    if (ts & TRACK_STATE_PENDING_STOP)    return APC_VEL_LED_YELLOW;
+    if (ts & TRACK_STATE_PENDING_PLAY)    return APC_VEL_LED_YELLOW;
+    if (ts & TRACK_STATE_PLAYING)         return APC_VEL_LED_GREEN;
+    if (ts & TRACK_STATE_STOPPED)         return APC_VEL_LED_OFF;
+    return APC_VEL_LED_OFF;
+}
+
 u8 apcKey25::_clipLedColor(int track, int clip)
 {
     if (track >= LOOPER_NUM_TRACKS || clip >= LOOPER_NUM_LAYERS)
@@ -30,37 +46,20 @@ u8 apcKey25::_clipLedColor(int track, int clip)
     publicTrack *pTrack = pTheLooper->getPublicTrack(track);
     publicClip  *pClip  = pTrack->getPublicClip(clip);
     u16 state = pClip->getClipState();
-    u16 trackState = pTrack->getTrackState();
+    u16 ts    = pTrack->getTrackState();
 
-    if (pClip->isMuted())
-        return APC_VEL_LED_RED;
+    if (pClip->isMuted()) return APC_VEL_LED_RED;
 
     if (state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN | CLIP_STATE_RECORD_END))
-    {
-        u16 pending = pTheLooper->getPendingCommand();
-        if (pending == LOOP_COMMAND_STOP || pending == LOOP_COMMAND_STOP_IMMEDIATE)
-            return APC_VEL_LED_YELLOW;
-        return APC_VEL_LED_RED;
-    }
+        return (ts & TRACK_STATE_PENDING_STOP) ? APC_VEL_LED_YELLOW : APC_VEL_LED_RED;
 
     if (state & (CLIP_STATE_PLAY_MAIN | CLIP_STATE_PLAY_END))
-    {
-        if (trackState & TRACK_STATE_PENDING_STOP)
-            return APC_VEL_LED_YELLOW;
-        return APC_VEL_LED_GREEN;
-    }
+        return (ts & TRACK_STATE_PENDING_STOP) ? APC_VEL_LED_YELLOW : APC_VEL_LED_GREEN;
 
     if (state & CLIP_STATE_RECORDED)
-    {
-        if (trackState & TRACK_STATE_PENDING_PLAY)
-            return APC_VEL_LED_YELLOW;
-        return APC_VEL_LED_OFF;
-    }
+        return (ts & TRACK_STATE_PENDING_PLAY) ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF;
 
-    if (trackState & TRACK_STATE_PENDING_RECORD)
-        return APC_VEL_LED_YELLOW;
-
-    return APC_VEL_LED_OFF;
+    return (ts & TRACK_STATE_PENDING_RECORD) ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF;
 }
 
 void apcKey25::_updateGridLeds()
@@ -70,18 +69,25 @@ void apcKey25::_updateGridLeds()
         publicTrack *pTrack = pTheLooper->getPublicTrack(row);
 
         for (int col = 0; col < LOOPER_NUM_LAYERS; col++)
-        {
-            u8 color = _clipLedColor(row, col);
-            _sendLed(_padNote(row, col), color);
-        }
+            _sendLed(_padNote(row, col), _clipLedColor(row, col));
 
-        bool selected = pTrack->isSelected();
-        u8 muteNote = _padNote(row, 4);
         bool anyMuted = false;
         for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
             if (pTrack->getPublicClip(c)->isMuted()) { anyMuted = true; break; }
-        _sendLed(muteNote, anyMuted ? APC_VEL_LED_RED : (selected ? APC_VEL_LED_GREEN : APC_VEL_LED_OFF));
+
+        _sendLed(_padNote(row, 4), anyMuted ? APC_VEL_LED_RED : _trackLedColor(row));
+
+        u8 eraseColor = (pTrack->getNumRecordedClips() > 0) ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF;
+        _sendLed(_padNote(row, 5), eraseColor);
+        _sendLed(_padNote(row, 6), APC_VEL_LED_OFF);
+        _sendLed(_padNote(row, 7), APC_VEL_LED_OFF);
     }
+
+    bool running = pTheLooper->getRunning();
+    u16  pending = pTheLooper->getPendingCommand();
+    _sendLed(APC_BTN_STOP_ALL, running ? (pending == LOOP_COMMAND_STOP ? APC_VEL_LED_YELLOW : APC_VEL_LED_GREEN) : APC_VEL_LED_OFF);
+    _sendLed(APC_BTN_RECORD,   pTheLooper->getDubMode() ? APC_VEL_LED_RED : APC_VEL_LED_OFF);
+    _sendLed(APC_BTN_PLAY,     m_shift ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF);
 }
 
 void apcKey25::_onPadPress(int row, int col)
@@ -134,28 +140,14 @@ void apcKey25::_onButton(u8 note)
         pTheLooper->command(m_shift ? LOOP_COMMAND_STOP_IMMEDIATE : LOOP_COMMAND_STOP);
         return;
     }
-    if (note == APC_BTN_PLAY)
-    {
-        if (m_shift)
-            pTheLooper->command(LOOP_COMMAND_CLEAR_ALL);
-        else
-        {
-            int sel = pTheLooper->getSelectedTrackNum();
-            if (sel >= 0)
-                pTheLooper->command(LOOP_COMMAND_TRACK_BASE + sel);
-        }
-        return;
-    }
     if (note == APC_BTN_RECORD)
     {
-        if (m_shift)
-            pTheLooper->command(LOOP_COMMAND_DUB_MODE);
-        else
-        {
-            int sel = pTheLooper->getSelectedTrackNum();
-            if (sel >= 0)
-                pTheLooper->command(LOOP_COMMAND_TRACK_BASE + sel);
-        }
+        pTheLooper->command(m_shift ? LOOP_COMMAND_ABORT_RECORDING : LOOP_COMMAND_DUB_MODE);
+        return;
+    }
+    if (note == APC_BTN_PLAY)
+    {
+        pTheLooper->command(m_shift ? LOOP_COMMAND_LOOP_IMMEDIATE : LOOP_COMMAND_CLEAR_ALL);
         return;
     }
 }
