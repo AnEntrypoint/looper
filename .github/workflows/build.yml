@@ -1,0 +1,74 @@
+name: Build rPi Bare Metal Looper
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi make
+
+      - name: Clone circle
+        run: git clone --depth=1 https://github.com/phorton1/circle circle
+
+      - name: Clone circle-prh into circle/_prh
+        run: git clone --depth=1 https://github.com/phorton1/circle-prh circle/_prh
+
+      - name: Checkout looper into circle/_prh/_apps/Looper
+        uses: actions/checkout@v4
+        with:
+          path: circle/_prh/_apps/Looper
+
+      - name: Build circle libraries
+        working-directory: circle
+        run: |
+          make -C lib
+          make -C lib/fs
+          make -C lib/input
+          make -C lib/net
+          make -C lib/sched
+          make -C lib/usb
+          make -C addon/fatfs
+          make -C addon/SDCard
+
+      - name: Build circle-prh libraries
+        working-directory: circle/_prh
+        run: |
+          make -C audio
+          make -C devices
+          make -C utils
+          make -C system
+          make -C ws
+
+      - name: Build Looper
+        working-directory: circle/_prh/_apps/Looper
+        run: make
+
+      - name: Collect boot files
+        run: |
+          mkdir -p dist
+          cp circle/_prh/_apps/Looper/kernel7.img dist/
+          cp -r circle/_prh/boot/to_sd_card/. dist/
+          cd dist && zip -r ../looper-sd.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: looper-sd
+          path: looper-sd.zip
+
+      - name: Create or update latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --yes 2>/dev/null || true
+          gh release create latest looper-sd.zip \
+            --title "Latest Build" \
+            --notes "Automated build from commit ${{ github.sha }}" \
+            --repo ${{ github.repository }}
