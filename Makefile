@@ -7,6 +7,7 @@ CIRCLEHOME = ../../..
 OBJS = 	app.o \
 		audio.o \
 		apcKey25.o \
+		usbMidi.o \
 		loopBuffer.o \
 		loopClip.o \
 		loopTrack.o \

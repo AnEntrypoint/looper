@@ -1,10 +1,8 @@
 #define log_name "apc25"
 
 #include "apcKey25.h"
+#include "usbMidi.h"
 #include <circle/logger.h>
-
-extern void sendSerialMidiNoteOn(u8 note, u8 velocity);
-extern void sendSerialMidiCC(int cc_num, int value);
 
 apcKey25 *pTheAPC = 0;
 
@@ -20,7 +18,7 @@ u8 apcKey25::_padNote(int row, int col)
 
 void apcKey25::_sendLed(u8 note, u8 velocity)
 {
-    sendSerialMidiNoteOn(note, velocity);
+    usbMidiSendNoteOn(note, velocity);
 }
 
 u8 apcKey25::_trackLedColor(int track)
@@ -110,7 +108,7 @@ void apcKey25::_onPadPress(int row, int col)
         for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
         {
             pTrack->getPublicClip(c)->setMute(!anyMuted);
-            sendSerialMidiCC(CLIP_MUTE_BASE_CC + row * LOOPER_NUM_LAYERS + c, !anyMuted ? 1 : 0);
+            usbMidiSendCC(CLIP_MUTE_BASE_CC + row * LOOPER_NUM_LAYERS + c, !anyMuted ? 1 : 0);
         }
         return;
     }
