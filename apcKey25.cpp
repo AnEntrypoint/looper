@@ -4,6 +4,7 @@
 #include <circle/logger.h>
 
 extern void sendSerialMidiNoteOn(u8 note, u8 velocity);
+extern void sendSerialMidiCC(int cc_num, int value);
 
 apcKey25 *pTheAPC = 0;
 

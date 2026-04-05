@@ -36,6 +36,7 @@ private:
     void _onButton(u8 note);
     void _sendLed(u8 note, u8 velocity);
     void _updateGridLeds();
+    u8   _trackLedColor(int track);
     u8   _clipLedColor(int track, int clip);
     u8   _padNote(int row, int col);
 };
