@@ -31,32 +31,32 @@ jobs:
       - name: Build circle libraries
         working-directory: circle
         run: |
-          make -C lib RASPPI=4
-          make -C lib/fs RASPPI=4
-          make -C lib/input RASPPI=4
-          make -C lib/net RASPPI=4
-          make -C lib/sched RASPPI=4
-          make -C lib/usb RASPPI=4
-          make -C addon/fatfs RASPPI=4
-          make -C addon/SDCard RASPPI=4
+          make -C lib RASPPI=3
+          make -C lib/fs RASPPI=3
+          make -C lib/input RASPPI=3
+          make -C lib/net RASPPI=3
+          make -C lib/sched RASPPI=3
+          make -C lib/usb RASPPI=3
+          make -C addon/fatfs RASPPI=3
+          make -C addon/SDCard RASPPI=3
 
       - name: Build circle-prh libraries
         working-directory: circle/_prh
         run: |
-          make -C audio RASPPI=4
-          make -C devices RASPPI=4
-          make -C utils RASPPI=4
-          make -C system RASPPI=4
-          make -C ws RASPPI=4
+          make -C audio RASPPI=3
+          make -C devices RASPPI=3
+          make -C utils RASPPI=3
+          make -C system RASPPI=3
+          make -C ws RASPPI=3
 
       - name: Build Looper
         working-directory: circle/_prh/_apps/Looper
-        run: make RASPPI=4
+        run: make RASPPI=3
 
       - name: Collect boot files
         run: |
           mkdir -p dist
-          cp circle/_prh/_apps/Looper/kernel7l.img dist/
+          cp circle/_prh/_apps/Looper/kernel8-32.img dist/
           cp -r circle/_prh/boot/to_sd_card/. dist/
           cd dist && zip -r ../looper-sd.zip .
 
