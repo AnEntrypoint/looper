@@ -43,6 +43,7 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/usbmidi.cpp circle/lib/usb/usbmidi.cpp
           cp circle/_prh/_apps/Looper/patches/usbaudiodevice.h circle/include/circle/usb/usbaudiodevice.h
           cp circle/_prh/_apps/Looper/patches/usbdevicefactory.cpp circle/lib/usb/usbdevicefactory.cpp
+          cp circle/_prh/_apps/Looper/patches/Rules.mk circle/Rules.mk
 
       - name: Build circle libraries
         run: |

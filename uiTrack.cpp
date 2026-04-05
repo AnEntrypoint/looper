@@ -119,12 +119,6 @@ void uiTrack::updateFrame()
 			LOG("track(%d) state changed to 0x%04x",m_track_num,track_state);
 		#endif
 
-		// send the message to the TE
-		// the CC is the track number plus 0x14
-		// the value is the state, which is 0..0x2f
-
-		sendSerialMidiCC(TRACK_STATE_BASE_CC + m_track_num,track_state & 0xff);
-
 		m_pUIWindow->enableEraseButton(m_track_num,track_state);
 
 	}
