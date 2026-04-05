@@ -11,8 +11,10 @@ jobs:
     steps:
       - name: Install toolchain
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi make
+          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf.tar.xz
+          tar xf arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf.tar.xz
+          echo "$(readlink -f ./arm-gnu-toolchain-*/bin)" >> $GITHUB_PATH
+          sudo apt-get install -y make
 
       - name: Clone circle
         run: git clone --depth=1 https://github.com/phorton1/circle circle
@@ -25,39 +27,42 @@ jobs:
         with:
           path: circle/_prh/_apps/Looper
 
-      - name: Fix case-sensitive header symlinks
-        run: ln -sf bcm_pcm.h circle/_prh/audio/BCM_PCM.h
+      - name: Apply patches
+        run: |
+          ln -sf bcm_pcm.h circle/_prh/audio/BCM_PCM.h
+          cp circle/_prh/_apps/Looper/patches/miniuart.cpp circle/_prh/utils/miniuart.cpp
 
       - name: Build circle libraries
         working-directory: circle
         run: |
-          make -C lib RASPPI=3
-          make -C lib/fs RASPPI=3
-          make -C lib/input RASPPI=3
-          make -C lib/net RASPPI=3
-          make -C lib/sched RASPPI=3
-          make -C lib/usb RASPPI=3
-          make -C addon/fatfs RASPPI=3
-          make -C addon/SDCard RASPPI=3
+          make -C lib RASPPI=4 AARCH=64
+          make -C lib/fs RASPPI=4 AARCH=64
+          make -C lib/input RASPPI=4 AARCH=64
+          make -C lib/net RASPPI=4 AARCH=64
+          make -C lib/sched RASPPI=4 AARCH=64
+          make -C lib/usb RASPPI=4 AARCH=64
+          make -C addon/fatfs RASPPI=4 AARCH=64
+          make -C addon/SDCard RASPPI=4 AARCH=64
 
       - name: Build circle-prh libraries
         working-directory: circle/_prh
         run: |
-          make -C audio RASPPI=3
-          make -C devices RASPPI=3
-          make -C utils RASPPI=3
-          make -C system RASPPI=3
-          make -C ws RASPPI=3
+          make -C audio RASPPI=4 AARCH=64
+          make -C devices RASPPI=4 AARCH=64
+          make -C utils RASPPI=4 AARCH=64
+          make -C system RASPPI=4 AARCH=64
+          make -C ws RASPPI=4 AARCH=64
 
       - name: Build Looper
         working-directory: circle/_prh/_apps/Looper
-        run: make RASPPI=3
+        run: make RASPPI=4 AARCH=64
 
       - name: Collect boot files
         run: |
           mkdir -p dist
-          cp circle/_prh/_apps/Looper/kernel8-32.img dist/
+          cp circle/_prh/_apps/Looper/kernel8-rpi4.img dist/
           cp -r circle/_prh/boot/to_sd_card/. dist/
+          echo "usbspeed=full" > dist/cmdline.txt
           cd dist && zip -r ../looper-sd.zip .
 
       - name: Upload artifact
