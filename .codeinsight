@@ -1,0 +1,54 @@
+## 🎯 rpi Bare Metal Looper  This repository contains the source code and other information required to build a bare metal rPi based Audio Looper.  [![Looper2](docs/images/Looper2_resized.jpg)](docs/images/Looper2.jpg)  Please see the **[docs/readme.md](docs/readme.md)** file for the [documentatio
+
+# 20f 4.8kL 0fn 0cls cx0
+*Legend: f=files L=lines fn=functions cls=classes cx=avg-complexity | file:line:name(NL)=location Np=params | ↑N=imports-from ↓N=imported-by (N)=occurrences (+N)=more | 🔄circular 🏝️isolated 🔥complex 📋duplicated 📁large*
+
+**Langs:** C++:81% C:18%
+
+## 🛠️ Tech Stack
+
+**Patterns:** LOOPER_LOG(43), LOG(30), pTheLooper->command(16), sendSerialMidiCC(15), msg->Append(14), setBit(14)
+**Top IDs:** u16(120), s32(84), u32(68), pTheLooper(62), LOOPER_LOG(46), m_track_num(43)
+
+## ⚡ Code Patterns
+
+**Internal calls:** LOOPER_LOG(43), LOG(30), pTheLooper->command(16), sendSerialMidiCC(15), msg->Append(14), setBit(14), pTrack->getPublicClip(11), pTheLooper->getPublicTrack(11)
+
+## 📊 Code Organization
+
+**Large files:** uiWindow.cpp:941L, loopMachine.cpp:879L, Looper.h:552L, loopClip.cpp:480L, uiClip.cpp:428L, vuSlider.cpp:334L
+
+## 🚨 Issues
+
+- 📁 Large files: loopMachine.cpp:879L, uiWindow.cpp:941L, Looper.h:552L
+
+## 🧹 Dead Code & Tests
+
+**Orphaned:** uiStatusBar.cpp, commonDefines.h, vuSlider.cpp, uiTrack.h, uiClip.cpp, uiStatusBar.h (+13)
+**Tests:** 0/20 (0%)
+
+## 📄 File Index
+
+**Looper.h** 552L
+**LooperVersion.h** 3L
+**app.cpp** 43L
+**audio.cpp** 176L
+**commonDefines.h** 68L
+**dprobe.cpp** 146L
+**loopBuffer.cpp** 25L
+**loopClip.cpp** 480L
+**loopMachine.cpp** 879L
+**loopTrack.cpp** 188L
+**uiClip.cpp** 428L
+**uiClip.h** 66L
+**uiStatusBar.cpp** 142L
+**uiStatusBar.h** 19L
+**uiTrack.cpp** 151L
+**uiTrack.h** 54L
+**uiWindow.cpp** 941L
+**uiWindow.h** 63L
+**vuSlider.cpp** 334L
+**vuSlider.h** 69L
+
+Git: branch: master, 1 uncommitted
+Hot: loopMachine.cpp(38), uiWindow.cpp(33), Looper.h(26), audio.cpp(18), loopClip.cpp(16), uiTrack.cpp(13)
