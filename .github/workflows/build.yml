@@ -73,7 +73,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete latest --yes 2>/dev/null || true
-          sleep 2
+          git push origin :refs/tags/latest 2>/dev/null || true
+          sleep 3
           gh release create latest looper-sd.zip \
             --title "Latest Build" \
             --notes "Automated build from commit ${{ github.sha }}" \
