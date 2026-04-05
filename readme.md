@@ -12,9 +12,9 @@ the [documentation](docs/readme.md) regarding this project.
 
 ### Build
 
-CI runs automatically on push to `master` via GitHub Actions, producing `kernel7.img`.
+CI runs automatically on push to `master` via GitHub Actions, producing `kernel8-32.img` (rPi 3B+, RASPPI=3 32-bit).
 
-To build locally, clone into `circle/_prh/_apps/Looper/` with `circle/` as CIRCLEHOME and `circle/_prh/` as the circle-prh tree. Build with `LOOPER_USB_AUDIO=1` for UCA222 / generic class-compliant USB audio (44100Hz stereo, 64-sample blocks).
+To build locally, clone into `circle/_prh/_apps/Looper/` with `circle/` as CIRCLEHOME and `circle/_prh/` as the circle-prh tree. Default build targets the Audio Injector Octo (CS42448). Add `LOOPER_USB_AUDIO=1` to target UCA222 / generic class-compliant USB audio (44100Hz stereo, 64-sample blocks) — requires `AudioInputUSB`/`AudioOutputUSB` stubs in circle-prh.
 
 ### Deploy to SD card (Windows)
 
