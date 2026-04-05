@@ -60,6 +60,7 @@ jobs:
           cp circle/_prh/_apps/Looper/kernel7l.img dist/
           cp -r circle/_prh/boot/to_sd_card/. dist/
           echo "usbspeed=full" > dist/cmdline.txt
+          printf '[all]\nboot_delay=0\ndisable_splash=1\ngpu_mem=16\n\n[pi4]\narm_64bit=0\nkernel=kernel7l.img\n' > dist/config.txt
           cd dist && zip -r ../looper-sd.zip .
 
       - name: Upload artifact
