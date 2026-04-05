@@ -1,6 +1,10 @@
 // 11-aLooper
 
 #include <audio/Audio.h>
+#ifdef LOOPER_USB_AUDIO
+	#include <audio/input_usb.h>
+	#include <audio/output_usb.h>
+#endif
 #include "Looper.h"
 #include "LooperVersion.h"
 #include <circle/logger.h>

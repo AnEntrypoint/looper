@@ -9,17 +9,11 @@
 
 static CUSBMIDIDevice *s_pMIDIDevice = 0;
 
-static void packetHandler(unsigned nCable, u8 *pPacket, unsigned nLength, unsigned nDevice, void *pParam)
+static void packetHandler(unsigned nCable, u8 *pPacket, unsigned nLength)
 {
     if (nLength < 3) return;
     if (pTheAPC)
         pTheAPC->handleMidi(pPacket[0], pPacket[1], pPacket[2]);
-}
-
-static void deviceRemovedHandler(CDevice *pDevice, void *pContext)
-{
-    CLogger::Get()->Write(log_name, LogNotice, "USB MIDI device removed");
-    s_pMIDIDevice = 0;
 }
 
 void usbMidiProcess(bool bPlugAndPlayUpdated)
@@ -30,8 +24,7 @@ void usbMidiProcess(bool bPlugAndPlayUpdated)
         if (s_pMIDIDevice)
         {
             CLogger::Get()->Write(log_name, LogNotice, "USB MIDI device connected");
-            s_pMIDIDevice->RegisterPacketHandler(packetHandler, 0);
-            s_pMIDIDevice->RegisterRemovedHandler(deviceRemovedHandler, 0);
+            s_pMIDIDevice->RegisterPacketHandler(packetHandler);
         }
     }
 }
