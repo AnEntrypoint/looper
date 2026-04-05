@@ -13,7 +13,6 @@ jobs:
         run: |
           wget -q https://developer.arm.com/-/media/Files/downloads/gnu/13.3.rel1/binrel/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf.tar.xz
           tar xf arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-elf.tar.xz
-          echo "$(readlink -f ./arm-gnu-toolchain-*/bin)" >> $GITHUB_PATH
           sudo apt-get install -y make
 
       - name: Clone circle
@@ -33,29 +32,30 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/miniuart.cpp circle/_prh/utils/miniuart.cpp
 
       - name: Build circle libraries
-        working-directory: circle
         run: |
-          make -C lib RASPPI=4 AARCH=64
-          make -C lib/fs RASPPI=4 AARCH=64
-          make -C lib/input RASPPI=4 AARCH=64
-          make -C lib/net RASPPI=4 AARCH=64
-          make -C lib/sched RASPPI=4 AARCH=64
-          make -C lib/usb RASPPI=4 AARCH=64
-          make -C addon/fatfs RASPPI=4 AARCH=64
-          make -C addon/SDCard RASPPI=4 AARCH=64
+          export PATH=$(readlink -f ./arm-gnu-toolchain-*/bin):$PATH
+          make -C circle/lib RASPPI=4 AARCH=64
+          make -C circle/lib/fs RASPPI=4 AARCH=64
+          make -C circle/lib/input RASPPI=4 AARCH=64
+          make -C circle/lib/net RASPPI=4 AARCH=64
+          make -C circle/lib/sched RASPPI=4 AARCH=64
+          make -C circle/lib/usb RASPPI=4 AARCH=64
+          make -C circle/addon/fatfs RASPPI=4 AARCH=64
+          make -C circle/addon/SDCard RASPPI=4 AARCH=64
 
       - name: Build circle-prh libraries
-        working-directory: circle/_prh
         run: |
-          make -C audio RASPPI=4 AARCH=64
-          make -C devices RASPPI=4 AARCH=64
-          make -C utils RASPPI=4 AARCH=64
-          make -C system RASPPI=4 AARCH=64
-          make -C ws RASPPI=4 AARCH=64
+          export PATH=$(readlink -f ./arm-gnu-toolchain-*/bin):$PATH
+          make -C circle/_prh/audio RASPPI=4 AARCH=64
+          make -C circle/_prh/devices RASPPI=4 AARCH=64
+          make -C circle/_prh/utils RASPPI=4 AARCH=64
+          make -C circle/_prh/system RASPPI=4 AARCH=64
+          make -C circle/_prh/ws RASPPI=4 AARCH=64
 
       - name: Build Looper
-        working-directory: circle/_prh/_apps/Looper
-        run: make RASPPI=4 AARCH=64
+        run: |
+          export PATH=$(readlink -f ./arm-gnu-toolchain-*/bin):$PATH
+          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=64
 
       - name: Collect boot files
         run: |
