@@ -7,8 +7,6 @@
 #include <circle/usb/usbmidi.h>
 #include <circle/string.h>
 
-static CUSBMIDIDevice *s_pMIDIDevice = 0;
-
 static void packetHandler(unsigned nCable, u8 *pPacket, unsigned nLength)
 {
     if (nLength < 3) return;
@@ -16,29 +14,41 @@ static void packetHandler(unsigned nCable, u8 *pPacket, unsigned nLength)
         pTheAPC->handleMidi(pPacket[0], pPacket[1], pPacket[2]);
 }
 
+// Track which indices we've already registered
+static bool s_registered[9] = {};
+
+// Send to all registered devices
+static CUSBMIDIDevice *s_pDevices[9] = {};
+
 void usbMidiProcess(bool bPlugAndPlayUpdated)
 {
-    if (bPlugAndPlayUpdated && s_pMIDIDevice == 0)
+    if (!bPlugAndPlayUpdated) return;
+
+    CString name;
+    for (int i = 1; i <= 8; i++)
     {
-        s_pMIDIDevice = (CUSBMIDIDevice *) CDeviceNameService::Get()->GetDevice("umidi1", FALSE);
-        if (s_pMIDIDevice)
-        {
-            CLogger::Get()->Write(log_name, LogNotice, "USB MIDI device connected");
-            s_pMIDIDevice->RegisterPacketHandler(packetHandler);
-        }
+        if (s_registered[i]) continue;
+        name.Format("umidi%d", i);
+        CUSBMIDIDevice *pDev = (CUSBMIDIDevice *)
+            CDeviceNameService::Get()->GetDevice((const char *)name, FALSE);
+        if (!pDev) continue;
+        s_pDevices[i] = pDev;
+        s_registered[i] = true;
+        CLogger::Get()->Write(log_name, LogNotice, "USB MIDI device connected: %s", (const char *)name);
+        pDev->RegisterPacketHandler(packetHandler);
     }
 }
 
 void usbMidiSendNoteOn(u8 note, u8 velocity)
 {
-    if (!s_pMIDIDevice) return;
     u8 msg[3] = { 0x90, note, velocity };
-    s_pMIDIDevice->SendPlainMIDI(0, msg, 3);
+    for (int i = 1; i <= 8; i++)
+        if (s_pDevices[i]) s_pDevices[i]->SendPlainMIDI(0, msg, 3);
 }
 
 void usbMidiSendCC(int cc_num, int value)
 {
-    if (!s_pMIDIDevice) return;
     u8 msg[3] = { 0xB0, (u8)cc_num, (u8)value };
-    s_pMIDIDevice->SendPlainMIDI(0, msg, 3);
+    for (int i = 1; i <= 8; i++)
+        if (s_pDevices[i]) s_pDevices[i]->SendPlainMIDI(0, msg, 3);
 }
