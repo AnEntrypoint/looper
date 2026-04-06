@@ -86,3 +86,7 @@ Config2.mk
 # Directories
 # ----------------------------------------------
 .gm-stop-verified
+dist/
+node_modules/
+syslog.log
+package-lock.json
