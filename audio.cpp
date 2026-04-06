@@ -7,6 +7,7 @@
 #endif
 #include "Looper.h"
 #include "LooperVersion.h"
+#include "apcKey25.h"
 #include <circle/logger.h>
 
 #define log_name "audio"
@@ -194,6 +195,7 @@ void setup()
 		delay(30);
 	}
 
+	new apcKey25();
 	LOG("aLooper::audio.cpp setup() finished",0);
 
 }
@@ -202,4 +204,5 @@ void setup()
 
 void loop()
 {
+	if (pTheAPC) pTheAPC->update();
 }
