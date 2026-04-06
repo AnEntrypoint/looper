@@ -45,6 +45,7 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/usbdevicefactory.cpp circle/lib/usb/usbdevicefactory.cpp
           cp circle/_prh/_apps/Looper/patches/Rules.mk circle/Rules.mk
           cp circle/_prh/_apps/Looper/patches/std_kernel.h circle/_prh/system/std_kernel.h
+          cp circle/_prh/_apps/Looper/patches/dwhcirootport.h circle/include/circle/usb/dwhcirootport.h
 
       - name: Build circle libraries
         run: |
