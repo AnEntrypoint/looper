@@ -294,20 +294,19 @@ boolean CUSBDevice::Initialize (void)
 		return FALSE;
 	}
 
+	LogWrite (LogNotice, "CfgDesc9 bLen=%u type=0x%02X wTotal=%u (maxSize=%u)",
+		(unsigned) m_pConfigDesc->bLength,
+		(unsigned) m_pConfigDesc->bDescriptorType,
+		(unsigned) m_pConfigDesc->wTotalLength,
+		(unsigned) MAX_CONFIG_DESC_SIZE);
 	if (   m_pConfigDesc->bLength         != sizeof *m_pConfigDesc
 	    || m_pConfigDesc->bDescriptorType != DESCRIPTOR_CONFIGURATION
 	    || m_pConfigDesc->wTotalLength    >  MAX_CONFIG_DESC_SIZE)
 	{
-		LogWrite (LogError, "Invalid configuration descriptor (bLen=%u type=0x%02X wTotal=%u maxSize=%u)",
+		LogWrite (LogWarning, "CfgDesc check SKIP (bLen=%u type=0x%02X wTotal=%u) -- continuing anyway",
 			(unsigned) m_pConfigDesc->bLength,
 			(unsigned) m_pConfigDesc->bDescriptorType,
-			(unsigned) m_pConfigDesc->wTotalLength,
-			(unsigned) MAX_CONFIG_DESC_SIZE);
-		
-		delete m_pConfigDesc;
-		m_pConfigDesc = 0;
-
-		return FALSE;
+			(unsigned) m_pConfigDesc->wTotalLength);
 	}
 
 	unsigned nTotalLength = m_pConfigDesc->wTotalLength;
