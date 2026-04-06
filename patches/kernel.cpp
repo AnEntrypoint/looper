@@ -11,12 +11,13 @@ extern void loop(void);
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
 
 CKernel::CKernel(void) :
+	m_Timer(&m_Interrupt),
 	m_Serial(&m_Interrupt, FALSE),
 	m_Logger(LogDebug, &m_Timer),
 	m_USBHCI(&m_Interrupt, &m_Timer, TRUE),
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED)
 {
-	m_ActLED.Toggle();
+	m_ActLED.On();
 }
 
 CKernel::~CKernel(void)
