@@ -6,6 +6,10 @@
 
 apcKey25 *pTheAPC = 0;
 
+// Command queue for safe dispatch from interrupt to main loop
+static volatile u16 s_pendingCmd = LOOP_COMMAND_NONE;
+static volatile u8  s_pendingMuteTrack = 0xFF;
+
 apcKey25::apcKey25() : m_shift(false)
 {
     pTheAPC = this;
@@ -28,12 +32,12 @@ u8 apcKey25::_trackLedColor(int track)
     publicTrack *pTrack = pTheLooper->getPublicTrack(track);
     u16 ts = pTrack->getTrackState();
 
-    if (ts & TRACK_STATE_RECORDING)       return APC_VEL_LED_RED;
-    if (ts & TRACK_STATE_PENDING_RECORD)  return APC_VEL_LED_YELLOW;
-    if (ts & TRACK_STATE_PENDING_STOP)    return APC_VEL_LED_YELLOW;
-    if (ts & TRACK_STATE_PENDING_PLAY)    return APC_VEL_LED_YELLOW;
-    if (ts & TRACK_STATE_PLAYING)         return APC_VEL_LED_GREEN;
-    if (ts & TRACK_STATE_STOPPED)         return APC_VEL_LED_OFF;
+    if (ts & TRACK_STATE_RECORDING)      return APC_VEL_LED_RED;
+    if (ts & TRACK_STATE_PENDING_RECORD) return APC_VEL_LED_YELLOW;
+    if (ts & TRACK_STATE_PENDING_STOP)   return APC_VEL_LED_YELLOW;
+    if (ts & TRACK_STATE_PENDING_PLAY)   return APC_VEL_LED_YELLOW;
+    if (ts & TRACK_STATE_PLAYING)        return APC_VEL_LED_GREEN;
+    if (ts & TRACK_STATE_STOPPED)        return APC_VEL_LED_OFF;
     return APC_VEL_LED_OFF;
 }
 
@@ -70,14 +74,13 @@ void apcKey25::_updateGridLeds()
         for (int col = 0; col < LOOPER_NUM_LAYERS; col++)
             _sendLed(_padNote(row, col), _clipLedColor(row, col));
 
-        bool anyMuted = false;
-        for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
-            if (pTrack->getPublicClip(c)->isMuted()) { anyMuted = true; break; }
+        // Col 4: track button — shows track record/play/stop state
+        _sendLed(_padNote(row, 4), _trackLedColor(row));
 
-        _sendLed(_padNote(row, 4), anyMuted ? APC_VEL_LED_RED : _trackLedColor(row));
-
+        // Col 5: erase — yellow if track has recorded content
         u8 eraseColor = (pTrack->getNumRecordedClips() > 0) ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF;
         _sendLed(_padNote(row, 5), eraseColor);
+
         _sendLed(_padNote(row, 6), APC_VEL_LED_OFF);
         _sendLed(_padNote(row, 7), APC_VEL_LED_OFF);
     }
@@ -89,71 +92,66 @@ void apcKey25::_updateGridLeds()
     _sendLed(APC_BTN_PLAY,     m_shift ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF);
 }
 
+// Called from interrupt — only queue, never call looper or SendPlainMIDI
 void apcKey25::_onPadPress(int row, int col)
 {
     if (row >= LOOPER_NUM_TRACKS) return;
 
     if (col < LOOPER_NUM_LAYERS)
     {
-        pTheLooper->command(LOOP_COMMAND_TRACK_BASE + row);
+        s_pendingCmd = LOOP_COMMAND_TRACK_BASE + row;
         return;
     }
 
     if (col == 4)
     {
-        publicTrack *pTrack = pTheLooper->getPublicTrack(row);
-        bool anyMuted = false;
-        for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
-            if (pTrack->getPublicClip(c)->isMuted()) { anyMuted = true; break; }
-        for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
-        {
-            pTrack->getPublicClip(c)->setMute(!anyMuted);
-            usbMidiSendCC(CLIP_MUTE_BASE_CC + row * LOOPER_NUM_LAYERS + c, !anyMuted ? 1 : 0);
-        }
+        // RC-505 style track button: command looper for this track
+        s_pendingCmd = LOOP_COMMAND_TRACK_BASE + row;
         return;
     }
 
     if (col == 5)
     {
-        pTheLooper->command(LOOP_COMMAND_ERASE_TRACK_BASE + row);
+        s_pendingCmd = LOOP_COMMAND_ERASE_TRACK_BASE + row;
         return;
     }
 
     if (col == 6)
     {
-        pTheLooper->command(LOOP_COMMAND_SET_LOOP_START);
+        s_pendingCmd = LOOP_COMMAND_SET_LOOP_START;
         return;
     }
 
     if (col == 7)
     {
-        pTheLooper->command(LOOP_COMMAND_CLEAR_LOOP_START);
+        s_pendingCmd = LOOP_COMMAND_CLEAR_LOOP_START;
         return;
     }
 }
 
+// Called from interrupt — only queue
 void apcKey25::_onButton(u8 note)
 {
     if (note == APC_BTN_STOP_ALL)
     {
-        pTheLooper->command(m_shift ? LOOP_COMMAND_STOP_IMMEDIATE : LOOP_COMMAND_STOP);
+        s_pendingCmd = m_shift ? LOOP_COMMAND_STOP_IMMEDIATE : LOOP_COMMAND_STOP;
         return;
     }
     if (note == APC_BTN_RECORD)
     {
-        pTheLooper->command(m_shift ? LOOP_COMMAND_ABORT_RECORDING : LOOP_COMMAND_DUB_MODE);
+        s_pendingCmd = m_shift ? LOOP_COMMAND_ABORT_RECORDING : LOOP_COMMAND_DUB_MODE;
         return;
     }
     if (note == APC_BTN_PLAY)
     {
-        pTheLooper->command(m_shift ? LOOP_COMMAND_LOOP_IMMEDIATE : LOOP_COMMAND_CLEAR_ALL);
+        s_pendingCmd = m_shift ? LOOP_COMMAND_LOOP_IMMEDIATE : LOOP_COMMAND_CLEAR_ALL;
         return;
     }
 }
 
+// Called from interrupt context — only set flags, never call SendPlainMIDI or looper
 void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
 {
-    CLogger::Get()->Write(log_name, LogNotice, "MIDI rx: %02X %02X %02X", status, data1, data2);
     u8 msgType = status & 0xF0;
 
     if (msgType == APC_CH_NOTE_ON && data2 > 0)
@@ -185,5 +183,14 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
 void apcKey25::update()
 {
     if (!pTheLooper) return;
+
+    // Dispatch any queued command from interrupt
+    u16 cmd = s_pendingCmd;
+    if (cmd != LOOP_COMMAND_NONE)
+    {
+        s_pendingCmd = LOOP_COMMAND_NONE;
+        pTheLooper->command(cmd);
+    }
+
     _updateGridLeds();
 }
