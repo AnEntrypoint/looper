@@ -20,7 +20,7 @@ CKernel::CKernel(void) :
 	m_Logger(LogDebug, &m_Timer),
 	m_Serial(&m_Interrupt, FALSE),
 	m_USBHCI(&m_Interrupt, &m_Timer, TRUE),
-	m_CDCGadget(&m_Interrupt),
+	m_CDCGadget(&m_Interrupt, 0x2E8A, 0x000A),  // RPi vendor ID, CDC serial device ID
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED)
 {
 	m_ActLED.On();
@@ -45,7 +45,7 @@ boolean CKernel::Initialize(void)
 		m_Logger.Initialize(&m_Serial);
 	m_ActLED.Blink(1);  // 3: serial ok
 
-	if (bOK) m_CDCGadget.Initialize();
+	if (bOK) { boolean bCDC = m_CDCGadget.Initialize(); m_Logger.Write(log_name, LogNotice, "CDC gadget init: %s", bCDC ? "OK" : "FAILED"); }
 	m_ActLED.Blink(1);  // 4: cdc ok
 
 	if (bOK) bOK = m_USBHCI.Initialize();
