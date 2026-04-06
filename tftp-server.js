@@ -55,15 +55,30 @@ async function checkAndUpdate() {
     const r = await httpsGet(`https://api.github.com/repos/${REPO}/releases/latest`);
     if (r.status !== 200) return;
     const release = JSON.parse(r.body);
-    const sha = release.target_commitish || release.id;
+    const sha = String(release.id);
     if (sha === currentSha) return;
     const asset = release.assets.find(a => a.name === 'looper-sd.zip');
     if (!asset) return;
-    console.log(`[UPDATE] New build detected (${release.tag_name}), downloading...`);
+    console.log(`[UPDATE] New build detected (${release.tag_name} id=${sha}), downloading...`);
     const zipPath = path.join(__dirname, 'dist', 'looper-sd.zip');
     fs.mkdirSync(path.dirname(zipPath), { recursive: true });
     await downloadFile(asset.browser_download_url, zipPath);
     execSync(`powershell -command "Expand-Archive -Path '${zipPath}' -DestinationPath '${TFTPROOT}' -Force"`, { stdio: 'pipe' });
+    // Also sync kernel7l.img into any serial-number subdirectories (Pi netboot)
+    const kernelSrc = path.join(TFTPROOT, 'kernel7l.img');
+    if (fs.existsSync(kernelSrc)) {
+      const kernelBuf = fs.readFileSync(kernelSrc);
+      for (const entry of fs.readdirSync(TFTPROOT)) {
+        const sub = path.join(TFTPROOT, entry);
+        if (fs.statSync(sub).isDirectory()) {
+          const dest = path.join(sub, 'kernel7l.img');
+          if (fs.existsSync(dest)) {
+            fs.writeFileSync(dest, kernelBuf);
+            console.log(`[UPDATE] Synced kernel7l.img -> ${entry}/`);
+          }
+        }
+      }
+    }
     currentSha = sha;
     console.log(`[UPDATE] tftproot updated — kernel7l.img ${fs.statSync(path.join(TFTPROOT,'kernel7l.img')).size} bytes`);
   } catch (e) {
