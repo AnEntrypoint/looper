@@ -8,6 +8,9 @@
 
 static const char log_name[] = "kernel";
 
+static CActLED *s_pActLED = nullptr;
+extern "C" void debug_blink(int n) { if (s_pActLED) s_pActLED->Blink(n); }
+
 extern void setup(void);
 extern void loop(void);
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
@@ -21,6 +24,7 @@ CKernel::CKernel(void) :
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED)
 {
 	m_ActLED.On();
+	s_pActLED = &m_ActLED;
 }
 
 CKernel::~CKernel(void)

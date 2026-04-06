@@ -127,11 +127,14 @@ loopMachine *pTheLoopMachine = 0;
 publicLoopMachine *pTheLooper = 0;
 
 
+extern "C" void debug_blink(int n);
+
 void setup()
 {
 	// this is the first line of code executed in the _apps/Looper folder,
 	// so we show the version here ...
 
+	debug_blink(10);
 	LOG("Looper " LOOPER_VERSION " starting at audio.cpp setup(%dx%d)",
 		LOOPER_NUM_TRACKS,
 		LOOPER_NUM_LAYERS);
@@ -140,16 +143,20 @@ void setup()
 	#else
 		LOG("audio.cpp compiled for LOOPER2",0);
 	#endif
-	
+
+	debug_blink(11);
 	pTheLoopMachine = new loopMachine();
 	pTheLooper = (publicLoopMachine *) pTheLoopMachine;
+	debug_blink(12);
 
 	new AudioConnection(input,			0,  *pTheLooper,	0);
 	new AudioConnection(input,			1,  *pTheLooper,	1);
 	new AudioConnection(*pTheLooper,	0,  output,			0);
 	new AudioConnection(*pTheLooper,	1,  output,			1);
+	debug_blink(13);
 
 	AudioSystem::initialize(200);
+	debug_blink(14);
 
 	pTheLooper->setControl(LOOPER_CONTROL_OUTPUT_GAIN,0);
 	pTheLooper->setControl(LOOPER_CONTROL_INPUT_GAIN,0);
