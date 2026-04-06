@@ -16,8 +16,8 @@ jobs:
         run: |
           sudo apt-get install -y make gcc-arm-none-eabi
 
-      - name: Clone circle
-        run: git clone --depth=1 https://github.com/phorton1/circle circle
+      - name: Clone rsta2/circle
+        run: git clone --depth=1 https://github.com/rsta2/circle circle
 
       - name: Clone circle-prh into circle/_prh
         run: git clone --depth=1 https://github.com/phorton1/circle-prh circle/_prh
@@ -30,7 +30,6 @@ jobs:
       - name: Apply patches
         run: |
           ln -sf bcm_pcm.h circle/_prh/audio/BCM_PCM.h
-          cp circle/_prh/_apps/Looper/patches/miniuart.cpp circle/_prh/utils/miniuart.cpp
           cp circle/_prh/_apps/Looper/patches/AudioTypes.h circle/_prh/audio/AudioTypes.h
           cp circle/_prh/_apps/Looper/patches/audio_Makefile circle/_prh/audio/Makefile
           cp circle/_prh/_apps/Looper/patches/input_usb.h circle/_prh/audio/input_usb.h
@@ -43,10 +42,9 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/usbmidi.cpp circle/lib/usb/usbmidi.cpp
           cp circle/_prh/_apps/Looper/patches/usbaudiodevice.h circle/include/circle/usb/usbaudiodevice.h
           cp circle/_prh/_apps/Looper/patches/usbdevicefactory.cpp circle/lib/usb/usbdevicefactory.cpp
-          cp circle/_prh/_apps/Looper/patches/Rules.mk circle/Rules.mk
-          cp circle/_prh/_apps/Looper/patches/std_kernel.h circle/_prh/system/std_kernel.h
-          cp circle/_prh/_apps/Looper/patches/std_kernel.cpp circle/_prh/system/std_kernel.cpp
-          cp circle/_prh/_apps/Looper/patches/dwhcirootport.h circle/include/circle/usb/dwhcirootport.h
+          cp circle/_prh/_apps/Looper/patches/kernel.h circle/_prh/_apps/Looper/kernel.h
+          cp circle/_prh/_apps/Looper/patches/kernel.cpp circle/_prh/_apps/Looper/kernel.cpp
+          cp circle/_prh/_apps/Looper/patches/main.cpp circle/_prh/_apps/Looper/main.cpp
 
       - name: Build circle libraries
         run: |
@@ -62,10 +60,7 @@ jobs:
       - name: Build circle-prh libraries
         run: |
           make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1
-          make -C circle/_prh/devices RASPPI=4 AARCH=32
           make -C circle/_prh/utils RASPPI=4 AARCH=32
-          make -C circle/_prh/system RASPPI=4 AARCH=32
-          make -C circle/_prh/ws RASPPI=4 AARCH=32
 
       - name: Build Looper
         run: make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1
@@ -74,7 +69,7 @@ jobs:
         run: |
           mkdir -p dist
           cp circle/_prh/_apps/Looper/kernel7l.img dist/
-          cp -r circle/_prh/boot/to_sd_card/. dist/
+          cp -r circle/boot/. dist/
           echo "usbspeed=full" > dist/cmdline.txt
           printf '[all]\nboot_delay=0\ndisable_splash=1\ngpu_mem=16\n\n[pi4]\narm_64bit=0\nkernel=kernel7l.img\n' > dist/config.txt
           cd dist && zip -r ../looper-sd.zip .

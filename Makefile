@@ -3,31 +3,24 @@
 #
 
 CIRCLEHOME = ../../..
+PRH_HOME = ../..
 
-OBJS = 	app.o \
-		audio.o \
-		apcKey25.o \
-		usbMidi.o \
-		loopBuffer.o \
-		loopClip.o \
-		loopTrack.o \
-		loopMachine.o \
-		uiClip.o \
-		uiTrack.o \
-		uiStatusBar.o \
-		uiWindow.o \
-		vuSlider.o \
-		dprobe.o
+OBJS = main.o kernel.o audio.o app.o apcKey25.o usbMidi.o \
+       loopBuffer.o loopClip.o loopTrack.o loopMachine.o dprobe.o
 
-		
-		
+LIBS = $(PRH_HOME)/audio/libaudio.a \
+       $(PRH_HOME)/utils/lib_my_utils.a \
+       $(CIRCLEHOME)/addon/fatfs/libfatfs.a \
+       $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
+       $(CIRCLEHOME)/lib/sched/libsched.a \
+       $(CIRCLEHOME)/lib/usb/libusb.a \
+       $(CIRCLEHOME)/lib/input/libinput.a \
+       $(CIRCLEHOME)/lib/fs/libfs.a \
+       $(CIRCLEHOME)/lib/libcircle.a
 
-MAKE_LIBS = \
-	$(CIRCLEHOME)/_prh/ws/libws.mark \
-	$(CIRCLEHOME)/_prh/audio/libaudio.mark \
- 	$(CIRCLEHOME)/_prh/system/std_kernel.mark \
-	$(CIRCLEHOME)/_prh/devices/lib_devices.mark \
-	$(CIRCLEHOME)/_prh/utils/lib_my_utils.mark \
+INCLUDE += -I $(PRH_HOME) -I $(PRH_HOME)/utils -I $(PRH_HOME)/audio \
+           -I $(CIRCLEHOME)/addon/fatfs -I $(CIRCLEHOME)/addon/SDCard
 
+include $(CIRCLEHOME)/Rules.mk
 
-include ../../myRules.mk
+-include $(DEPS)
