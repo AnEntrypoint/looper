@@ -32,6 +32,12 @@ CUSBAudioDevice::~CUSBAudioDevice (void)
 
 boolean CUSBAudioDevice::Configure (void)
 {
+    // PCM2902/UCA222: default alt-setting 0 has no endpoints; select alt-setting with endpoints
+    if (!SelectInterfaceByClass (1, 2, 0, 1))
+    {
+        CLogger::Get ()->Write (FromAudio, LogWarning, "No audio streaming alt-setting with endpoints found");
+    }
+
     const TUSBEndpointDescriptor *pDesc;
     while ((pDesc = (const TUSBEndpointDescriptor *) GetDescriptor (DESCRIPTOR_ENDPOINT)) != 0)
     {
@@ -78,81 +84,4 @@ void CUSBAudioDevice::RegisterInHandler (TAudioInHandler *pHandler)
 
 void CUSBAudioDevice::RegisterOutHandler (TAudioOutHandler *pHandler)
 {
-    m_pOutHandler = pHandler;
-}
-
-boolean CUSBAudioDevice::StartInRequest (void)
-{
-    if (!m_pEndpointIn || m_pInURB) return FALSE;
-    m_pInURB = new CUSBRequest (m_pEndpointIn, m_InBuf, USB_AUDIO_BLOCK_BYTES);
-    if (!m_pInURB) return FALSE;
-    m_pInURB->SetCompletionRoutine (InStub, 0, this);
-    return GetHost ()->SubmitAsyncRequest (m_pInURB);
-}
-
-boolean CUSBAudioDevice::StartOutRequest (void)
-{
-    if (!m_pEndpointOut || m_pOutURB) return FALSE;
-    if (m_pOutHandler)
-    {
-        s16 *pL = (s16 *) m_OutBuf;
-        s16 *pR = pL + USB_AUDIO_BLOCK_BYTES / 4;
-        m_pOutHandler (pL, pR, USB_AUDIO_BLOCK_BYTES / 4);
-        s16 *pInterleaved = (s16 *) m_OutBuf;
-        for (int i = USB_AUDIO_BLOCK_BYTES / 4 - 1; i >= 0; i--)
-        {
-            pInterleaved[i * 2 + 1] = pR[i];
-            pInterleaved[i * 2]     = pL[i];
-        }
-    }
-    else
-        memset (m_OutBuf, 0, USB_AUDIO_BLOCK_BYTES);
-
-    m_pOutURB = new CUSBRequest (m_pEndpointOut, m_OutBuf, USB_AUDIO_BLOCK_BYTES);
-    if (!m_pOutURB) return FALSE;
-    m_pOutURB->SetCompletionRoutine (OutStub, 0, this);
-    return GetHost ()->SubmitAsyncRequest (m_pOutURB);
-}
-
-void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
-{
-    assert (pURB == m_pInURB);
-    unsigned nLen = pURB->GetResultLength ();
-    delete m_pInURB;
-    m_pInURB = 0;
-
-    unsigned nSamples = nLen / 4;
-    if (nSamples > 0 && m_pInHandler)
-    {
-        s16 tmp[USB_AUDIO_BLOCK_BYTES / 4];
-        s16 *pSrc = (s16 *) m_InBuf;
-        s16 *pL   = tmp;
-        s16 *pR   = tmp + nSamples;
-        for (unsigned i = 0; i < nSamples; i++)
-        {
-            pL[i] = pSrc[i * 2];
-            pR[i] = pSrc[i * 2 + 1];
-        }
-        m_pInHandler (pL, pR, nSamples);
-    }
-
-    StartInRequest ();
-    StartOutRequest ();
-}
-
-void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
-{
-    assert (pURB == m_pOutURB);
-    delete m_pOutURB;
-    m_pOutURB = 0;
-}
-
-void CUSBAudioDevice::InStub  (CUSBRequest *pURB, void *pParam, void *pContext)
-{
-    ((CUSBAudioDevice *) pContext)->InCompletion (pURB);
-}
-
-void CUSBAudioDevice::OutStub (CUSBRequest *pURB, void *pParam, void *pContext)
-{
-    ((CUSBAudioDevice *) pContext)->OutCompletion (pURB);
-}
+    m_pOu
