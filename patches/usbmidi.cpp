@@ -45,10 +45,6 @@ boolean CUSBMIDIDevice::Configure (void)
 		return FALSE;
 	}
 
-	const TUSBDeviceDescriptor *pDeviceDesc = GetDevice ()->GetDeviceDescriptor ();
-	assert (pDeviceDesc != 0);
-	boolean bIsRolandUMOne = pDeviceDesc->idVendor == 0x0582 && pDeviceDesc->idProduct == 0x012A;
-
 	TUSBAudioEndpointDescriptor *pEndpointDesc;
 	while ((pEndpointDesc = (TUSBAudioEndpointDescriptor *) GetDescriptor (DESCRIPTOR_ENDPOINT)) != 0)
 	{
@@ -57,12 +53,10 @@ boolean CUSBMIDIDevice::Configure (void)
 
 		if (!bIsBulk) continue;
 
-		if (!bIsRolandUMOne)
+		if (!bIsIn && m_pEndpointOut == 0)
 		{
-			TUSBMIDIStreamingEndpointDescriptor *pMIDIDesc =
-				(TUSBMIDIStreamingEndpointDescriptor *) GetDescriptor (DESCRIPTOR_CS_ENDPOINT);
-			if (pMIDIDesc == 0 || (u8 *) pEndpointDesc + pEndpointDesc->bLength != (u8 *) pMIDIDesc)
-				continue;
+			m_pEndpointOut = new CUSBEndpoint (GetDevice (), (TUSBEndpointDescriptor *) pEndpointDesc);
+			continue;
 		}
 
 		if (bIsIn && m_pEndpointIn == 0)
@@ -71,10 +65,6 @@ boolean CUSBMIDIDevice::Configure (void)
 			m_usBufferSize = pEndpointDesc->wMaxPacketSize;
 			m_usBufferSize -= m_usBufferSize % EVENT_PACKET_SIZE;
 			m_pPacketBuffer = new u8[m_usBufferSize];
-		}
-		else if (!bIsIn && m_pEndpointOut == 0)
-		{
-			m_pEndpointOut = new CUSBEndpoint (GetDevice (), (TUSBEndpointDescriptor *) pEndpointDesc);
 		}
 	}
 
