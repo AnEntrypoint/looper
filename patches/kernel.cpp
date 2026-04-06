@@ -55,10 +55,12 @@ boolean CKernel::Initialize(void)
 	if (pCDCSerial != nullptr)
 		m_Logger.SetNewTarget(pCDCSerial);
 
-	if (bOK)
-		bOK = m_EMMC.Initialize();
+	m_ActLED.Blink(7);
+	m_EMMC.Initialize();  // non-fatal: no SD card in netboot
+	m_ActLED.Blink(8);
 
-	f_mount(&m_FileSystem, DRIVE, 1);
+	f_mount(&m_FileSystem, DRIVE, 1);  // non-fatal
+	m_ActLED.Blink(9);
 
 	m_ActLED.Blink(6);
 
