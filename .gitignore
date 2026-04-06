@@ -90,3 +90,5 @@ dist/
 node_modules/
 syslog.log
 package-lock.json
+
+.env

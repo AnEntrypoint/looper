@@ -4,6 +4,15 @@
 
 const { fork } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+
+// Load .env if present
+try {
+  fs.readFileSync(path.join(__dirname, '.env'), 'utf8').split('\n').forEach(line => {
+    const m = line.match(/^([^=]+)=(.*)$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+  });
+} catch(e) {}
 
 const scripts = ['tftp-server.js', 'dhcp-server.js', 'syslog-listener.js'];
 
