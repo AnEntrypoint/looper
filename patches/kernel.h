@@ -18,6 +18,7 @@
 #include <circle/net/syslogdaemon.h>
 #include <circle/net/ipaddress.h>
 #include <circle/net/socket.h>
+#include <circle/net/in.h>
 #include <SDCard/emmc.h>
 #include <fatfs/ff.h>
 #include <circle/types.h>
