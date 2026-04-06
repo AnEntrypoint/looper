@@ -81,6 +81,13 @@ async function checkAndUpdate() {
     }
     currentSha = sha;
     console.log(`[UPDATE] tftproot updated — kernel7l.img ${fs.statSync(path.join(TFTPROOT,'kernel7l.img')).size} bytes`);
+    // Send reboot command to Pi so it loads the new kernel immediately
+    const rebootSock = dgram.createSocket('udp4');
+    const rebootMsg = Buffer.from('REBOOT');
+    rebootSock.send(rebootMsg, 0, rebootMsg.length, 4444, '192.168.137.100', () => {
+      rebootSock.close();
+      console.log('[UPDATE] Sent REBOOT to Pi');
+    });
   } catch (e) {
     console.error('[UPDATE] Check failed:', e.message);
   }
