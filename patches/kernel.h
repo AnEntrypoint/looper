@@ -15,13 +15,7 @@
 #include <SDCard/emmc.h>
 #include <fatfs/ff.h>
 #include <circle/types.h>
-
-enum TShutdownMode
-{
-	ShutdownNone,
-	ShutdownHalt,
-	ShutdownReboot
-};
+#include <circle/startup.h>
 
 class CKernel
 {

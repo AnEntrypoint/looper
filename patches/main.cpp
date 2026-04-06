@@ -1,25 +1,26 @@
 #include "kernel.h"
+#include <circle/startup.h>
 
-int main(void)
+int main (void)
 {
 	CKernel Kernel;
-	if (!Kernel.Initialize())
+	if (!Kernel.Initialize ())
 	{
-		halt();
+		halt ();
 		return EXIT_HALT;
 	}
 
-	TShutdownMode ShutdownMode = Kernel.Run();
+	TShutdownMode ShutdownMode = Kernel.Run ();
 
 	switch (ShutdownMode)
 	{
 	case ShutdownReboot:
-		reboot();
-		break;
-	default:
-		halt();
-		break;
-	}
+		reboot ();
+		return EXIT_REBOOT;
 
-	return EXIT_HALT;
+	case ShutdownHalt:
+	default:
+		halt ();
+		return EXIT_HALT;
+	}
 }
