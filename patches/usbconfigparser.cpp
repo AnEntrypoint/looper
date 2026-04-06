@@ -3,7 +3,7 @@
 //
 // Circle - A C++ bare metal environment for Raspberry Pi
 // Copyright (C) 2014-2025  R. Stange <rsta2@o2online.de>
-// 
+//
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
@@ -34,17 +34,38 @@ CUSBConfigurationParser::CUSBConfigurationParser (const void *pBuffer, unsigned 
 	m_pErrorPosition (m_pBuffer)
 {
 	assert (m_pBuffer != 0);
-	
+
 	if (   m_nBufLen < 4		// wTotalLength must exist
 	    || m_nBufLen > 4096)	// best guess
 	{
+		CLogger::Get ()->Write ("ucfgparse", LogWarning, "BufLen %u out of range", m_nBufLen);
 		return;
 	}
 
-	if (   m_pBuffer->Configuration.bLength         != sizeof (TUSBConfigurationDescriptor)
-	    || m_pBuffer->Configuration.bDescriptorType != DESCRIPTOR_CONFIGURATION
-	    || m_pBuffer->Configuration.wTotalLength    >  nBufLen)
+	if (m_pBuffer->Configuration.bLength != sizeof (TUSBConfigurationDescriptor))
 	{
+		CLogger::Get ()->Write ("ucfgparse", LogWarning,
+			"Config bLength %u != expected %u",
+			(unsigned)m_pBuffer->Configuration.bLength,
+			(unsigned)sizeof (TUSBConfigurationDescriptor));
+		return;
+	}
+
+	if (m_pBuffer->Configuration.bDescriptorType != DESCRIPTOR_CONFIGURATION)
+	{
+		CLogger::Get ()->Write ("ucfgparse", LogWarning,
+			"Config bDescriptorType 0x%02X != 0x%02X",
+			(unsigned)m_pBuffer->Configuration.bDescriptorType,
+			(unsigned)DESCRIPTOR_CONFIGURATION);
+		return;
+	}
+
+	if (m_pBuffer->Configuration.wTotalLength > nBufLen)
+	{
+		CLogger::Get ()->Write ("ucfgparse", LogWarning,
+			"wTotalLength %u > nBufLen %u",
+			(unsigned)m_pBuffer->Configuration.wTotalLength,
+			nBufLen);
 		return;
 	}
 
@@ -70,6 +91,10 @@ CUSBConfigurationParser::CUSBConfigurationParser (const void *pBuffer, unsigned 
 		TUSBDescriptor *pDescEnd = SKIP_BYTES (pCurrentPosition, ucDescLen);
 		if (pDescEnd > m_pEndPosition)
 		{
+			CLogger::Get ()->Write ("ucfgparse", LogWarning,
+				"Desc type 0x%02X len %u overruns end at offset 0x%X",
+				ucDescType, ucDescLen,
+				(unsigned)((u8*)pCurrentPosition - (u8*)m_pBuffer));
 			m_pErrorPosition = pCurrentPosition;
 			return;
 		}
@@ -81,6 +106,9 @@ CUSBConfigurationParser::CUSBConfigurationParser (const void *pBuffer, unsigned 
 		case DESCRIPTOR_CONFIGURATION:
 			if (ucLastDescType != 0)
 			{
+				CLogger::Get ()->Write ("ucfgparse", LogWarning,
+					"Second CONFIGURATION desc at offset 0x%X",
+					(unsigned)((u8*)pCurrentPosition - (u8*)m_pBuffer));
 				m_pErrorPosition = pCurrentPosition;
 				return;
 			}
@@ -90,6 +118,9 @@ CUSBConfigurationParser::CUSBConfigurationParser (const void *pBuffer, unsigned 
 		case DESCRIPTOR_INTERFACE:
 			if (ucLastDescType == 0)
 			{
+				CLogger::Get ()->Write ("ucfgparse", LogWarning,
+					"INTERFACE before CONFIGURATION at offset 0x%X",
+					(unsigned)((u8*)pCurrentPosition - (u8*)m_pBuffer));
 				m_pErrorPosition = pCurrentPosition;
 				return;
 			}
@@ -103,6 +134,10 @@ CUSBConfigurationParser::CUSBConfigurationParser (const void *pBuffer, unsigned 
 			if (   ucLastDescType == 0
 			    || ucLastDescType == DESCRIPTOR_CONFIGURATION)
 			{
+				CLogger::Get ()->Write ("ucfgparse", LogWarning,
+					"ENDPOINT in wrong position (lastType=0x%02X) at offset 0x%X",
+					ucLastDescType,
+					(unsigned)((u8*)pCurrentPosition - (u8*)m_pBuffer));
 				m_pErrorPosition = pCurrentPosition;
 				return;
 			}
@@ -123,11 +158,11 @@ CUSBConfigurationParser::CUSBConfigurationParser (const void *pBuffer, unsigned 
 		    && (   ucAlternateLen == 0
 			|| ucDescLen != ucAlternateLen))
 		{
-			m_pErrorPosition = pCurrentPosition;
 			CLogger::Get ()->Write ("ucfgparse", LogWarning,
 				"Desc type 0x%02X len %u expected %u alt %u at offset 0x%X",
 				ucDescType, ucDescLen, ucExpectedLen, ucAlternateLen,
 				(unsigned)((u8*)pCurrentPosition - (u8*)m_pBuffer));
+			m_pErrorPosition = pCurrentPosition;
 			return;
 		}
 
@@ -174,7 +209,7 @@ const TUSBDescriptor *CUSBConfigurationParser::GetDescriptor (u8 ucType)
 	assert (m_bValid);
 
 	const TUSBDescriptor *pResult = 0;
-	
+
 	while (m_pNextPosition < m_pEndPosition)
 	{
 		u8 ucDescLen  = m_pNextPosition->Header.bLength;
@@ -205,7 +240,7 @@ const TUSBDescriptor *CUSBConfigurationParser::GetDescriptor (u8 ucType)
 	}
 
 	m_pCurrentDescriptor = pResult;
-	
+
 	return pResult;
 }
 
