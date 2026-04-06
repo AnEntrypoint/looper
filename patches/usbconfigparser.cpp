@@ -124,6 +124,10 @@ CUSBConfigurationParser::CUSBConfigurationParser (const void *pBuffer, unsigned 
 			|| ucDescLen != ucAlternateLen))
 		{
 			m_pErrorPosition = pCurrentPosition;
+			CLogger::Get ()->Write ("ucfgparse", LogWarning,
+				"Desc type 0x%02X len %u expected %u alt %u at offset 0x%X",
+				ucDescType, ucDescLen, ucExpectedLen, ucAlternateLen,
+				(unsigned)((u8*)pCurrentPosition - (u8*)m_pBuffer));
 			return;
 		}
 

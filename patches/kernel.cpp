@@ -99,6 +99,23 @@ TShutdownMode CKernel::Run(void)
 	setup();
 	m_ActLED.Blink(1);  // 12: setup() done
 
+	// Open UDP socket for remote reboot command (send "REBOOT" to port 4444)
+	CSocket *pRebootSocket = nullptr;
+	if (m_pSysLog)
+	{
+		pRebootSocket = new CSocket(&m_Net, IPPROTO_UDP);
+		if (pRebootSocket->Bind(4444) < 0)
+		{
+			delete pRebootSocket;
+			pRebootSocket = nullptr;
+			m_Logger.Write(log_name, LogWarning, "Could not bind reboot socket");
+		}
+		else
+		{
+			m_Logger.Write(log_name, LogNotice, "Reboot socket on UDP:4444 (send 'REBOOT')");
+		}
+	}
+
 	bool bPlugAndPlayUpdated = FALSE;
 	while (TRUE)
 	{
@@ -109,6 +126,21 @@ TShutdownMode CKernel::Run(void)
 		loop();
 		m_Scheduler.Yield();
 
+		// Check UDP reboot command
+		if (pRebootSocket)
+		{
+			u8 buf[16];
+			CIPAddress sender;
+			u16 senderPort;
+			int n = pRebootSocket->ReceiveFrom(buf, sizeof buf - 1, MSG_DONTWAIT, &sender, &senderPort);
+			if (n >= 6 && memcmp(buf, "REBOOT", 6) == 0)
+			{
+				m_Logger.Write(log_name, LogNotice, "Reboot command received via UDP");
+				return ShutdownReboot;
+			}
+		}
+
+		// Check CDC serial reboot command
 		CDevice *pCDCSerial = CDeviceNameService::Get()->GetDevice(CDC_DEVICE_NAME, FALSE);
 		if (pCDCSerial != nullptr)
 		{
