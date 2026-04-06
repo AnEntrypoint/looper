@@ -16,6 +16,7 @@
 #include <circle/usb/gadget/usbcdcgadget.h>
 #include <circle/net/netsubsystem.h>
 #include <circle/net/syslogdaemon.h>
+#include <circle/net/ipaddress.h>
 #include <SDCard/emmc.h>
 #include <fatfs/ff.h>
 #include <circle/types.h>

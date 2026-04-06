@@ -1,12 +1,11 @@
 #include "kernel.h"
-#include <circle/net/ipaddress.h>
 #include <circle/util.h>
 #include <circle/devicenameservice.h>
 
 #define SERIAL_BAUD_RATE	115200
 #define DRIVE			"SD:"
 #define CDC_DEVICE_NAME		"utty1"
-#define LOG_HOST		"192.168.137.1"
+#define LOG_HOST		{ 192, 168, 137, 1 }
 
 static const char log_name[] = "kernel";
 
@@ -69,31 +68,29 @@ boolean CKernel::Initialize(void)
 	f_mount(&m_FileSystem, DRIVE, 1);
 	m_ActLED.Blink(1);  // 9: fmount ok
 
-	if (bOK) bOK = m_Net.Initialize();
-	m_ActLED.Blink(1);  // 10: net ok
-
 	return bOK;
 }
 
 TShutdownMode CKernel::Run(void)
 {
 	m_Logger.Write(log_name, LogNotice, "Looper starting");
-	m_ActLED.Blink(1);  // 11: Run() entered
+	m_ActLED.Blink(1);  // 10: Run() entered
 
-	// Wait for DHCP
-	m_Logger.Write(log_name, LogNotice, "Waiting for network...");
-	while (!m_Net.IsRunning())
+	// Initialize network (DHCP) — must run inside scheduler context
+	m_Logger.Write(log_name, LogNotice, "Starting network (DHCP)...");
+	if (m_Net.Initialize(TRUE))
 	{
-		m_Scheduler.Yield();
-		m_Net.Process();
+		m_Logger.Write(log_name, LogNotice, "Network up");
+		static const u8 logHostIP[] = LOG_HOST;
+		CIPAddress logHost(logHostIP);
+		m_pSysLog = new CSysLogDaemon(&m_Net, logHost);
+		m_Logger.Write(log_name, LogNotice, "Syslog -> 192.168.137.1:514");
 	}
-	m_Logger.Write(log_name, LogNotice, "Network up");
-
-	// Start syslog to PC (192.168.137.1 = 0xC0A88901)
-	static const u8 LogHostIP[] = { 192, 168, 137, 1 };
-	CIPAddress LogHost(LogHostIP);
-	m_pSysLog = new CSysLogDaemon(&m_Net, LogHost);
-	m_Logger.Write(log_name, LogNotice, "Syslog -> %s:514", LOG_HOST);
+	else
+	{
+		m_Logger.Write(log_name, LogWarning, "Network failed — continuing without syslog");
+	}
+	m_ActLED.Blink(1);  // 11: net done
 
 	setup();
 	m_ActLED.Blink(1);  // 12: setup() done
@@ -103,7 +100,7 @@ TShutdownMode CKernel::Run(void)
 	{
 		bPlugAndPlayUpdated = m_USBHCI.UpdatePlugAndPlay();
 		m_CDCGadget.UpdatePlugAndPlay();
-		m_Net.Process();
+		if (m_pSysLog) m_Net.Process();
 		usbMidiProcess(bPlugAndPlayUpdated);
 		loop();
 		m_Scheduler.Yield();
