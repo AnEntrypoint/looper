@@ -24,12 +24,17 @@ const OP_OACK = 6;
 // ── Auto-update ────────────────────────────────────────────────────────────
 
 let currentSha = null;
+let rateLimitedUntil = 0;
+
+const GH_HEADERS = { 'User-Agent': 'looper-tftp/1.0' };
+if (process.env.GITHUB_TOKEN) GH_HEADERS['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
 
 function httpsGet(url) {
   return new Promise((res, rej) => {
-    https.get(url, { headers: { 'User-Agent': 'looper-tftp/1.0' } }, r => {
+    https.get(url, { headers: GH_HEADERS }, r => {
       if (r.statusCode === 302 || r.statusCode === 301) return httpsGet(r.headers.location).then(res).catch(rej);
-      let d = ''; r.on('data', c => d += c); r.on('end', () => res({ status: r.statusCode, body: d }));
+      let d = ''; r.on('data', c => d += c);
+      r.on('end', () => res({ status: r.statusCode, body: d, headers: r.headers }));
     }).on('error', rej);
   });
 }
@@ -52,7 +57,17 @@ function downloadFile(url, dest) {
 
 async function checkAndUpdate() {
   try {
+    if (Date.now() < rateLimitedUntil) {
+      console.log(`[UPDATE] Rate limited, retrying in ${Math.ceil((rateLimitedUntil - Date.now()) / 1000)}s`);
+      return;
+    }
     const r = await httpsGet(`https://api.github.com/repos/${REPO}/releases/latest`);
+    if (r.status === 403 || r.status === 429) {
+      const retryAfter = r.headers['retry-after'] ? parseInt(r.headers['retry-after']) * 1000 : 60000;
+      rateLimitedUntil = Date.now() + retryAfter;
+      console.error(`[UPDATE] Rate limited by GitHub, backing off ${retryAfter/1000}s. Set GITHUB_TOKEN env var to avoid this.`);
+      return;
+    }
     if (r.status !== 200) return;
     const release = JSON.parse(r.body);
     const sha = String(release.id);
