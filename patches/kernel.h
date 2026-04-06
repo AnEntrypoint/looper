@@ -12,9 +12,11 @@
 #include <circle/logger.h>
 #include <circle/sched/scheduler.h>
 #include <circle/usb/usbhcidevice.h>
+#include <circle/usb/gadget/usbcdcgadget.h>
 #include <SDCard/emmc.h>
 #include <fatfs/ff.h>
 #include <circle/types.h>
+
 enum TShutdownMode
 {
 	ShutdownNone,
@@ -43,6 +45,7 @@ private:
 	CLogger			m_Logger;
 	CScheduler		m_Scheduler;
 	CUSBHCIDevice		m_USBHCI;
+	CUSBCDCGadget		m_CDCGadget;
 	CEMMCDevice		m_EMMC;
 	FATFS			m_FileSystem;
 };

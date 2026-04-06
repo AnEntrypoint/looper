@@ -1,8 +1,10 @@
 #include "kernel.h"
 #include <circle/util.h>
+#include <circle/devicenameservice.h>
 
 #define SERIAL_BAUD_RATE	115200
 #define DRIVE			"SD:"
+#define CDC_DEVICE_NAME		"utty1"
 
 static const char log_name[] = "kernel";
 
@@ -15,6 +17,7 @@ CKernel::CKernel(void) :
 	m_Logger(LogDebug, &m_Timer),
 	m_Serial(&m_Interrupt, FALSE),
 	m_USBHCI(&m_Interrupt, &m_Timer, TRUE),
+	m_CDCGadget(&m_Interrupt),
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED)
 {
 	m_ActLED.On();
@@ -45,11 +48,19 @@ boolean CKernel::Initialize(void)
 	m_ActLED.Blink(4);
 
 	if (bOK)
+		m_CDCGadget.Initialize();
+	m_ActLED.Blink(5);
+
+	CDevice *pCDCSerial = CDeviceNameService::Get()->GetDevice(CDC_DEVICE_NAME, FALSE);
+	if (pCDCSerial != nullptr)
+		m_Logger.SetNewTarget(pCDCSerial);
+
+	if (bOK)
 		bOK = m_EMMC.Initialize();
 
-	f_mount(&m_FileSystem, DRIVE, 1); // non-fatal, no SD in netboot
+	f_mount(&m_FileSystem, DRIVE, 1);
 
-	m_ActLED.Blink(5);
+	m_ActLED.Blink(6);
 
 	return bOK;
 }
@@ -69,6 +80,14 @@ TShutdownMode CKernel::Run(void)
 		usbMidiProcess(bPlugAndPlayUpdated);
 		loop();
 		m_Scheduler.Yield();
+
+		CDevice *pCDCSerial = CDeviceNameService::Get()->GetDevice(CDC_DEVICE_NAME, FALSE);
+		if (pCDCSerial != nullptr)
+		{
+			u8 buf;
+			if (pCDCSerial->Read(&buf, 1) == 1 && buf == 'R')
+				return ShutdownReboot;
+		}
 	}
 
 	return ShutdownHalt;

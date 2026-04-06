@@ -54,6 +54,7 @@ jobs:
           make -C circle/lib/input RASPPI=4 AARCH=32
           make -C circle/lib/sched RASPPI=4 AARCH=32
           make -C circle/lib/usb RASPPI=4 AARCH=32
+          make -C circle/lib/usb/gadget RASPPI=4 AARCH=32
           make -C circle/addon/fatfs RASPPI=4 AARCH=32
           make -C circle/addon/SDCard RASPPI=4 AARCH=32
 
