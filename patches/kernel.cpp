@@ -17,7 +17,7 @@ CKernel::CKernel(void) :
 	m_USBHCI(&m_Interrupt, &m_Timer, TRUE),
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED)
 {
-	m_ActLED.Blink(5);
+	m_ActLED.On();
 }
 
 CKernel::~CKernel(void)
@@ -30,23 +30,26 @@ boolean CKernel::Initialize(void)
 
 	if (bOK)
 		bOK = m_Interrupt.Initialize();
+	m_ActLED.Blink(1);
+
 	if (bOK)
 		bOK = m_Timer.Initialize();
-	// Serial is optional — don't gate everything on it
+	m_ActLED.Blink(2);
+
 	if (m_Serial.Initialize(SERIAL_BAUD_RATE))
 		m_Logger.Initialize(&m_Serial);
+	m_ActLED.Blink(3);
+
 	if (bOK)
 		bOK = m_USBHCI.Initialize();
+	m_ActLED.Blink(4);
+
 	if (bOK)
 		bOK = m_EMMC.Initialize();
-	if (bOK)
-	{
-		if (f_mount(&m_FileSystem, DRIVE, 1) != FR_OK)
-		{
-			CLogger::Get()->Write(log_name, LogWarning, "Cannot mount drive: %s", DRIVE);
-			// not fatal — continue without SD
-		}
-	}
+
+	f_mount(&m_FileSystem, DRIVE, 1); // non-fatal, no SD in netboot
+
+	m_ActLED.Blink(5);
 
 	return bOK;
 }
