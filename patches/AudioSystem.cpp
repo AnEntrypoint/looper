@@ -43,31 +43,10 @@ void AudioSystem::stop()
 
 bool AudioSystem::initialize(u32 num_audio_blocks)
 {
-    LOG("initialize(%d)",num_audio_blocks);
-    
+    LOG("initialize(%d) - STUB: skipping codec/stream start for debug",num_audio_blocks);
+
     if (!initialize_memory(num_audio_blocks))
         return false;
-
-	// sort the streams
-    
-    sortStreams();
-		
-    // start the codec if there's one
-    
-    if (AudioCodec::s_pCodec)
-    {
-        LOG("Starting %s",AudioCodec::s_pCodec->getName());
-        AudioCodec::s_pCodec->start();
-    }
-
-	// call start() on each AudioStream()
-	// note that oodecs usually must be started before streams
-
-	for (AudioStream *p = s_pFirstStream; p; p = p->m_pNextStream)
-	{
-        LOG("Starting %s[%d]",p->getName(),p->getInstance());
-		p->start();
-	}
 
     return true;
 
