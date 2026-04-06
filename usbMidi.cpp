@@ -14,15 +14,30 @@ static void packetHandler(unsigned nCable, u8 *pPacket, unsigned nLength)
         pTheAPC->handleMidi(pPacket[0], pPacket[1], pPacket[2]);
 }
 
-// Track which indices we've already registered
 static bool s_registered[9] = {};
-
-// Send to all registered devices
 static CUSBMIDIDevice *s_pDevices[9] = {};
+static int s_updateCount = 0;
 
 void usbMidiProcess(bool bPlugAndPlayUpdated)
 {
     if (!bPlugAndPlayUpdated) return;
+
+    s_updateCount++;
+
+    // Every 10th PnP update, log which umidi slots are present
+    if (s_updateCount % 10 == 1)
+    {
+        CString name;
+        CString found;
+        for (int i = 1; i <= 4; i++)
+        {
+            name.Format("umidi%d", i);
+            void *p = CDeviceNameService::Get()->GetDevice((const char *)name, FALSE);
+            if (p) { found.Append((const char *)name); found.Append(" "); }
+        }
+        CLogger::Get()->Write(log_name, LogNotice, "PnP#%d umidi scan: [%s]",
+            s_updateCount, found.GetLength() ? (const char *)found : "none");
+    }
 
     CString name;
     for (int i = 1; i <= 8; i++)
