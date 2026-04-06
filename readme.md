@@ -47,3 +47,15 @@ The APC Key25 connects via a Teensy serial MIDI bridge. Each row controls one lo
 | Play | Clear all | Loop immediately |
 
 **LED colors:** green=playing, red=recording, yellow=pending transition, off=stopped/empty.
+
+## OTG Serial Monitor
+
+The USB-C port runs as a CDC ACM serial gadget (DWC OTG controller, separate from the USB-A xHCI). Log output is redirected to this port after kernel init. Send `R` to trigger a reboot.
+
+Run the monitor from Windows (requires `npm install serialport` once):
+
+```
+node otg-monitor.js
+```
+
+Auto-detects the CDC port. Press `r` to reboot the device, Ctrl+C to exit. Pass a port name as the first argument to override auto-detection.

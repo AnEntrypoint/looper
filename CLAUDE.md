@@ -8,3 +8,6 @@
 - Default build (no defines) uses CS42448 octo audio path. `LOOPER_USB_AUDIO=1` requires `AudioInputUSB`/`AudioOutputUSB` which do not exist in `circle-prh/audio` — must be added before that build target works.
 - On Linux CI, `#include <audio\\Audio.h>` with backslash fails. The include in `audio.cpp` must use forward slash: `<audio/Audio.h>`.
 - CI produces `kernel7l.img` for RASPPI=4 AARCH=32 (rPi 4, 32-bit). File naming per circle Rules.mk: RASPPI=2→kernel7, RASPPI=3 32-bit→kernel8-32, RASPPI=4 32-bit→kernel7l.
+- `CUSBCDCGadget` exposes no `GetSerial()` — `m_pInterface` is private and created lazily by `CreateDevice()` (called from `Initialize()`). Access the serial device via `CDeviceNameService::Get()->GetDevice("utty1", FALSE)` after `Initialize()` returns. Device is `nullptr` until USB host enumerates the gadget.
+- `CUSBCDCGadget` lives in `lib/usb/gadget/` as a separate library (`libusbgadget.a`). Must build `make -C circle/lib/usb/gadget` and link `libusbgadget.a` before `libusb.a` in LIBS.
+- On rPi4, `CUSBHCIDevice` is `CXHCIDevice` (xHCI, USB-A ports). `CUSBCDCGadget` uses `CDWUSBGadget` (DWC OTG, USB-C port). They are on separate controllers — both can coexist in the same kernel.
