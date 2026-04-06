@@ -12,12 +12,12 @@ extern void usbMidiProcess(bool bPlugAndPlayUpdated);
 
 CKernel::CKernel(void) :
 	m_Timer(&m_Interrupt),
-	m_Serial(&m_Interrupt, FALSE),
 	m_Logger(LogDebug, &m_Timer),
+	m_Serial(&m_Interrupt, FALSE),
 	m_USBHCI(&m_Interrupt, &m_Timer, TRUE),
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED)
 {
-	m_ActLED.On();
+	m_ActLED.Blink(5);
 }
 
 CKernel::~CKernel(void)
@@ -29,13 +29,12 @@ boolean CKernel::Initialize(void)
 	boolean bOK = TRUE;
 
 	if (bOK)
-		bOK = m_Serial.Initialize(SERIAL_BAUD_RATE);
-	if (bOK)
-		bOK = m_Logger.Initialize(&m_Serial);
-	if (bOK)
 		bOK = m_Interrupt.Initialize();
 	if (bOK)
 		bOK = m_Timer.Initialize();
+	// Serial is optional — don't gate everything on it
+	if (m_Serial.Initialize(SERIAL_BAUD_RATE))
+		m_Logger.Initialize(&m_Serial);
 	if (bOK)
 		bOK = m_USBHCI.Initialize();
 	if (bOK)
@@ -44,8 +43,8 @@ boolean CKernel::Initialize(void)
 	{
 		if (f_mount(&m_FileSystem, DRIVE, 1) != FR_OK)
 		{
-			CLogger::Get()->Write(log_name, LogError, "Cannot mount drive: %s", DRIVE);
-			bOK = FALSE;
+			CLogger::Get()->Write(log_name, LogWarning, "Cannot mount drive: %s", DRIVE);
+			// not fatal — continue without SD
 		}
 	}
 
@@ -55,6 +54,8 @@ boolean CKernel::Initialize(void)
 TShutdownMode CKernel::Run(void)
 {
 	CLogger::Get()->Write(log_name, LogNotice, "Looper starting");
+
+	m_ActLED.Blink(3);
 
 	setup();
 

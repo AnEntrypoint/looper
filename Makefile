@@ -21,6 +21,10 @@ LIBS = $(PRH_HOME)/audio/libaudio.a \
 INCLUDE += -I $(PRH_HOME) -I $(PRH_HOME)/utils -I $(PRH_HOME)/audio \
            -I $(CIRCLEHOME)/addon/fatfs -I $(CIRCLEHOME)/addon/SDCard
 
+ifdef LOOPER_USB_AUDIO
+DEFINE += -DLOOPER_USB_AUDIO
+endif
+
 include $(CIRCLEHOME)/Rules.mk
 
 -include $(DEPS)
