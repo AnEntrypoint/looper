@@ -12,6 +12,7 @@ LIBS = $(PRH_HOME)/audio/libaudio.a \
        $(PRH_HOME)/utils/lib_my_utils.a \
        $(CIRCLEHOME)/addon/fatfs/libfatfs.a \
        $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
+       $(CIRCLEHOME)/lib/net/libnet.a \
        $(CIRCLEHOME)/lib/sched/libsched.a \
        $(CIRCLEHOME)/lib/usb/gadget/libusbgadget.a \
        $(CIRCLEHOME)/lib/usb/libusb.a \

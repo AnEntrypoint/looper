@@ -14,6 +14,8 @@
 #include <circle/sched/scheduler.h>
 #include <circle/usb/usbhcidevice.h>
 #include <circle/usb/gadget/usbcdcgadget.h>
+#include <circle/net/netsubsystem.h>
+#include <circle/net/syslogdaemon.h>
 #include <SDCard/emmc.h>
 #include <fatfs/ff.h>
 #include <circle/types.h>
@@ -50,6 +52,8 @@ private:
 	CUSBCDCGadget		m_CDCGadget;
 	CEMMCDevice		m_EMMC;
 	FATFS			m_FileSystem;
+	CNetSubSystem		m_Net;
+	CSysLogDaemon		*m_pSysLog;
 };
 
 #endif
