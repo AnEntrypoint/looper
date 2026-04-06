@@ -3,6 +3,9 @@
 #
 
 CIRCLEHOME = ../..
+PRH_HOME = ..
+
+EXTRAINCLUDE += -I $(PRH_HOME)
 
 OBJS = \
 	analyze_peak.o \

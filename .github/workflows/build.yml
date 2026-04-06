@@ -30,8 +30,10 @@ jobs:
       - name: Apply patches
         run: |
           ln -sf bcm_pcm.h circle/_prh/audio/BCM_PCM.h
+          cp circle/_prh/_apps/Looper/patches/miniuart.cpp circle/_prh/utils/miniuart.cpp
           cp circle/_prh/_apps/Looper/patches/AudioTypes.h circle/_prh/audio/AudioTypes.h
           cp circle/_prh/_apps/Looper/patches/audio_Makefile circle/_prh/audio/Makefile
+          cp circle/_prh/_apps/Looper/patches/utils_Makefile circle/_prh/utils/Makefile
           cp circle/_prh/_apps/Looper/patches/input_usb.h circle/_prh/audio/input_usb.h
           cp circle/_prh/_apps/Looper/patches/input_usb.cpp circle/_prh/audio/input_usb.cpp
           cp circle/_prh/_apps/Looper/patches/output_usb.h circle/_prh/audio/output_usb.h
@@ -55,8 +57,8 @@ jobs:
 
       - name: Build circle-prh libraries
         run: |
-          make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1
           make -C circle/_prh/utils RASPPI=4 AARCH=32
+          make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1
 
       - name: Build Looper
         run: make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1
