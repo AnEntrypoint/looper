@@ -89,9 +89,9 @@ TShutdownMode CKernel::Run(void)
 	}
 	m_Logger.Write(log_name, LogNotice, "Network up");
 
-	// Start syslog to PC
-	CIPAddress LogHost;
-	LogHost.Set(LOG_HOST);
+	// Start syslog to PC (192.168.137.1 = 0xC0A88901)
+	static const u8 LogHostIP[] = { 192, 168, 137, 1 };
+	CIPAddress LogHost(LogHostIP);
 	m_pSysLog = new CSysLogDaemon(&m_Net, LogHost);
 	m_Logger.Write(log_name, LogNotice, "Syslog -> %s:514", LOG_HOST);
 
