@@ -19,10 +19,11 @@ extern unsigned char __exidx_end;
 extern unsigned char __bss_start;
 extern unsigned char _end;
 
-// from alloc.cpp
-
-bool check_alloc();
-void dump_alloc();
+// from alloc.cpp (phorton1-only stubs for rsta2 builds)
+#ifndef check_alloc
+static bool check_alloc() { return false; }
+static void dump_alloc() {}
+#endif
 
 
 
