@@ -6,4 +6,3 @@ gpu_mem=16
 [pi4]
 arm_64bit=0
 kernel=kernel7l.img
-otg_mode=1
