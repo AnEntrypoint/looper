@@ -1,0 +1,456 @@
+// std_kernel.cpp
+//
+// Based on Circle - A C++ bare metal environment for Raspberry Pi
+// which is Copyright (C) 2015-2019  R. Stange <rsta2@o2online.de>
+//
+// This code is Copyright (C) 2019, Patrick Horton, no rights reserved.
+
+
+#include "std_kernel.h"
+#include <circle/util.h>
+#include <circle/types.h>
+#include <circle/alloc.h>
+#include <circle/gpiopin.h>
+
+#define SERIAL_BAUD_RATE	115200	// 460800	// 115200
+
+
+#if USE_AUDIO_SYSTEM
+	#include <audio/AudioStream.h>
+#endif
+
+
+#if USE_FILE_SYSTEM
+	#define SHOW_ROOT_DIRECTORY  0
+	#define DRIVE		"SD:"
+#endif
+
+
+#ifdef LOOPER3	// vs LOOPER2 box
+	#define USE_GPIO_READY_PIN    12
+#else
+	#define USE_GPIO_READY_PIN    25
+#endif
+// The Blue rPi 3.5" ILI9486 hat uses hardwired GPIO25 RESET pin,
+// which conflicts with this definition for RPI_READY.
+// I could change it to a different pin (6, 13, and 26 are
+// available in the looper as of this 2024-04-29 writing),
+// but since I am not going to use the 9486 in the teensyExpression3
+// I am leaving the RPI_READY gpio pin as GPIO25
+
+
+
+static const char log_name[] = "kernel";
+
+
+// memory usage (980M+ available on rPi3b)
+// 0x00008000   Kernal program and BSS are limited to 2MB total.
+//     ...      limited to 2MB!!
+// 0x00500000   Heap Start at 5M and allows almost all memory to be malloc'd
+//     ...      986+ MB Available
+// 0x1F000000	Not using rpi_stub would get in the way
+// 0x3b001000   Page allocator start at 988M and alllows for 4M of pages
+//     ...      4MB available
+// 0x3c000000   standard 64MB of GPU memory starts here (from top)
+// 0x3F000000	16 MByte Peripherals
+// 0x40000000	1GB address Local peripherals
+
+
+extern void setup();
+extern void loop();
+
+u32 main_loop_counter = 0;
+bool bCore0StartupReported = 0;
+
+
+//---------------------------------------------
+// CoreTask
+//---------------------------------------------
+
+CCoreTask *CCoreTask::s_pCoreTask = 0;
+
+u32 ctor_sp = 0;
+
+CCoreTask::CCoreTask(CKernel *pKernel)	:
+	#ifdef WITH_MULTI_CORE
+		CMultiCoreSupport(&pKernel->m_Memory),
+	#endif
+	m_pKernel(pKernel)
+	#if USE_AUDIO_SYSTEM
+		,m_bAudioStarted(0)
+	#endif
+	#if USE_UI_SYSTEM
+		,m_bUIStarted(0)
+	#endif
+{
+	s_pCoreTask = this;
+}
+
+
+CCoreTask::~CCoreTask()
+{
+	m_pKernel = 0;
+}
+
+#if USE_FILE_SYSTEM
+	FATFS *CCoreTask::GetFileSystem()
+	{
+		return &m_pKernel->m_FileSystem;
+	}
+#endif
+
+
+#if USE_AUDIO_SYSTEM
+	// audio system currently includes pseudo arduino api
+	void CCoreTask::runAudioSystem(unsigned nCore, bool init)
+	{
+		if (init)
+		{
+			LOG("AudioSystem starting on Core(%d) mem=%dM",nCore,mem_get_size()/1000000);
+			setup();
+			LOG("after AudioSystem started mem=%dM",mem_get_size()/1000000);
+			m_bAudioStarted = 1;
+		}
+		else
+		{
+			loop();
+		}
+	}
+#endif
+
+
+
+#if USE_UI_SYSTEM
+
+	#define UI_FRAME_RATE   60
+		// undefine this to not throttle the UI
+
+	void CCoreTask::runUISystem(unsigned nCore, bool init)
+	{
+		if (init)
+		{
+			#if USE_AUDIO_SYSTEM
+				while (!m_bAudioStarted);
+			#endif
+
+			LOG("UI starting on Core(%d) mem=%dM",nCore,mem_get_size()/1000000);
+			delay(1000);
+
+			CTouchScreenBase  *pTouch = 0;
+			CMouseDevice *pMouse = (CMouseDevice *) CDeviceNameService::Get ()->GetDevice ("mouse1", FALSE);
+
+			#if USE_ILI_TFT
+				CScreenDeviceBase *pUseScreen = &m_pKernel->m_tft;
+				#if USE_XPT2046
+					pTouch = &m_pKernel->m_xpt2046;
+				#endif
+			#else
+				CScreenDeviceBase *pUseScreen = &m_pKernel->m_Screen;
+				pTouch = (CTouchScreenBase *) CDeviceNameService::Get ()->GetDevice ("touch1", FALSE);
+					// prh 2020-08-19 - no TouchScreen Device
+			#endif
+
+			m_pKernel->m_app.Initialize(pUseScreen,pTouch,pMouse);
+			LOG("after UI initialization mem=%dM",mem_get_size()/1000000);
+
+			#if USE_XPT2046
+				#if USE_FILE_SYSTEM
+					m_pKernel->m_xpt2046.Initialize(&m_pKernel->m_FileSystem);
+				#else
+					m_pKernel->m_xpt2046.Initialize(0);
+				#endif
+			#endif
+
+			m_bUIStarted = 1;
+		}
+		else
+			#if USE_AUDIO_SYSTEM
+				if (m_bAudioStarted)
+			#endif
+		{
+			#ifdef UI_FRAME_RATE
+			static u32 ui_timer = 0;
+			u32 now = m_pKernel->m_Timer.GetClockTicks();
+			if (now > ui_timer + (1000000/UI_FRAME_RATE))
+			{
+				ui_timer = now;
+			#endif
+
+				m_pKernel->m_app.timeSlice();
+
+			#if UI_FRAME_RATE
+			}
+			#endif
+		}
+	}
+#endif
+
+
+
+void CCoreTask::Run(unsigned nCore)
+{
+	LOG("Core(%d) starting ... mem=%dM",nCore,mem_get_size()/1000000);
+	dprobe(0,"Core(%d) starting",nCore);
+
+	// initialize the audio system on the given core
+
+	#if USE_AUDIO_SYSTEM
+		if (nCore == CORE_FOR_AUDIO_SYSTEM)
+		{
+			runAudioSystem(nCore,true);
+			dprobe(1,"after first runAudioSystem",0);
+		}
+	#endif
+
+	// initialilze the ui on the given core
+
+	#if USE_UI_SYSTEM
+		if (nCore == CORE_FOR_UI_SYSTEM)
+		{
+			runUISystem(nCore,true);
+			dprobe(1,"after first runUISystem",0);
+		}
+	#endif
+
+	delay(500);
+	dprobe(0,"CCoreTask::Run(%d) before loop",nCore);
+
+	while (1)
+	{
+		#if USE_AUDIO_SYSTEM
+			if (nCore == CORE_FOR_AUDIO_SYSTEM)
+			{
+				runAudioSystem(nCore,false);
+			}
+		#endif
+
+		#if USE_UI_SYSTEM
+			if (nCore == CORE_FOR_UI_SYSTEM)
+			{
+				runUISystem(nCore,false);
+			}
+		#endif
+
+		if (nCore == 0)
+		{
+			main_loop_counter++;
+
+			if (!bCore0StartupReported
+				#if USE_UI_SYSTEM
+					&& m_bUIStarted
+				#endif
+				#if USE_AUDIO_SYSTEM
+					&& m_bAudioStarted
+				#endif
+				)
+			{
+				CScheduler::Get()->MsSleep(200);
+				printf("ready ...\n");
+				CScheduler::Get()->MsSleep(200);
+
+				#if USE_GPIO_READY_PIN
+					CGPIOPin toTeensy(USE_GPIO_READY_PIN,GPIOModeOutput);
+					toTeensy.Write(1);
+				#endif
+
+				bCore0StartupReported = 1;
+			}
+		}
+
+	}	// while (1)
+}	// CCoreTask::Run()
+
+
+//---------------------------------------------
+// AudioStream::update_all() IPI handler
+//---------------------------------------------
+
+#if USE_AUDIO_SYSTEM
+	#if CORE_FOR_AUDIO_SYSTEM != 0
+
+		void CCoreTask::IPIHandler(unsigned nCore, unsigned nIPI)
+		{
+			if (nCore == CORE_FOR_AUDIO_SYSTEM &&
+				nIPI == IPI_AUDIO_UPDATE)
+			{
+				AudioSystem::doUpdate();
+			}
+		}
+	#endif
+#endif
+
+
+
+//----------------------------------------------
+// Kernel Construction and Initialization
+//----------------------------------------------
+
+CKernel::CKernel(void) :
+	#if USE_SCREEN
+		m_Screen(800, 480),
+	#endif
+	#if USE_MINI_SERIAL
+		m_MiniUart(&m_Interrupt),
+	#endif
+	m_Timer(&m_Interrupt),
+	#if USE_MAIN_SERIAL
+		m_Serial(&m_Interrupt, FALSE),
+	#endif
+	m_Logger(LogDebug,&m_Timer)
+	#if USE_USB
+		#if RASPPI == 4
+			,m_XHCI(&m_Interrupt, &m_Timer)
+		#else
+			,m_DWHCI(&m_Interrupt, &m_Timer)
+		#endif
+	#endif
+	#if USE_ILI_TFT
+		,m_tft(&m_SPI)
+		#if USE_XPT2046
+			,m_xpt2046(&m_SPI,&m_tft)
+		#endif
+	#endif
+	,m_CoreTask(this)
+	#if USE_FILE_SYSTEM
+		,m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED)
+	#endif
+{
+	m_ActLED.Toggle();
+}
+
+
+CKernel::~CKernel (void)
+{
+}
+
+
+
+boolean CKernel::Initialize (void)
+{
+	boolean bOK = TRUE;
+
+	dprobe(0,"",0);
+
+	#if USE_SCREEN
+		if (bOK)
+			bOK = m_Screen.Initialize();
+		#if USE_LOG_TO == LOG_TO_SCREEN
+			if (bOK)
+				bOK = m_Logger.Initialize(&m_Screen);
+		#endif
+	#endif
+
+	#if USE_MINI_SERIAL
+		if (bOK)
+			bOK = m_MiniUart.Initialize(115200);
+		#if USE_LOG_TO == LOG_TO_MIN_UART
+			if (bOK)
+				bOK = m_Logger.Initialize(&m_MiniUart);
+		#endif
+	#endif
+
+	if (bOK)
+		bOK = m_Interrupt.Initialize();
+	if (bOK)
+		bOK = m_Timer.Initialize();
+
+	#if USE_MAIN_SERIAL
+		if (bOK)
+			bOK = m_Serial.Initialize(SERIAL_BAUD_RATE);
+		#if USE_LOG_TO == LOG_TO_MAIN_SERIAL
+			if (bOK)
+				bOK = m_Logger.Initialize(&m_Serial);
+		#endif
+		LOG("serial baud_rate=%u",SERIAL_BAUD_RATE);
+	#endif
+
+	dprobe(0,"after logger started",0);
+
+	#if USE_USB
+		if (bOK)
+			#if RASPPI == 4
+				bOK = m_XHCI.Initialize ();
+			#else
+				bOK = m_DWHCI.Initialize ();
+			#endif
+	#endif
+
+	if (bOK)
+	{
+		#if USE_ILI_TFT
+			bOK = m_SPI.Initialize();
+			if (bOK)
+				bOK = m_tft.Initialize();
+			#if USE_XPT2046
+				if (bOK)
+					m_xpt2046.setRotation(m_tft.getRotation());
+			#endif
+
+		#else
+			bOK = m_TouchScreen.Initialize ();
+		#endif
+	}
+
+	#if USE_FILE_SYSTEM
+		if (bOK)
+		{
+			bOK = m_EMMC.Initialize();
+			initFileSystem();
+		}
+	#endif
+
+	return bOK;
+}
+
+
+
+
+#include <circle/memorymap.h>
+
+TShutdownMode CKernel::Run (void)
+{
+	#if USE_MIDI_SYSTEM
+		#if USE_MAIN_SERIAL
+			m_MidiSystem.Initialize(&m_Serial);
+		#else
+			m_MidiSystem.Initialize();
+		#endif
+	#endif
+
+	delay(500);
+	m_CoreTask.Initialize();
+	delay(500);
+
+	m_CoreTask.Run(0);
+
+	return ShutdownHalt;
+
+}
+
+
+
+#if USE_FILE_SYSTEM
+	void CKernel::initFileSystem()
+	{
+		if (f_mount(&m_FileSystem, DRIVE, 1) != FR_OK)
+		{
+			LOG_ERROR("Cannot mount drive: %s", DRIVE);
+			return;
+		}
+
+		#if SHOW_ROOT_DIRECTORY
+			LOG("Contents of SD card",0);
+			DIR Directory;
+			FILINFO FileInfo;
+			FRESULT Result = f_findfirst (&Directory, &FileInfo, DRIVE "/", "*");
+			for (unsigned i = 0; Result == FR_OK && FileInfo.fname[0]; i++)
+			{
+				if (!(FileInfo.fattrib & (AM_HID | AM_SYS)))
+				{
+					LOG("%-22s %ld", FileInfo.fname, FileInfo.fsize);
+				}
+				Result = f_findnext (&Directory, &FileInfo);
+			}
+		#endif
+	}
+#endif
