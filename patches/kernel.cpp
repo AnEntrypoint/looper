@@ -77,6 +77,7 @@ TShutdownMode CKernel::Run(void)
 	while (TRUE)
 	{
 		bPlugAndPlayUpdated = m_USBHCI.UpdatePlugAndPlay();
+		m_CDCGadget.UpdatePlugAndPlay();
 		usbMidiProcess(bPlugAndPlayUpdated);
 		loop();
 		m_Scheduler.Yield();
