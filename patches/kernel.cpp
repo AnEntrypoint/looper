@@ -19,6 +19,7 @@ CKernel::CKernel(void) :
 	m_Timer(&m_Interrupt),
 	m_Logger(LogDebug, &m_Timer),
 	m_Serial(&m_Interrupt, FALSE),
+	m_Screen(1920, 1080),
 	m_USBHCI(&m_Interrupt, &m_Timer, TRUE),
 	m_CDCGadget(&m_Interrupt, 0x2E8A, 0x000A),  // RPi vendor ID, CDC serial device ID
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED)
@@ -41,20 +42,19 @@ boolean CKernel::Initialize(void)
 	if (bOK) bOK = m_Timer.Initialize();
 	m_ActLED.Blink(1);  // 2: timer ok
 
-	if (m_Serial.Initialize(SERIAL_BAUD_RATE))
-		m_Logger.Initialize(&m_Serial);
-	m_ActLED.Blink(1);  // 3: serial ok
+	// Initialize screen for HDMI log output; keep it as the logger target throughout
+	if (m_Screen.Initialize())
+		m_Logger.Initialize(&m_Screen);
+	m_ActLED.Blink(1);  // 3: screen ok
+
+	m_Serial.Initialize(SERIAL_BAUD_RATE);  // init UART but don't switch logger target
+	m_ActLED.Blink(1);  // 4: serial ok
 
 	if (bOK) { boolean bCDC = m_CDCGadget.Initialize(); m_Logger.Write(log_name, LogNotice, "CDC gadget init: %s", bCDC ? "OK" : "FAILED"); }
-	m_ActLED.Blink(1);  // 4: cdc ok
+	m_ActLED.Blink(1);  // 5: cdc ok
 
 	if (bOK) bOK = m_USBHCI.Initialize();
-	m_ActLED.Blink(1);  // 5: usbhci ok
-
-	CDevice *pCDCSerial = CDeviceNameService::Get()->GetDevice(CDC_DEVICE_NAME, FALSE);
-	if (pCDCSerial != nullptr)
-		m_Logger.SetNewTarget(pCDCSerial);
-	m_ActLED.Blink(1);  // 6: cdc device lookup ok
+	m_ActLED.Blink(1);  // 6: usbhci ok
 
 	m_EMMC.Initialize();  // non-fatal: no SD card in netboot
 	m_ActLED.Blink(1);  // 7: emmc ok

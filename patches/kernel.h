@@ -9,6 +9,7 @@
 #include <circle/interrupt.h>
 #include <circle/timer.h>
 #include <circle/serial.h>
+#include <circle/screen.h>
 #include <circle/logger.h>
 #include <circle/sched/scheduler.h>
 #include <circle/usb/usbhcidevice.h>
@@ -42,6 +43,7 @@ private:
 	CInterruptSystem	m_Interrupt;
 	CTimer			m_Timer;
 	CSerialDevice		m_Serial;
+	CScreenDevice		m_Screen;
 	CLogger			m_Logger;
 	CScheduler		m_Scheduler;
 	CUSBHCIDevice		m_USBHCI;
