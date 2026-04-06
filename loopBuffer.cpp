@@ -14,7 +14,7 @@ loopBuffer::loopBuffer(u32 size)
     m_size = size;
     LOG("loopBuffer allocating %ld bytes",m_size);
     m_buffer = (int16_t *) malloc(m_size);
-    LOG("loopBuffer=0x%08X  mem=%dM",(u32) m_buffer,mem_get_size()/1000000);
+    LOG("loopBuffer=0x%08X",(u32) m_buffer);
 }
 
 loopBuffer::~loopBuffer()
