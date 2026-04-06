@@ -63,7 +63,11 @@
 #include <circle/sched/scheduler.h>
 
 #if USE_USB
-	#include <circle/usb/dwhcidevice.h>
+	#if RASPPI == 4
+		#include <circle/usb/xhcidevice.h>
+	#else
+		#include <circle/usb/dwhcidevice.h>
+	#endif
 #endif
 
 #if USE_UI_SYSTEM
@@ -196,7 +200,11 @@ private:
 	CScheduler			m_Scheduler;
 
 	#if USE_USB
-		CDWHCIDevice	m_DWHCI;
+		#if RASPPI == 4
+			CXHCIDevice		m_XHCI;
+		#else
+			CDWHCIDevice	m_DWHCI;
+		#endif
 	#endif
 
 	#if USE_UI_SYSTEM
