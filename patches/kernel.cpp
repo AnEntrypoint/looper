@@ -44,11 +44,11 @@ boolean CKernel::Initialize(void)
 	m_ActLED.Blink(3);
 
 	if (bOK)
-		bOK = m_USBHCI.Initialize();
+		m_CDCGadget.Initialize();
 	m_ActLED.Blink(4);
 
 	if (bOK)
-		m_CDCGadget.Initialize();
+		bOK = m_USBHCI.Initialize();
 	m_ActLED.Blink(5);
 
 	CDevice *pCDCSerial = CDeviceNameService::Get()->GetDevice(CDC_DEVICE_NAME, FALSE);
