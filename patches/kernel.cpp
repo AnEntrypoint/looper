@@ -56,11 +56,16 @@ boolean CKernel::Initialize(void)
 	if (bOK) bOK = m_USBHCI.Initialize();
 	m_ActLED.Blink(1);  // 6: usbhci ok
 
+	// Give Windows time to enumerate the CDC gadget, then activate it
+	m_Timer.MsDelay(500);
+	m_CDCGadget.UpdatePlugAndPlay();
+	m_ActLED.Blink(1);  // 7: cdc ready
+
 	m_EMMC.Initialize();  // non-fatal: no SD card in netboot
-	m_ActLED.Blink(1);  // 7: emmc ok
+	m_ActLED.Blink(1);  // 8: emmc ok
 
 	f_mount(&m_FileSystem, DRIVE, 1);  // non-fatal
-	m_ActLED.Blink(1);  // 8: fmount ok
+	m_ActLED.Blink(1);  // 9: fmount ok
 
 	return bOK;
 }
