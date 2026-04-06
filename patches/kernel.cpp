@@ -5,7 +5,6 @@
 #define SERIAL_BAUD_RATE	115200
 #define DRIVE			"SD:"
 #define CDC_DEVICE_NAME		"utty1"
-#define LOG_HOST		{ 192, 168, 137, 1 }
 
 static const char log_name[] = "kernel";
 
@@ -16,6 +15,11 @@ extern void setup(void);
 extern void loop(void);
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
 
+static const u8 s_OwnIP[]  = { NET_OWN_IP };
+static const u8 s_Mask[]   = { NET_NETMASK };
+static const u8 s_GW[]     = { NET_GATEWAY };
+static const u8 s_DNS[]    = { NET_DNS };
+
 CKernel::CKernel(void) :
 	m_Timer(&m_Interrupt),
 	m_Logger(LogDebug, &m_Timer),
@@ -24,7 +28,7 @@ CKernel::CKernel(void) :
 	m_USBHCI(&m_Interrupt, &m_Timer, TRUE),
 	m_CDCGadget(&m_Interrupt, 0x2E8A, 0x000A),
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED),
-	m_Net(),
+	m_Net(s_OwnIP, s_Mask, s_GW, s_DNS, "looper"),
 	m_pSysLog(nullptr)
 {
 	m_ActLED.On();
@@ -76,12 +80,12 @@ TShutdownMode CKernel::Run(void)
 	m_Logger.Write(log_name, LogNotice, "Looper starting");
 	m_ActLED.Blink(1);  // 10: Run() entered
 
-	// Initialize network (DHCP) — must run inside scheduler context
-	m_Logger.Write(log_name, LogNotice, "Starting network (DHCP)...");
-	if (m_Net.Initialize(TRUE))
+	// Initialize network with static IP — no DHCP
+	m_Logger.Write(log_name, LogNotice, "Starting network (static 192.168.137.100)...");
+	if (m_Net.Initialize(FALSE))
 	{
 		m_Logger.Write(log_name, LogNotice, "Network up");
-		static const u8 logHostIP[] = LOG_HOST;
+		static const u8 logHostIP[] = { NET_LOG_HOST };
 		CIPAddress logHost(logHostIP);
 		m_pSysLog = new CSysLogDaemon(&m_Net, logHost);
 		m_Logger.Write(log_name, LogNotice, "Syslog -> 192.168.137.1:514");

@@ -28,6 +28,13 @@ enum TShutdownMode
 	ShutdownReboot
 };
 
+// Static network config
+#define NET_OWN_IP		192, 168, 137, 100
+#define NET_NETMASK		255, 255, 255, 0
+#define NET_GATEWAY		192, 168, 137, 1
+#define NET_DNS			192, 168, 137, 1
+#define NET_LOG_HOST		192, 168, 137, 1
+
 class CKernel
 {
 public:
