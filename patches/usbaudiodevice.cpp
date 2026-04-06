@@ -32,12 +32,22 @@ CUSBAudioDevice::~CUSBAudioDevice (void)
 
 boolean CUSBAudioDevice::Configure (void)
 {
-    // PCM2902/UCA222: default alt-setting 0 has no endpoints (zero-bandwidth).
-    // Select the first Audio Streaming alt-setting that has at least 1 endpoint.
-    if (!SelectInterfaceByClass (1, 2, 0, 1))
+    // PCM2902/UCA222: try alt-settings 1..4 to find isochronous endpoints.
+    // Alt-setting 0 is zero-bandwidth (no endpoints) per USB Audio Class 1.0 spec.
+    boolean bSelected = FALSE;
+    for (unsigned nAlt = 1; nAlt <= 4 && !bSelected; nAlt++)
+    {
+        if (SelectInterfaceByClass (1, 2, 0, nAlt))
+        {
+            CLogger::Get ()->Write (FromAudio, LogNotice,
+                "Selected audio streaming alt-setting %u", nAlt);
+            bSelected = TRUE;
+        }
+    }
+    if (!bSelected)
     {
         CLogger::Get ()->Write (FromAudio, LogWarning,
-            "No audio streaming alt-setting with endpoints; trying anyway");
+            "Could not select any audio streaming alt-setting; scanning anyway");
     }
 
     const TUSBEndpointDescriptor *pDesc;
@@ -45,6 +55,9 @@ boolean CUSBAudioDevice::Configure (void)
     {
         boolean bIsIn   = (pDesc->bEndpointAddress & 0x80) == 0x80;
         boolean bIsIso  = (pDesc->bmAttributes & 0x03) == 0x01;
+        CLogger::Get ()->Write (FromAudio, LogDebug,
+            "EP addr=0x%02X attr=0x%02X isIn=%d isIso=%d",
+            pDesc->bEndpointAddress, pDesc->bmAttributes, bIsIn, bIsIso);
         if (!bIsIso) continue;
 
         if (bIsIn && !m_pEndpointIn)
@@ -55,6 +68,8 @@ boolean CUSBAudioDevice::Configure (void)
 
     if (!m_pEndpointIn && !m_pEndpointOut)
     {
+        CLogger::Get ()->Write (FromAudio, LogError,
+            "No isochronous endpoints found on UCA222 — giving up");
         ConfigurationError (FromAudio);
         return FALSE;
     }
