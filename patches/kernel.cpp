@@ -35,38 +35,32 @@ boolean CKernel::Initialize(void)
 {
 	boolean bOK = TRUE;
 
-	if (bOK)
-		bOK = m_Interrupt.Initialize();
-	m_ActLED.Blink(1);
+	if (bOK) bOK = m_Interrupt.Initialize();
+	m_ActLED.Blink(1);  // 1: interrupt ok
 
-	if (bOK)
-		bOK = m_Timer.Initialize();
-	m_ActLED.Blink(2);
+	if (bOK) bOK = m_Timer.Initialize();
+	m_ActLED.Blink(1);  // 2: timer ok
 
 	if (m_Serial.Initialize(SERIAL_BAUD_RATE))
 		m_Logger.Initialize(&m_Serial);
-	m_ActLED.Blink(3);
+	m_ActLED.Blink(1);  // 3: serial ok
 
-	if (bOK)
-		m_CDCGadget.Initialize();
-	m_ActLED.Blink(4);
+	if (bOK) m_CDCGadget.Initialize();
+	m_ActLED.Blink(1);  // 4: cdc ok
 
-	if (bOK)
-		bOK = m_USBHCI.Initialize();
-	m_ActLED.Blink(5);
+	if (bOK) bOK = m_USBHCI.Initialize();
+	m_ActLED.Blink(1);  // 5: usbhci ok
 
 	CDevice *pCDCSerial = CDeviceNameService::Get()->GetDevice(CDC_DEVICE_NAME, FALSE);
 	if (pCDCSerial != nullptr)
 		m_Logger.SetNewTarget(pCDCSerial);
+	m_ActLED.Blink(1);  // 6: cdc device lookup ok
 
-	m_ActLED.Blink(7);
 	m_EMMC.Initialize();  // non-fatal: no SD card in netboot
-	m_ActLED.Blink(8);
+	m_ActLED.Blink(1);  // 7: emmc ok
 
 	f_mount(&m_FileSystem, DRIVE, 1);  // non-fatal
-	m_ActLED.Blink(9);
-
-	m_ActLED.Blink(6);
+	m_ActLED.Blink(1);  // 8: fmount ok
 
 	return bOK;
 }
@@ -74,10 +68,10 @@ boolean CKernel::Initialize(void)
 TShutdownMode CKernel::Run(void)
 {
 	CLogger::Get()->Write(log_name, LogNotice, "Looper starting");
-
-	m_ActLED.Blink(3);
+	m_ActLED.Blink(1);  // 9: Run() entered
 
 	setup();
+	m_ActLED.Blink(1);  // 10: setup() done
 
 	bool bPlugAndPlayUpdated = FALSE;
 	while (TRUE)
