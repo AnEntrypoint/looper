@@ -7,7 +7,7 @@
 #define CDC_DEVICE_NAME		"utty1"
 
 static const char log_name[] = "kernel";
-static const char build_id[] = "BUILD-09f72d8-bypass";
+static const char build_id[] = "BUILD-" __DATE__ "-" __TIME__;
 
 static CActLED *s_pActLED = nullptr;
 extern "C" void debug_blink(int n) { if (s_pActLED) s_pActLED->Blink(n); }
