@@ -7,6 +7,7 @@
 #define CDC_DEVICE_NAME		"utty1"
 
 static const char log_name[] = "kernel";
+static const char build_id[] = "BUILD-09f72d8-bypass";
 
 static CActLED *s_pActLED = nullptr;
 extern "C" void debug_blink(int n) { if (s_pActLED) s_pActLED->Blink(n); }
@@ -77,7 +78,7 @@ boolean CKernel::Initialize(void)
 
 TShutdownMode CKernel::Run(void)
 {
-	m_Logger.Write(log_name, LogNotice, "Looper starting");
+	m_Logger.Write(log_name, LogNotice, "Looper starting %s", build_id);
 	m_ActLED.Blink(1);  // 10: Run() entered
 
 	// Initialize network with static IP — no DHCP
