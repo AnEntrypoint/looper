@@ -17,7 +17,7 @@
 #include <circle/usb/usbbluetooth.h>
 #include <circle/usb/usbmidi.h>
 #include <circle/usb/usbcdcethernet.h>
-#include <circle/usb/usbaudiodevice.h>
+#include "usbaudiodevice.h"
 
 CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pName)
 {
