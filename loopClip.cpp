@@ -464,17 +464,20 @@ void loopClip::updateState(u16 cur_command)
     }
     else if (cur_command == LOOP_COMMAND_PLAY)
     {
+        CLogger::Get()->Write(log_name, LogNotice, "clip(%d,%d) PLAY state=0x%04x rb=%d", m_track_num, m_clip_num, m_state, m_record_block);
         if (m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN))
         {
             if ((m_state & CLIP_STATE_RECORD_IN) && m_record_block == 0)
             {
                 stopImmediate();
+                CLogger::Get()->Write(log_name, LogNotice, "clip(%d,%d) aborted(rb=0)", m_track_num, m_clip_num);
                 return;
             }
             _startEndingRecording();
         }
         if (!(m_state & CLIP_STATE_PLAY_MAIN))
             _startPlaying();
+        CLogger::Get()->Write(log_name, LogNotice, "clip(%d,%d) PLAY done state=0x%04x", m_track_num, m_clip_num, m_state);
     }
     else if (cur_command == LOOP_COMMAND_RECORD)
     {
