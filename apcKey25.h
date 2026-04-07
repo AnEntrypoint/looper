@@ -54,6 +54,7 @@ private:
 
     unsigned long m_nowMs;
     unsigned long m_bootMs;
+    unsigned long m_lastLedMs;
 
     void _queueCmd(ApcCmd::Type type, int arg);
     void _onPadPress(int row, int col);

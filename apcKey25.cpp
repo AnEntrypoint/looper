@@ -7,7 +7,7 @@
 
 apcKey25 *pTheAPC = 0;
 
-apcKey25::apcKey25() : m_shift(false), m_cmdReady(false), m_cmdType(ApcCmd::NONE), m_cmdArg(0), m_nowMs(0), m_bootMs(0)
+apcKey25::apcKey25() : m_shift(false), m_cmdReady(false), m_cmdType(ApcCmd::NONE), m_cmdArg(0), m_nowMs(0), m_bootMs(0), m_lastLedMs(0)
 {
     pTheAPC = this;
     for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
@@ -59,8 +59,12 @@ void apcKey25::_updateGridLeds()
 {
     for (int row = 0; row < LOOPER_NUM_TRACKS; row++)
     {
-        _sendLed(_padNote(row, 0), _trackLedColor(row));
-        _sendLed(_padNote(row, 1), _muteLedColor(row));
+        u8 col0 = _trackLedColor(row);
+        u8 col1 = _muteLedColor(row);
+        CLogger::Get()->Write(log_name, LogNotice, "LED t%d col0=%d col1=%d ts=0x%04x",
+            row, col0, col1, pTheLooper->getPublicTrack(row)->getTrackState());
+        _sendLed(_padNote(row, 0), col0);
+        _sendLed(_padNote(row, 1), col1);
         for (int col = 2; col < APC_COLS; col++)
             _sendLed(_padNote(row, col), APC_VEL_LED_OFF);
     }
@@ -125,8 +129,6 @@ void apcKey25::_onButton(u8 note)
 
 void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
 {
-    if ((status & 0xF0) == APC_CH_NOTE_ON && data2 > 0)
-        CLogger::Get()->Write(log_name, LogNotice, "PAD note=%d row=%d col=%d", data1, data1/APC_COLS, data1%APC_COLS);
     u8 msgType = status & 0xF0;
 
     if (msgType == APC_CH_NOTE_ON && data2 > 0)
@@ -205,6 +207,10 @@ void apcKey25::update()
 
     // Wait for APC25 to finish booting before sending LEDs
     if (m_nowMs - m_bootMs < APC_LED_BOOT_DELAY_MS) return;
+
+    // Throttle LED updates to ~30fps
+    if (m_nowMs - m_lastLedMs < 33) return;
+    m_lastLedMs = m_nowMs;
 
     _updateGridLeds();
 }
