@@ -26,10 +26,10 @@
 
 // We map looper tracks to APC rows from bottom: track 0 = row 0 (bottom row)
 // Col 0 = rec/play/stop track button
-// Col 1 = mute toggle (hold to erase)
+// Col 1 = track presence (tap to erase, hold to erase)
 
 struct ApcCmd {
-    enum Type { NONE, TRACK, MUTE_TOGGLE, ERASE_TRACK, LOOPER } type;
+    enum Type { NONE, TRACK, ERASE_TRACK, LOOPER } type;
     int arg;
 };
 

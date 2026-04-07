@@ -36,7 +36,7 @@ u8 apcKey25::_trackLedColor(int track)
     u16 ts = pTrack->getTrackState();
 
     if (ts & TRACK_STATE_RECORDING)
-        return pTheLooper->getDubMode() ? APC_VEL_LED_YELLOW : APC_VEL_LED_RED;
+        return pTrack->getNumRecordedClips() > 0 ? APC_VEL_LED_YELLOW : APC_VEL_LED_RED;
     if (ts & (TRACK_STATE_PENDING_RECORD | TRACK_STATE_PENDING_PLAY | TRACK_STATE_PENDING_STOP))
         return APC_VEL_LED_YELLOW;
     if (ts & TRACK_STATE_PLAYING)
@@ -48,11 +48,8 @@ u8 apcKey25::_trackLedColor(int track)
 u8 apcKey25::_muteLedColor(int track)
 {
     if (track >= LOOPER_NUM_TRACKS) return APC_VEL_LED_OFF;
-    publicTrack *pTrack = pTheLooper->getPublicTrack(track);
-    if (pTrack->getNumRecordedClips() == 0) return APC_VEL_LED_OFF;
-    for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
-        if (pTrack->getPublicClip(c)->isMuted()) return APC_VEL_LED_RED;
-    return APC_VEL_LED_GREEN;
+    return pTheLooper->getPublicTrack(track)->getNumRecordedClips() > 0
+        ? APC_VEL_LED_GREEN : APC_VEL_LED_OFF;
 }
 
 void apcKey25::_updateGridLeds()
@@ -114,7 +111,7 @@ void apcKey25::_onPadRelease(int row, int col)
     if (col == 1 && row < LOOPER_NUM_TRACKS)
     {
         if (m_col1Held[row] && !m_col1EraseTriggered[row])
-            _queueCmd(ApcCmd::MUTE_TOGGLE, row);
+            _queueCmd(ApcCmd::ERASE_TRACK, row);
         m_col1Held[row] = false;
     }
 }
@@ -175,15 +172,6 @@ void apcKey25::update()
             u16 ts = pTheLooper->getPublicTrack(arg)->getTrackState();
             CLogger::Get()->Write(log_name, LogNotice, "TRACK cmd t%d ts=0x%04x", arg, ts);
             pTheLooper->command(LOOP_COMMAND_TRACK_BASE + arg);
-        }
-        else if (type == ApcCmd::MUTE_TOGGLE)
-        {
-            publicTrack *pTrack = pTheLooper->getPublicTrack(arg);
-            bool anyMuted = false;
-            for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
-                if (pTrack->getPublicClip(c)->isMuted()) { anyMuted = true; break; }
-            for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
-                pTrack->getPublicClip(c)->setMute(!anyMuted);
         }
         else if (type == ApcCmd::ERASE_TRACK)
         {
