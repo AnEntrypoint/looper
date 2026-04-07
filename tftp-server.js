@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+const fs = require('fs');
 const path = require('path');
 const dgram = require('dgram');
 const https = require('https');
