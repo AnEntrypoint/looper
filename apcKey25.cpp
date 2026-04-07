@@ -91,9 +91,11 @@ void apcKey25::_onPadPress(int row, int col)
 {
     if (col == 0)
     {
-        // RC-505 track button: rec → play → stop cycle via looper command
         if (row < LOOPER_NUM_TRACKS)
+        {
+            CLogger::Get()->Write(log_name, LogNotice, "TRACK press row=%d", row);
             _queueCmd(ApcCmd::TRACK, row);
+        }
     }
     else if (col == 1)
     {
@@ -170,6 +172,8 @@ void apcKey25::update()
 
         if (type == ApcCmd::TRACK)
         {
+            u16 ts = pTheLooper->getPublicTrack(arg)->getTrackState();
+            CLogger::Get()->Write(log_name, LogNotice, "TRACK cmd t%d ts=0x%04x", arg, ts);
             pTheLooper->command(LOOP_COMMAND_TRACK_BASE + arg);
         }
         else if (type == ApcCmd::MUTE_TOGGLE)
