@@ -529,6 +529,8 @@ class loopMachine : public publicLoopMachine
         int m_cur_track_num;
         int m_mark_point_state;
 
+        volatile u16 m_track_pending[LOOPER_NUM_TRACKS];
+
         loopTrack *m_tracks[LOOPER_NUM_TRACKS];
 
         static s32 m_input_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];

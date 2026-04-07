@@ -255,6 +255,9 @@ void loopMachine::init()
     m_cur_track_num = -1;
 	m_mark_point_state = 0;
 
+    for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
+        m_track_pending[i] = LOOP_COMMAND_NONE;
+
     pTheLoopBuffer->init();
 
     for (int i=0; i<LOOPER_NUM_TRACKS; i++)
@@ -444,145 +447,28 @@ void loopMachine::command(u16 command)
         m_pending_command = command;
     }
 
-    // we are going to use the same "selected track" mechanism
-    // and additional (non-UI) "pending record and play commands)
-    // We here turn the "TRACK" commands into STOP, PLAY, or RECORD
-    // commands on a selected track.
+    // RC-505 style per-track independent button: each press cycles the track state.
+    // No track selection — each track acts independently.
 
     else if (command >= LOOP_COMMAND_TRACK_BASE &&
              command < LOOP_COMMAND_TRACK_BASE + LOOPER_NUM_TRACKS)
     {
-        bool track_changed = false;
-        u16 pending_command = m_pending_command;
-        u16 track_num = command - LOOP_COMMAND_TRACK_BASE;
-        LOOPER_LOG("LOOP_COMMAND_TRACK(%d)",track_num);
+        int track_num = command - LOOP_COMMAND_TRACK_BASE;
+        loopTrack *pTrack = getTrack(track_num);
+        int ts = pTrack->getTrackState();
 
-        if (track_num != m_selected_track_num)
-        {
-            track_changed = true;
-            LOOPER_LOG("--> selected track changing from (%d) to %d",m_selected_track_num,track_num);
-            if (m_selected_track_num != -1)
-                m_tracks[m_selected_track_num]->setSelected(false);
-            m_selected_track_num = track_num;
-            m_tracks[m_selected_track_num]->setSelected(true);
-            pending_command = 0;
-        }
+        u16 next_cmd = LOOP_COMMAND_NONE;
+        if (ts & TRACK_STATE_RECORDING)
+            next_cmd = LOOP_COMMAND_PLAY;       // stop recording, start playing
+        else if (ts & TRACK_STATE_PLAYING)
+            next_cmd = LOOP_COMMAND_RECORD;     // overdub
+        else if (ts & TRACK_STATE_STOPPED)
+            next_cmd = LOOP_COMMAND_PLAY;       // resume playback
+        else
+            next_cmd = LOOP_COMMAND_RECORD;     // empty: start recording
 
-        // ok, so here we implement the "state" machine descripted in patchNewRig.cpp
-
-        loopTrack *pSelTrack = getTrack(m_selected_track_num);
-        loopTrack *pCurTrack = m_cur_track_num != -1 ? getTrack(m_cur_track_num) : 0;
-
-        bool recording = false;
-        bool recording_base = false;
-        int  num_recorded = pSelTrack->getNumRecordedClips();
-        bool recordable = num_recorded < LOOPER_NUM_LAYERS;
-
-        if (pCurTrack)
-        {
-            int used = pCurTrack->getNumUsedClips();
-            int recorded = pCurTrack->getNumRecordedClips();
-            if (used && !recorded)
-            {
-                recording_base = true;
-            }
-            else if (used > recorded)
-            {
-                recording = true;
-            }
-        }
-
-
-        if (!m_running)
-        {
-            if (recordable && (m_dub_mode || !num_recorded))
-            {
-                pending_command = LOOP_COMMAND_RECORD;
-            }
-            else if (num_recorded)
-            {
-                pending_command = LOOP_COMMAND_PLAY;
-            }
-        }
-
-        else if (recording_base)
-        {
-            if (track_changed)
-            {
-                if (recordable && (m_dub_mode || !num_recorded))
-                {
-                    pending_command = LOOP_COMMAND_RECORD;
-                }
-                else if (num_recorded)
-                {
-                    pending_command = LOOP_COMMAND_PLAY;
-                }
-            }
-            else if (recordable && m_dub_mode)
-            {
-                pending_command = LOOP_COMMAND_RECORD;
-            }
-            else
-            {
-                pending_command = LOOP_COMMAND_PLAY;
-            }
-        }
-
-        else if (!track_changed)
-        {
-            // the definition of "recordable" changes if we are currently
-            // recording ... we need ONE MORE empty track to pull it off
-
-            if (recording)
-                recordable = num_recorded < LOOPER_NUM_LAYERS - 1;
-
-            // dub mode FORCES another recording if possible
-            // regardless of the "toggle" state
-
-            if (!pending_command)
-            {
-                if (recordable && m_dub_mode)
-                    pending_command = LOOP_COMMAND_RECORD;
-                else if (recording)
-                    pending_command = LOOP_COMMAND_PLAY;
-                else if (pSelTrack->getNumUsedClips())
-                    pending_command = LOOP_COMMAND_STOP;
-            }
-
-            // erase the pending command
-            // and re-select the current track if it's different
-            // for there to be a pending command, there MUST be a pCurTrack
-
-            else
-            {
-                pending_command = LOOP_COMMAND_NONE;
-
-                if (pCurTrack->getTrackNum() != m_selected_track_num)
-                {
-                    m_tracks[m_selected_track_num]->setSelected(false);
-                    m_selected_track_num = pCurTrack->getTrackNum();
-                    pCurTrack->setSelected(true);
-                }
-            }
-        }
-        else    // changed tracks, so it's just like all the others
-        {
-            if (recordable && (m_dub_mode || !num_recorded))
-            {
-                pending_command = LOOP_COMMAND_RECORD;
-            }
-            else if (num_recorded)
-            {
-                pending_command = LOOP_COMMAND_PLAY;
-            }
-        }
-
-        // set the actual pending command
-        // and clear the dub mode
-
-        m_pending_command = pending_command;
-        m_dub_mode = 0;
-        LOOPER_LOG("--> pending command %s",getLoopCommandName(m_pending_command));
+        LOOPER_LOG("TRACK(%d) ts=0x%04x -> %s", track_num, ts, getLoopCommandName(next_cmd));
+        m_track_pending[track_num] = next_cmd;
 
     }   // TRACK COMMAND
 
@@ -830,50 +716,42 @@ void loopMachine::updateState(void)
         bool latch_command =
             !m_running ||
             at_loop_point ||
-            // !sel_clip0_state ||
             (cur_clip0_state & CLIP_STATE_RECORD_MAIN) ||
 			m_pending_command == LOOP_COMMAND_LOOP_IMMEDIATE;
-
-        // LATCH IN A NEW COMMAND
 
         if (latch_command)
         {
             m_cur_command = m_pending_command;
             m_pending_command = 0;
 
-            LOOPER_LOG("latching pending command(%s) m_running(%d) at_loop_point(%d) cur_clip0_state(0x%02x)",
-				getLoopCommandName(m_cur_command),
-				m_running,
-				at_loop_point,
-				cur_clip0_state);
-
-            // the previous track is entirely handled in update().
-            // if we are changing tracks(), STOP the old track ...
-            // and start the new one with the given command
-
-			if (!pSelTrack)
-				LOOPER_LOG("PENDING COMMAND %d WITHOUT SELECTED TRACK!!!",m_cur_command);
-
-            if (pCurTrack && pCurTrack != pSelTrack)
-			{
-                pCurTrack->updateState(LOOP_COMMAND_STOP);
-				pCurTrack->clearMarkPoint();
-				m_mark_point_state = 0;
-			}
-            pSelTrack->updateState(m_cur_command);
-
-            // change the current track to the selected track
-
-            if (m_cur_track_num != m_selected_track_num)
-            {
-                LOOPER_LOG("change m_cur_track_num(%d) to selected_track_num(%d)",m_cur_track_num,m_selected_track_num);
-                m_cur_track_num = m_selected_track_num;
-            }
-
-            // we clear any erroneous out-of-order dub mode presses here
+            LOOPER_LOG("latching global command(%s)",getLoopCommandName(m_cur_command));
 
             m_dub_mode = false;
         }
 
     }   // if m_pending_command
+
+    // RC-505: process per-track pending commands independently
+    for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
+    {
+        if (!m_track_pending[i]) continue;
+
+        loopTrack *pTrack = getTrack(i);
+        loopClip  *pClip0 = pTrack->getClip(0);
+        u16 clip0_state = pClip0 ? pClip0->getClipState() : 0;
+
+        bool track_latch =
+            !pTrack->getNumRunningClips() ||        // track not running: immediate
+            (clip0_state & CLIP_STATE_PLAY_MAIN) && !pClip0->getPlayBlockNum() ||  // at loop point
+            (clip0_state & CLIP_STATE_RECORD_MAIN); // recording: stop immediately
+
+        if (track_latch)
+        {
+            u16 cmd = m_track_pending[i];
+            m_track_pending[i] = LOOP_COMMAND_NONE;
+            LOOPER_LOG("TRACK(%d) latching %s", i, getLoopCommandName(cmd));
+            pTrack->updateState(cmd);
+        }
+    }
+
 }   // loopMachine::updateState()
