@@ -4,10 +4,10 @@
 #include "commonDefines.h"
 #include "Looper.h"
 
+// APC Key 25 pad grid: 5 rows x 8 cols, note = row*8 + col, row 0 = bottom
 #define APC_ROWS            5
 #define APC_COLS            8
 
-// APC Key 25 pad notes: row*8 + col
 #define APC_BTN_STOP_ALL    0x51
 #define APC_BTN_PLAY        0x5B
 #define APC_BTN_RECORD      0x5D
@@ -15,16 +15,23 @@
 
 #define APC_CH_NOTE_ON      0x90
 #define APC_CH_NOTE_OFF     0x80
-#define APC_CH_CC           0xB0
 
 #define APC_VEL_LED_OFF     0
 #define APC_VEL_LED_GREEN   1
 #define APC_VEL_LED_RED     3
 #define APC_VEL_LED_YELLOW  5
 
-// Triple-tap / hold erase: 3 presses within this many update() calls (~300ms at 100Hz)
-#define APC_ERASE_TAP_WINDOW_MS   500
-#define APC_HOLD_ERASE_MS         1000
+#define APC_HOLD_ERASE_MS   1000
+#define APC_LED_BOOT_DELAY_MS 2000
+
+// We map looper tracks to APC rows from bottom: track 0 = row 0 (bottom row)
+// Col 0 = rec/play/stop track button
+// Col 1 = mute toggle (hold to erase)
+
+struct ApcCmd {
+    enum Type { NONE, TRACK, MUTE_TOGGLE, ERASE_TRACK, LOOPER } type;
+    int arg;
+};
 
 class apcKey25
 {
@@ -35,29 +42,27 @@ public:
     void update();
 
 private:
-    bool m_shift;
+    bool          m_shift;
+    volatile bool m_cmdReady;
+    volatile ApcCmd::Type m_cmdType;
+    volatile int  m_cmdArg;
 
-    // Queued command from interrupt
-    volatile u16 m_pendingCmd;
-
-    // Triple-tap erase tracking per track (col0 presses)
-    unsigned long m_tapTime[LOOPER_NUM_TRACKS];
-    int           m_tapCount[LOOPER_NUM_TRACKS];
-
-    // Hold-to-erase on col1 (mute button)
+    // Hold tracking for col1 (mute/erase)
     unsigned long m_col1HoldStart[LOOPER_NUM_TRACKS];
     bool          m_col1Held[LOOPER_NUM_TRACKS];
     bool          m_col1EraseTriggered[LOOPER_NUM_TRACKS];
 
-    unsigned long m_nowMs;  // updated each update() call
+    unsigned long m_nowMs;
+    unsigned long m_bootMs;
 
+    void _queueCmd(ApcCmd::Type type, int arg);
     void _onPadPress(int row, int col);
     void _onPadRelease(int row, int col);
     void _onButton(u8 note);
     void _sendLed(u8 note, u8 velocity);
     void _updateGridLeds();
-    u8   _trackLedColor(int track);   // col0 color
-    u8   _muteLedColor(int track);    // col1 color
+    u8   _trackLedColor(int track);
+    u8   _muteLedColor(int track);
     u8   _padNote(int row, int col);
 };
 
