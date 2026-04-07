@@ -7,12 +7,26 @@ const path = require('path');
 const PORT = 514;
 const LOG_FILE = path.join(__dirname, 'syslog.log');
 
+// Parse RFC3164 syslog: <PRI>TIMESTAMP HOSTNAME TAG: MSG
+function parseSyslog(raw) {
+  let msg = raw;
+  // Strip <PRI>
+  const priMatch = msg.match(/^<(\d+)>(.*)/s);
+  if (priMatch) msg = priMatch[2];
+  // Strip leading timestamp (MMM DD HH:MM:SS or ISO)
+  msg = msg.replace(/^\w{3}\s+\d+\s+\d+:\d+:\d+\s+\S+\s+/, '');
+  // Strip any remaining non-printable chars
+  msg = msg.replace(/[^\x20-\x7e\n]/g, '');
+  return msg.trim();
+}
+
 const server = dgram.createSocket('udp4');
 
 server.on('message', (msg, rinfo) => {
-  const text = msg.toString().replace(/[\x00-\x1f]/g, ' ').trim();
+  const text = parseSyslog(msg.toString());
+  if (!text) return;
   const ts = new Date().toISOString().substring(11, 23);
-  const line = `[${ts}] ${rinfo.address}: ${text}\n`;
+  const line = `[${ts}] ${text}\n`;
   process.stdout.write(line);
   fs.appendFileSync(LOG_FILE, line);
 });

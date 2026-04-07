@@ -68,12 +68,12 @@ async function checkAndUpdate() {
       console.error(`[UPDATE] Rate limited by GitHub, backing off ${retryAfter/1000}s. Set GITHUB_TOKEN env var to avoid this.`);
       return;
     }
-    if (r.status !== 200) return;
+    if (r.status !== 200) { console.log(`[UPDATE] GitHub returned ${r.status}`); return; }
     const release = JSON.parse(r.body);
     const asset = release.assets.find(a => a.name === 'looper-sd.zip');
-    if (!asset) return;
+    if (!asset) { console.log(`[UPDATE] No looper-sd.zip in release ${release.tag_name}`); return; }
     const sha = asset.updated_at || String(release.id);
-    if (sha === currentSha) return;
+    if (sha === currentSha) { console.log(`[UPDATE] Up to date (${release.tag_name})`); return; }
     console.log(`[UPDATE] New build detected (${release.tag_name} updated=${sha}), downloading...`);
     const zipPath = path.join(__dirname, 'dist', 'looper-sd.zip');
     fs.mkdirSync(path.dirname(zipPath), { recursive: true });
