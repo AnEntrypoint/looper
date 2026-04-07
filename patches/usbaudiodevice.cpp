@@ -159,9 +159,9 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
     delete m_pOutURB;
     m_pOutURB = 0;
 
+    unsigned nSamples = sizeof m_OutBuf / 4;
     if (m_pOutHandler)
     {
-        unsigned nSamples = sizeof m_OutBuf / 4;
         s16 left_buf[nSamples], right_buf[nSamples];
         (*m_pOutHandler) (left_buf, right_buf, nSamples);
         s16 *pBuf = (s16 *) m_OutBuf;
@@ -170,8 +170,12 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
             pBuf[i*2]   = left_buf[i];
             pBuf[i*2+1] = right_buf[i];
         }
-        StartOutRequest ();
     }
+    else
+    {
+        memset (m_OutBuf, 0, nSamples * 4);
+    }
+    StartOutRequest ();
 }
 
 void CUSBAudioDevice::InStub (CUSBRequest *pURB, void *pParam, void *pContext)
