@@ -36,7 +36,6 @@ OBJS = \
 	output_usb.o \
 	recorder.o \
 	synth_sine.o \
-	usbaudiodevice.o \
 	Wire.o \
 
 
