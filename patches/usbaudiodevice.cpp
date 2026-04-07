@@ -139,8 +139,9 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
     if (pURB->GetStatus () && pURB->GetResultLength () >= 4 && m_pInHandler != 0)
     {
         unsigned nSamples = pURB->GetResultLength () / 4;
+        if (nSamples > USB_AUDIO_BLOCK_BYTES / 4) nSamples = USB_AUDIO_BLOCK_BYTES / 4;
         const s16 *pBuf = (const s16 *) m_InBuf;
-        s16 left_buf[nSamples], right_buf[nSamples];
+        s16 left_buf[USB_AUDIO_BLOCK_BYTES / 4], right_buf[USB_AUDIO_BLOCK_BYTES / 4];
         for (unsigned i = 0; i < nSamples; i++)
         {
             left_buf[i]  = pBuf[i*2];
@@ -177,7 +178,7 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
     unsigned nSamples = sizeof m_OutBuf / 4;
     if (m_pOutHandler)
     {
-        s16 left_buf[nSamples], right_buf[nSamples];
+        s16 left_buf[USB_AUDIO_BLOCK_BYTES / 4], right_buf[USB_AUDIO_BLOCK_BYTES / 4];
         (*m_pOutHandler) (left_buf, right_buf, nSamples);
         s16 *pBuf = (s16 *) m_OutBuf;
         for (unsigned i = 0; i < nSamples; i++)
