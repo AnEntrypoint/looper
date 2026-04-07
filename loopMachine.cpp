@@ -468,8 +468,17 @@ void loopMachine::command(u16 command)
             next_cmd = LOOP_COMMAND_RECORD;     // empty: start recording
 
         LOOPER_LOG("TRACK(%d) ts=0x%04x -> %s", track_num, ts, getLoopCommandName(next_cmd));
-        m_track_pending[track_num] = next_cmd;
-        CLogger::Get()->Write(log_name, LogNotice, "TRACK(%d) pending=%d", track_num, next_cmd);
+        CLogger::Get()->Write(log_name, LogNotice, "TRACK(%d) run=%d cmd=%d", track_num, pTrack->getNumRunningClips(), next_cmd);
+        if (!pTrack->getNumRunningClips())
+        {
+            // Track not running — execute immediately (no audio ISR sync needed)
+            pTrack->updateState(next_cmd);
+        }
+        else
+        {
+            // Track running — queue for execution at next loop point in audio ISR
+            m_track_pending[track_num] = next_cmd;
+        }
 
     }   // TRACK COMMAND
 
