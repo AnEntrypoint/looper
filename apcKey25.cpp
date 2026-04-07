@@ -125,6 +125,8 @@ void apcKey25::_onButton(u8 note)
 
 void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
 {
+    if ((status & 0xF0) == APC_CH_NOTE_ON && data2 > 0)
+        CLogger::Get()->Write(log_name, LogNotice, "PAD note=%d row=%d col=%d", data1, data1/APC_COLS, data1%APC_COLS);
     u8 msgType = status & 0xF0;
 
     if (msgType == APC_CH_NOTE_ON && data2 > 0)
