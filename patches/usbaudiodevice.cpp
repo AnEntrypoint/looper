@@ -35,6 +35,7 @@ CUSBAudioDevice::~CUSBAudioDevice (void)
 
 boolean CUSBAudioDevice::Configure (void)
 {
+    CLogger::Get ()->Write (FromAudio, LogNotice, "Configure() called");
     // PCM2902/UCA222: try alt-settings 1..4 to find isochronous endpoints.
     // Alt-setting 0 is zero-bandwidth (no endpoints) per USB Audio Class 1.0 spec.
     boolean bSelected = FALSE;

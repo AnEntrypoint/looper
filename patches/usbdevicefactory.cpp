@@ -185,7 +185,7 @@ CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pNam
 	else if (   pName->Compare ("int1-1-0") == 0
 		 || pName->Compare ("int1-1-20") == 0)
 	{
-		pResult = new CUSBAudioControlDevice (pParent);
+		pResult = new CUSBAudioDevice (pParent);
 	}
 	else if (   pName->Compare ("int1-2-0") == 0
 		 || pName->Compare ("int1-2-20") == 0)
