@@ -15,6 +15,7 @@ extern "C" void debug_blink(int n) { if (s_pActLED) s_pActLED->Blink(n); }
 extern void setup(void);
 extern void loop(void);
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
+extern void usbMidiInjectMidi(u8 status, u8 data1, u8 data2);
 
 static const u8 s_OwnIP[]  = { NET_OWN_IP };
 static const u8 s_Mask[]   = { NET_NETMASK };
@@ -117,6 +118,23 @@ TShutdownMode CKernel::Run(void)
 		}
 	}
 
+	// Open UDP socket for MIDI injection (send 3-byte MIDI to port 4446)
+	CSocket *pMidiSocket = nullptr;
+	if (m_pSysLog)
+	{
+		pMidiSocket = new CSocket(&m_Net, IPPROTO_UDP);
+		if (pMidiSocket->Bind(4446) < 0)
+		{
+			delete pMidiSocket;
+			pMidiSocket = nullptr;
+			m_Logger.Write(log_name, LogWarning, "Could not bind MIDI inject socket");
+		}
+		else
+		{
+			m_Logger.Write(log_name, LogNotice, "MIDI inject socket on UDP:4446");
+		}
+	}
+
 	bool bPlugAndPlayUpdated = FALSE;
 	while (TRUE)
 	{
@@ -139,6 +157,17 @@ TShutdownMode CKernel::Run(void)
 				m_Logger.Write(log_name, LogNotice, "Reboot command received via UDP");
 				return ShutdownReboot;
 			}
+		}
+
+		// Check UDP MIDI inject
+		if (pMidiSocket)
+		{
+			u8 buf[16];
+			CIPAddress sender;
+			u16 senderPort;
+			int n = pMidiSocket->ReceiveFrom(buf, sizeof buf, MSG_DONTWAIT, &sender, &senderPort);
+			if (n >= 3)
+				usbMidiInjectMidi(buf[0], buf[1], buf[2]);
 		}
 
 		// Check CDC serial reboot command

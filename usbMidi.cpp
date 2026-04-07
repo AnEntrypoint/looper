@@ -61,6 +61,12 @@ void usbMidiSendNoteOn(u8 note, u8 velocity)
         if (s_pDevices[i]) s_pDevices[i]->SendPlainMIDI(0, msg, 3);
 }
 
+void usbMidiInjectMidi(u8 status, u8 data1, u8 data2)
+{
+    if (pTheAPC)
+        pTheAPC->handleMidi(status, data1, data2);
+}
+
 void usbMidiSendCC(int cc_num, int value)
 {
     u8 msg[3] = { 0xB0, (u8)cc_num, (u8)value };

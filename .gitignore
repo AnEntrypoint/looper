@@ -92,3 +92,8 @@ syslog.log
 package-lock.json
 
 .env
+
+.plugkit-browser-profile/
+$null
+package.json
+tftproot/
