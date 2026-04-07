@@ -58,8 +58,6 @@ void apcKey25::_updateGridLeds()
     {
         u8 col0 = _trackLedColor(row);
         u8 col1 = _muteLedColor(row);
-        CLogger::Get()->Write(log_name, LogNotice, "LED t%d col0=%d col1=%d ts=0x%04x",
-            row, col0, col1, pTheLooper->getPublicTrack(row)->getTrackState());
         _sendLed(_padNote(row, 0), col0);
         _sendLed(_padNote(row, 1), col1);
         for (int col = 2; col < APC_COLS; col++)
