@@ -3,6 +3,7 @@
 #include <circle/usb/usbhostcontroller.h>
 #include <circle/devicenameservice.h>
 #include <circle/logger.h>
+#include <circle/timer.h>
 #include <circle/util.h>
 #include <circle/string.h>
 #include <assert.h>
@@ -19,7 +20,9 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_pInHandler   (0),
     m_pOutHandler  (0),
     m_pInURB       (0),
-    m_pOutURB      (0)
+    m_pOutURB      (0),
+    m_nPeakIn      (0),
+    m_nLastMonitorTick (0)
 {
 }
 
@@ -142,8 +145,20 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         {
             left_buf[i]  = pBuf[i*2];
             right_buf[i] = pBuf[i*2+1];
+            u32 absL = left_buf[i]  < 0 ? (u32)(-left_buf[i])  : (u32)left_buf[i];
+            u32 absR = right_buf[i] < 0 ? (u32)(-right_buf[i]) : (u32)right_buf[i];
+            if (absL > m_nPeakIn) m_nPeakIn = absL;
+            if (absR > m_nPeakIn) m_nPeakIn = absR;
         }
         (*m_pInHandler) (left_buf, right_buf, nSamples);
+    }
+
+    u32 nNow = CTimer::Get ()->GetClockTicks ();
+    if (nNow - m_nLastMonitorTick >= 1000000)
+    {
+        CLogger::Get ()->Write (FromAudio, LogNotice, "input peak=%u", m_nPeakIn);
+        m_nPeakIn = 0;
+        m_nLastMonitorTick = nNow;
     }
 
     delete m_pInURB;

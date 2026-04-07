@@ -47,6 +47,9 @@ private:
     u8 m_InBuf [USB_AUDIO_BLOCK_BYTES];
     u8 m_OutBuf[USB_AUDIO_BLOCK_BYTES];
 
+    u32 m_nPeakIn;
+    u32 m_nLastMonitorTick;
+
     static CUSBAudioDevice *s_pThis;
     static unsigned         s_nDeviceNumber;
 };
