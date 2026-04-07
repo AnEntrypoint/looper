@@ -469,6 +469,7 @@ void loopMachine::command(u16 command)
 
         LOOPER_LOG("TRACK(%d) ts=0x%04x -> %s", track_num, ts, getLoopCommandName(next_cmd));
         m_track_pending[track_num] = next_cmd;
+        CLogger::Get()->Write(log_name, LogNotice, "TRACK(%d) pending=%d", track_num, next_cmd);
 
     }   // TRACK COMMAND
 
@@ -750,6 +751,7 @@ void loopMachine::updateState(void)
             u16 cmd = m_track_pending[i];
             m_track_pending[i] = LOOP_COMMAND_NONE;
             LOOPER_LOG("TRACK(%d) latching %s", i, getLoopCommandName(cmd));
+            CLogger::Get()->Write(log_name, LogNotice, "TRACK(%d) latching cmd=%d", i, cmd);
             pTrack->updateState(cmd);
         }
     }
