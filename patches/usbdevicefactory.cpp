@@ -51,9 +51,7 @@
 #include <circle/usb/usbserialpl2303.h>
 #include <circle/usb/usbserialft231x.h>
 #include <circle/usb/usbtouchscreen.h>
-#ifdef LOOPER_USB_AUDIO
 #include "usbaudiodevice.h"
-#endif
 
 CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pName)
 {
@@ -192,11 +190,7 @@ CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pNam
 	else if (   pName->Compare ("int1-2-0") == 0
 		 || pName->Compare ("int1-2-20") == 0)
 	{
-#ifdef LOOPER_USB_AUDIO
 		pResult = new CUSBAudioDevice (pParent);
-#else
-		pResult = new CUSBAudioStreamingDevice (pParent);
-#endif
 	}
 #endif
 #endif
