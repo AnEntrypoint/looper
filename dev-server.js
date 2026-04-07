@@ -16,7 +16,7 @@ try {
   });
 } catch(e) {}
 
-const scripts = ['tftp-server.js', 'dhcp-server.js', 'syslog-listener.js'];
+const scripts = ['tftp-server.js'];
 
 function startChild(script) {
   const child = fork(path.join(__dirname, script), [], { silent: false });
