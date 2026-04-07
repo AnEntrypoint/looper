@@ -187,7 +187,7 @@ void loopClip::_startEndingRecording()
     m_num_blocks = m_record_block;
     m_max_blocks = m_record_block + CROSSFADE_BLOCKS;
     pTheLoopBuffer->commitBlocks(m_max_blocks * LOOPER_NUM_CHANNELS);
-    clearClipBits(CLIP_STATE_RECORD_MAIN);
+    clearClipBits(CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN);
     setClipBits(CLIP_STATE_RECORD_END);
     m_pLoopTrack->incDecNumRecordedClips(1);
 }
@@ -464,12 +464,15 @@ void loopClip::updateState(u16 cur_command)
     }
     else if (cur_command == LOOP_COMMAND_PLAY)
     {
-        if (m_state & CLIP_STATE_RECORD_MAIN)
+        if (m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN))
         {
+            if ((m_state & CLIP_STATE_RECORD_IN) && m_record_block == 0)
+            {
+                stopImmediate();
+                return;
+            }
             _startEndingRecording();
         }
-        // don't do play command twice
-
         if (!(m_state & CLIP_STATE_PLAY_MAIN))
             _startPlaying();
     }
