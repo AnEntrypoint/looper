@@ -70,11 +70,11 @@ async function checkAndUpdate() {
     }
     if (r.status !== 200) return;
     const release = JSON.parse(r.body);
-    const sha = String(release.id);
-    if (sha === currentSha) return;
     const asset = release.assets.find(a => a.name === 'looper-sd.zip');
     if (!asset) return;
-    console.log(`[UPDATE] New build detected (${release.tag_name} id=${sha}), downloading...`);
+    const sha = asset.updated_at || String(release.id);
+    if (sha === currentSha) return;
+    console.log(`[UPDATE] New build detected (${release.tag_name} updated=${sha}), downloading...`);
     const zipPath = path.join(__dirname, 'dist', 'looper-sd.zip');
     fs.mkdirSync(path.dirname(zipPath), { recursive: true });
     await downloadFile(asset.browser_download_url, zipPath);
