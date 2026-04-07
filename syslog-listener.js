@@ -23,6 +23,7 @@ const server = dgram.createSocket('udp4');
 server.on('message', (msg, rinfo) => {
   const text = parseSyslog(msg.toString());
   if (!text) return;
+  if (text.startsWith('icmp:')) return; // filter ICMP unreachable noise
   const ts = new Date().toISOString().substring(11, 23);
   const line = `[${ts}] ${text}\n`;
   process.stdout.write(line);

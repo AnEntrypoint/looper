@@ -90,6 +90,8 @@ boolean CUSBAudioDevice::Configure (void)
 
     if (m_pEndpointIn)
         StartInRequest ();
+    if (m_pEndpointOut)
+        StartOutRequest ();
 
     return TRUE;
 }
