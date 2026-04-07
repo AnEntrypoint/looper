@@ -7,17 +7,15 @@ const path = require('path');
 const PORT = 514;
 const LOG_FILE = path.join(__dirname, 'syslog.log');
 
-// Parse RFC3164 syslog: <PRI>TIMESTAMP HOSTNAME TAG: MSG
+// Circle CSysLogDaemon format: <PRI>1 - HOSTNAME APPNAME - - - MESSAGE
 function parseSyslog(raw) {
-  let msg = raw;
-  // Strip <PRI>
-  const priMatch = msg.match(/^<(\d+)>(.*)/s);
-  if (priMatch) msg = priMatch[2];
-  // Strip leading timestamp (MMM DD HH:MM:SS or ISO)
-  msg = msg.replace(/^\w{3}\s+\d+\s+\d+:\d+:\d+\s+\S+\s+/, '');
-  // Strip any remaining non-printable chars
-  msg = msg.replace(/[^\x20-\x7e\n]/g, '');
-  return msg.trim();
+  let msg = raw.toString();
+  const pri = msg.match(/^<\d+>(.*)/s);
+  if (pri) msg = pri[1];
+  const circle = msg.match(/^\d+\s+-\s+\S+\s+(\S+)\s+-\s+-\s+-\s+(.*)/s);
+  if (circle) msg = circle[1] + ': ' + circle[2];
+  else msg = msg.replace(/^\w{3}\s+\d+\s+\d+:\d+:\d+\s+\S+\s+/, '');
+  return msg.replace(/[^\x20-\x7e\n]/g, '').trim();
 }
 
 const server = dgram.createSocket('udp4');

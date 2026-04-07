@@ -23,8 +23,10 @@ const OP_OACK = 6;
 
 // ── Auto-update ────────────────────────────────────────────────────────────
 
+const SHA_FILE = path.join(__dirname, '.tftp-sha');
 let currentSha = null;
 let rateLimitedUntil = 0;
+try { currentSha = fs.readFileSync(SHA_FILE, 'utf8').trim(); console.log(`[UPDATE] Resuming from known sha: ${currentSha}`); } catch(e) {}
 
 const GH_HEADERS = { 'User-Agent': 'looper-tftp/1.0' };
 if (process.env.GITHUB_TOKEN) GH_HEADERS['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
@@ -95,6 +97,7 @@ async function checkAndUpdate() {
       }
     }
     currentSha = sha;
+    fs.writeFileSync(SHA_FILE, sha);
     console.log(`[UPDATE] tftproot updated — kernel7l.img ${fs.statSync(path.join(TFTPROOT,'kernel7l.img')).size} bytes`);
     const rebootSock = dgram.createSocket('udp4');
     const rebootMsg = Buffer.from('REBOOT');
