@@ -23,8 +23,7 @@ const OP_OACK = 6;
 
 // ── Auto-update ────────────────────────────────────────────────────────────
 
-let currentSha = null;       // null = first run, string = known sha
-let isFirstRun = true;
+let currentSha = null;
 let rateLimitedUntil = 0;
 
 const GH_HEADERS = { 'User-Agent': 'looper-tftp/1.0' };
@@ -72,7 +71,7 @@ async function checkAndUpdate() {
     if (r.status !== 200) return;
     const release = JSON.parse(r.body);
     const sha = String(release.id);
-    if (sha === currentSha) { isFirstRun = false; return; }
+    if (sha === currentSha) return;
     const asset = release.assets.find(a => a.name === 'looper-sd.zip');
     if (!asset) return;
     console.log(`[UPDATE] New build detected (${release.tag_name} id=${sha}), downloading...`);
@@ -97,19 +96,12 @@ async function checkAndUpdate() {
     }
     currentSha = sha;
     console.log(`[UPDATE] tftproot updated — kernel7l.img ${fs.statSync(path.join(TFTPROOT,'kernel7l.img')).size} bytes`);
-    if (isFirstRun) {
-      // First run: kernel is now ready for Pi to netboot — don't send REBOOT yet
-      console.log('[UPDATE] First run — kernel staged, waiting for Pi to netboot');
-      isFirstRun = false;
-    } else {
-      // New release while already running — reboot Pi to load it
-      const rebootSock = dgram.createSocket('udp4');
-      const rebootMsg = Buffer.from('REBOOT');
-      rebootSock.send(rebootMsg, 0, rebootMsg.length, 4444, '192.168.137.100', () => {
-        rebootSock.close();
-        console.log('[UPDATE] Sent REBOOT to Pi');
-      });
-    }
+    const rebootSock = dgram.createSocket('udp4');
+    const rebootMsg = Buffer.from('REBOOT');
+    rebootSock.send(rebootMsg, 0, rebootMsg.length, 4444, '192.168.137.100', () => {
+      rebootSock.close();
+      console.log('[UPDATE] Sent REBOOT to Pi');
+    });
   } catch (e) {
     console.error('[UPDATE] Check failed:', e.message);
   }
