@@ -29,8 +29,15 @@
 - **5 looper tracks** mapped to APC Key 25's 5 rows (notes 0-39). `LOOPER_NUM_TRACKS=5` in `commonDefines.h`.
 - **VU meter on APC column 8** (rightmost). Peak level tracked in `inHandler` (no blocking), displayed as 5-LED green/red meter at 30fps from `_updateGridLeds`.
 
+## Clip state machine
+
+- **`ClipState` enum** (9 mutually-exclusive values) replaces the former 7 `CLIP_STATE_*` bitmask defines. Impossible combinations (e.g. `RECORD_IN|PLAY_MAIN`) are no longer representable.
+- **`CS_RECORDING_TAIL` vs `CS_FINISHING`** encode whether the clip will auto-play after recording ends — eliminating the former `m_pendingPlay` boolean flag.
+- **`CS_LOOPING`** encodes the former `PLAY_MAIN|PLAY_END` bitmask combination. `update()` reads both the main block pointer and fade block pointer in this state.
+- **Phase alignment**: `_startPlaying()` sets `m_play_block = (masterPhase + 1) % numBlocks` because `update()` increments masterPhase before reading it in the same tick.
+- **`loopClip.cpp` is split into three files** at the 200-line limit: `loopClip.cpp` (init/transitions), `loopClipUpdate.cpp` (per-buffer audio processing), `loopClipState.cpp` (state name/quantize/updateState).
+
 ## Planned architecture (not yet implemented)
 
 - **3-minute rolling recording buffer**: Audio input continuously fills a circular buffer. "Record" marks a start point, second press marks end and deep-copies the segment into a clip. Eliminates recording start/stop clicks.
-- **Crossfade on loop boundaries**: Short fade-in/fade-out windows at clip edges to prevent clicks on loop points. The existing `CROSSFADE_BLOCKS` in `loopClip.cpp` needs verification that it's applied during playback.
 - **Independent track controls**: Stopping one track should not stop others. The current `LOOP_COMMAND_STOP_IMMEDIATE` stops all tracks — needs per-track stop.
