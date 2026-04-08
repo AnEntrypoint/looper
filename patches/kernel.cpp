@@ -125,18 +125,13 @@ TShutdownMode CKernel::Run(void)
 	linkInit(&m_WLAN);
 
 	CSocket *pRebootSocket = new CSocket(&m_Net, IPPROTO_UDP);
-	if (pRebootSocket->Bind(4444) < 0)
-	{
-		delete pRebootSocket;
-		pRebootSocket = nullptr;
-	}
+	if (pRebootSocket->Bind(4444) < 0) { delete pRebootSocket; pRebootSocket = nullptr; }
+
+	CSocket *pDebugSocket = new CSocket(&m_Net, IPPROTO_UDP);
+	if (pDebugSocket->Bind(4445) < 0) { delete pDebugSocket; pDebugSocket = nullptr; }
 
 	CSocket *pMidiSocket = new CSocket(&m_Net, IPPROTO_UDP);
-	if (pMidiSocket->Bind(4446) < 0)
-	{
-		delete pMidiSocket;
-		pMidiSocket = nullptr;
-	}
+	if (pMidiSocket->Bind(4446) < 0) { delete pMidiSocket; pMidiSocket = nullptr; }
 
 	setup();
 
@@ -171,6 +166,26 @@ TShutdownMode CKernel::Run(void)
 			{
 				m_Logger.Write(log_name, LogNotice, "Reboot command received via UDP");
 				return ShutdownReboot;
+			}
+		}
+
+		if (pDebugSocket)
+		{
+			u8 buf[32];
+			CIPAddress sender;
+			u16 senderPort;
+			int n = pDebugSocket->ReceiveFrom(buf, sizeof buf - 1, MSG_DONTWAIT, &sender, &senderPort);
+			if (n > 0)
+			{
+				buf[n] = 0;
+				char reply[128];
+				snprintf(reply, sizeof reply,
+					"wlan=%s link=%s bpm=%.2f uptime=%u",
+					s_wlanJoined ? "joined" : "no",
+					linkIsSynced() ? "synced" : "no",
+					linkGetBPM(),
+					m_Timer.GetClockTicks() / CLOCKHZ);
+				pDebugSocket->SendTo((u8 *)reply, strlen(reply), MSG_DONTWAIT, sender, senderPort);
 			}
 		}
 
