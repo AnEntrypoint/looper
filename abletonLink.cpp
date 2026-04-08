@@ -1,5 +1,4 @@
 #include "abletonLink.h"
-#include <circle/macaddress.h>
 #include <circle/timer.h>
 #include <circle/logger.h>
 #include <circle/util.h>
@@ -14,7 +13,8 @@
 #define PAYLOAD_OFF		42
 
 static const u8 MAGIC[8] = {'_','a','s','d','p','_','v',0x01};
-static const u8 MCAST[4] = {224, 76, 78, 75};
+static const u8 MCAST[4]     = {224, 76, 78, 75};
+static const u8 MCAST_MAC[6] = {0x01, 0x00, 0x5e, 0x4c, 0x4e, 0x4b};
 static const u8 OWN_IP[4] = {192, 168, 137, 100};
 
 static CBcm4343Device *s_pWLAN    = nullptr;
@@ -112,9 +112,7 @@ static void sendAlive(void)
 	u8 frame[FRAME_BUF];
 	memset(frame, 0, PAYLOAD_OFF + plen);
 
-	CMACAddress mcast;
-	mcast.SetMulticast(MCAST);
-	mcast.CopyTo(frame + 0);
+	memcpy(frame + 0, MCAST_MAC, 6);
 	s_pWLAN->GetMACAddress()->CopyTo(frame + 6);
 	frame[12] = 0x08;
 	frame[13] = 0x00;
