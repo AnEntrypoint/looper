@@ -63,10 +63,6 @@ void apcKey25::_updateGridLeds()
         for (int col = 2; col < APC_COLS; col++)
             _sendLed(_padNote(row, col), APC_VEL_LED_OFF);
     }
-    // Row 4 (5th row) — all off, we only use 4 tracks
-    for (int col = 0; col < APC_COLS; col++)
-        _sendLed(_padNote(4, col), APC_VEL_LED_OFF);
-
     bool running = pTheLooper->getRunning();
     u16  pending = pTheLooper->getPendingCommand();
     _sendLed(APC_BTN_STOP_ALL, running ? (pending == LOOP_COMMAND_STOP ? APC_VEL_LED_YELLOW : APC_VEL_LED_GREEN) : APC_VEL_LED_OFF);

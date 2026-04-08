@@ -4,7 +4,7 @@
 
 #pragma once
 
-#define LOOPER_NUM_TRACKS     4
+#define LOOPER_NUM_TRACKS     5
 #define LOOPER_NUM_LAYERS     4
 	// the CC's spaces limit these practially to
 	// 32 when multipled, i.e. 8 tracks of 4 layers or 4 tracks of 8 layers
