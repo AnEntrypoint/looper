@@ -8,6 +8,7 @@
 audio_block_t *AudioInputUSB::s_block_left  = 0;
 audio_block_t *AudioInputUSB::s_block_right = 0;
 bool           AudioInputUSB::s_update_responsibility = false;
+volatile u32   AudioInputUSB::s_peakLevel = 0;
 
 #define IN_RING_SIZE 256
 static s16 s_in_ring_left [IN_RING_SIZE];
@@ -33,13 +34,19 @@ void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSa
 {
     unsigned wr = s_in_ring_wr;
     unsigned prev_block = wr / AUDIO_BLOCK_SAMPLES;
+    u32 peak = 0;
     for (unsigned i = 0; i < nSamples; i++)
     {
         s_in_ring_left [wr & (IN_RING_SIZE - 1)] = pLeft[i];
         s_in_ring_right[wr & (IN_RING_SIZE - 1)] = pRight[i];
+        u32 absL = pLeft[i] < 0 ? (u32)(-pLeft[i]) : (u32)pLeft[i];
+        u32 absR = pRight[i] < 0 ? (u32)(-pRight[i]) : (u32)pRight[i];
+        if (absL > peak) peak = absL;
+        if (absR > peak) peak = absR;
         wr++;
     }
     s_in_ring_wr = wr;
+    if (peak > s_peakLevel) s_peakLevel = peak;
 
     unsigned cur_block = wr / AUDIO_BLOCK_SAMPLES;
     if (cur_block != prev_block && s_update_responsibility)

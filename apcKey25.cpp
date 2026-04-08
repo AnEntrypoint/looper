@@ -1,6 +1,7 @@
 #define log_name "apc25"
 
 #include "apcKey25.h"
+#include "input_usb.h"
 #include "usbMidi.h"
 #include <circle/logger.h>
 #include <circle/timer.h>
@@ -60,9 +61,26 @@ void apcKey25::_updateGridLeds()
         u8 col1 = _muteLedColor(row);
         _sendLed(_padNote(row, 0), col0);
         _sendLed(_padNote(row, 1), col1);
-        for (int col = 2; col < APC_COLS; col++)
+        for (int col = 2; col < APC_COLS - 1; col++)
             _sendLed(_padNote(row, col), APC_VEL_LED_OFF);
     }
+
+    u32 peak = AudioInputUSB::s_peakLevel;
+    AudioInputUSB::s_peakLevel = 0;
+    int vuLevel = 0;
+    if (peak > 100)   vuLevel = 1;
+    if (peak > 500)   vuLevel = 2;
+    if (peak > 2000)  vuLevel = 3;
+    if (peak > 5000)  vuLevel = 4;
+    if (peak > 10000) vuLevel = 5;
+    for (int row = 0; row < APC_ROWS; row++)
+    {
+        u8 color = APC_VEL_LED_OFF;
+        if (row < vuLevel)
+            color = (row >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_GREEN;
+        _sendLed(_padNote(row, APC_COLS - 1), color);
+    }
+
     bool running = pTheLooper->getRunning();
     u16  pending = pTheLooper->getPendingCommand();
     _sendLed(APC_BTN_STOP_ALL, running ? (pending == LOOP_COMMAND_STOP ? APC_VEL_LED_YELLOW : APC_VEL_LED_GREEN) : APC_VEL_LED_OFF);

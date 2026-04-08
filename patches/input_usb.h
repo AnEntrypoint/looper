@@ -21,6 +21,9 @@ private:
     static audio_block_t *s_block_left;
     static audio_block_t *s_block_right;
     static bool           s_update_responsibility;
+
+public:
+    static volatile u32 s_peakLevel;
 };
 
 #endif
