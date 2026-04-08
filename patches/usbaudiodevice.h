@@ -24,6 +24,7 @@ public:
     void RegisterOutHandler (TAudioOutHandler *pHandler);
 
     static CUSBAudioDevice *Get (void) { return s_pThis; }
+    static CUSBAudioDevice *GetOut (void) { return s_pOut; }
 
 private:
     boolean StartInRequest  (void);
@@ -51,6 +52,7 @@ private:
     u32 m_nLastMonitorTick;
 
     static CUSBAudioDevice *s_pThis;
+    static CUSBAudioDevice *s_pOut;
     static unsigned         s_nDeviceNumber;
 };
 

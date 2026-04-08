@@ -12,7 +12,7 @@ AudioOutputUSB::AudioOutputUSB (void) : AudioStream (2, 0, m_input_queue)
 
 void AudioOutputUSB::start (void)
 {
-    CUSBAudioDevice *pDev = CUSBAudioDevice::Get ();
+    CUSBAudioDevice *pDev = CUSBAudioDevice::GetOut ();
     if (pDev)
         pDev->RegisterOutHandler (outHandler);
 }

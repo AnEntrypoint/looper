@@ -11,6 +11,7 @@
 static const char FromAudio[] = "uaudio";
 
 CUSBAudioDevice *CUSBAudioDevice::s_pThis = 0;
+CUSBAudioDevice *CUSBAudioDevice::s_pOut  = 0;
 unsigned         CUSBAudioDevice::s_nDeviceNumber = 1;
 
 CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
@@ -31,6 +32,7 @@ CUSBAudioDevice::~CUSBAudioDevice (void)
     delete m_pEndpointIn;
     delete m_pEndpointOut;
     if (s_pThis == this) s_pThis = 0;
+    if (s_pOut == this) s_pOut = 0;
 }
 
 boolean CUSBAudioDevice::Configure (void)
@@ -84,29 +86,14 @@ boolean CUSBAudioDevice::Configure (void)
         return FALSE;
     }
 
-    if (s_pThis != 0)
-    {
-        if (m_pEndpointIn && !s_pThis->m_pEndpointIn)
-        {
-            s_pThis->m_pEndpointIn = m_pEndpointIn;
-            m_pEndpointIn = 0;
-            CLogger::Get ()->Write (FromAudio, LogNotice, "Merged IN endpoint into existing device");
-            s_pThis->StartInRequest ();
-        }
-        if (m_pEndpointOut && !s_pThis->m_pEndpointOut)
-        {
-            s_pThis->m_pEndpointOut = m_pEndpointOut;
-            m_pEndpointOut = 0;
-            CLogger::Get ()->Write (FromAudio, LogNotice, "Merged OUT endpoint into existing device");
-            s_pThis->StartOutRequest ();
-        }
-        return TRUE;
-    }
-
     CString DeviceName;
     DeviceName.Format ("uaudio%u", s_nDeviceNumber++);
     CDeviceNameService::Get ()->AddDevice (DeviceName, this, FALSE);
-    s_pThis = this;
+
+    if (m_pEndpointIn && !s_pThis)
+        s_pThis = this;
+    if (m_pEndpointOut && !s_pOut)
+        s_pOut = this;
 
     CLogger::Get ()->Write (FromAudio, LogNotice, "USB audio device configured (in=%s out=%s)",
         m_pEndpointIn ? "yes" : "no", m_pEndpointOut ? "yes" : "no");
