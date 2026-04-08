@@ -103,7 +103,14 @@ boolean CKernel::Initialize(void)
 
 	s_wlanOK = m_WLAN.Initialize();
 	if (s_wlanOK)
+	{
 		s_wlanJoined = m_WLAN.JoinOpenNet(WLAN_SSID);
+		static const u8 mcastGroups[][6] = {
+			{0x01, 0x00, 0x5e, 0x4c, 0x4e, 0x4b},
+			{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+		};
+		m_WLAN.SetMulticastFilter(mcastGroups);
+	}
 	m_ActLED.Blink(1);
 
 	if (bOK) bOK = m_Net.Initialize(FALSE);
