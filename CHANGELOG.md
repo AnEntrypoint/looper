@@ -1,3 +1,6 @@
+## fc7727c — 2026-04-08
+- feat: clear button on empty track now acts as record button (sets phrase length on first track)
+
 # CHANGELOG
 
 ## 2026-04-08
