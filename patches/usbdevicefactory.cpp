@@ -182,11 +182,6 @@ CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pNam
 #endif
 #ifndef EXCLUDE_USB_AUDIO
 #if RASPPI >= 4
-	else if (   pName->Compare ("int1-1-0") == 0
-		 || pName->Compare ("int1-1-20") == 0)
-	{
-		pResult = new CUSBAudioDevice (pParent);
-	}
 	else if (   pName->Compare ("int1-2-0") == 0
 		 || pName->Compare ("int1-2-20") == 0)
 	{
