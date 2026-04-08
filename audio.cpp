@@ -203,16 +203,7 @@ void setup()
 
 
 
-static u32 s_last_audio_tick = 0;
-
 void loop()
 {
 	if (pTheAPC) pTheAPC->update();
-
-	u32 now = CTimer::GetClockTicks();
-	if ((u32)(now - s_last_audio_tick) >= (AUDIO_BLOCK_SAMPLES * 1000000u / 48000u))
-	{
-		s_last_audio_tick = now;
-		AudioSystem::startUpdate();
-	}
 }

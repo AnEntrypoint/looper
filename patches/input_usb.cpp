@@ -32,6 +32,7 @@ void AudioInputUSB::start (void)
 void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
 {
     unsigned wr = s_in_ring_wr;
+    unsigned prev_block = wr / AUDIO_BLOCK_SAMPLES;
     for (unsigned i = 0; i < nSamples; i++)
     {
         s_in_ring_left [wr & (IN_RING_SIZE - 1)] = pLeft[i];
@@ -39,6 +40,10 @@ void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSa
         wr++;
     }
     s_in_ring_wr = wr;
+
+    unsigned cur_block = wr / AUDIO_BLOCK_SAMPLES;
+    if (cur_block != prev_block && s_update_responsibility)
+        AudioSystem::startUpdate ();
 }
 
 void AudioInputUSB::update (void)
