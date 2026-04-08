@@ -151,6 +151,16 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
     assert (pURB != 0);
     assert (pURB == m_pInURB);
 
+    static boolean bLoggedIn = FALSE;
+    if (!bLoggedIn)
+    {
+        CLogger::Get ()->Write (FromAudio, LogNotice,
+            "IN: resultLen=%u maxPkt=%u status=%d",
+            pURB->GetResultLength (),
+            (unsigned) m_pEndpointIn->GetMaxPacketSize (),
+            pURB->GetStatus ());
+        bLoggedIn = TRUE;
+    }
     if (pURB->GetStatus () && pURB->GetResultLength () >= 4 && m_pInHandler != 0)
     {
         unsigned nSamples = pURB->GetResultLength () / 4;
@@ -193,6 +203,14 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
     u16 usPacketSize = (u16) m_pEndpointOut->GetMaxPacketSize ();
     if (usPacketSize > sizeof m_OutBuf) usPacketSize = sizeof m_OutBuf;
     unsigned nSamples = usPacketSize / 4;
+    static boolean bLoggedOut = FALSE;
+    if (!bLoggedOut)
+    {
+        CLogger::Get ()->Write (FromAudio, LogNotice,
+            "OUT: maxPkt=%u nSamples=%u bufSize=%u",
+            (unsigned) m_pEndpointOut->GetMaxPacketSize (), nSamples, (unsigned) sizeof m_OutBuf);
+        bLoggedOut = TRUE;
+    }
     if (m_pOutHandler)
     {
         s16 left_buf[USB_AUDIO_BLOCK_BYTES / 4], right_buf[USB_AUDIO_BLOCK_BYTES / 4];
