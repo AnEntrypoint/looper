@@ -13,9 +13,7 @@ jobs:
       AARCH: 32
     steps:
       - name: Install toolchain and make
-        run: |
-          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends make gcc-arm-none-eabi
+        run: sudo apt-get install -y make gcc-arm-none-eabi
 
       - name: Clone rsta2/circle
         run: git clone --depth=1 https://github.com/rsta2/circle circle
