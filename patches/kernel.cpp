@@ -4,6 +4,14 @@
 #include <circle/devicenameservice.h>
 #include <circle/net/in.h>
 #include <circle/net/socket.h>
+#include "p9chan.h"
+
+extern const unsigned char wlan_bin[];
+extern const unsigned long wlan_bin_size;
+extern const unsigned char wlan_txt[];
+extern const unsigned long wlan_txt_size;
+extern const unsigned char wlan_clm[];
+extern const unsigned long wlan_clm_size;
 
 #define SERIAL_BAUD_RATE	115200
 #define DRIVE			"SD:"
@@ -79,6 +87,13 @@ boolean CKernel::Initialize(void)
 
 	f_mount(&m_FileSystem, DRIVE, 1);
 	m_ActLED.Blink(1);
+
+	static const p9fw_entry s_wlanFW[] = {
+		{ "brcmfmac43455-sdio.bin",      wlan_bin, wlan_bin_size },
+		{ "brcmfmac43455-sdio.txt",      wlan_txt, wlan_txt_size },
+		{ "brcmfmac43455-sdio.clm_blob", wlan_clm, wlan_clm_size },
+	};
+	p9chan_set_firmware(s_wlanFW, 3);
 
 	if (!m_WLAN.Initialize())
 		m_Logger.Write(log_name, LogWarning, "WLAN init failed");

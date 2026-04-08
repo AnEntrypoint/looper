@@ -32,6 +32,8 @@ extern struct device_t
 }
 *devtab[];
 
+typedef struct { const char *name; const unsigned char *data; unsigned long size; } p9fw_entry;
+void p9chan_set_firmware (const p9fw_entry *fw, unsigned fw_count);
 void p9chan_init (const char *path);
 
 #ifdef __cplusplus

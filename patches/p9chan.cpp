@@ -4,20 +4,9 @@
 #include "p9error.h"
 #include <string.h>
 
-extern const unsigned char wlan_bin[];
-extern const unsigned long wlan_bin_size;
-extern const unsigned char wlan_txt[];
-extern const unsigned long wlan_txt_size;
-extern const unsigned char wlan_clm[];
-extern const unsigned long wlan_clm_size;
-
-static const struct { const char *name; const unsigned char *data; const unsigned long *size; } s_fw[] = {
-	{ "brcmfmac43455-sdio.bin",      wlan_bin, &wlan_bin_size },
-	{ "brcmfmac43455-sdio.txt",      wlan_txt, &wlan_txt_size },
-	{ "brcmfmac43455-sdio.clm_blob", wlan_clm, &wlan_clm_size },
-};
-
 static CString *s_pPath = 0;
+static const p9fw_entry *s_fw = 0;
+static unsigned s_fw_count = 0;
 
 Chan *namec (const char *name, unsigned func, unsigned flags, unsigned opt)
 {
@@ -30,12 +19,12 @@ Chan *namec (const char *name, unsigned func, unsigned flags, unsigned opt)
 	c->memsize = 0;
 	c->offset  = 0;
 
-	for (unsigned i = 0; i < sizeof(s_fw)/sizeof(s_fw[0]); i++)
+	for (unsigned i = 0; i < s_fw_count; i++)
 	{
 		if (strcmp(name, s_fw[i].name) == 0)
 		{
 			c->membuf  = s_fw[i].data;
-			c->memsize = *s_fw[i].size;
+			c->memsize = s_fw[i].size;
 			c->open    = 1;
 			return c;
 		}
@@ -117,6 +106,12 @@ struct device_t *devtab[1] =
 {
 	&devchan
 };
+
+void p9chan_set_firmware (const p9fw_entry *fw, unsigned fw_count)
+{
+	s_fw       = fw;
+	s_fw_count = fw_count;
+}
 
 void p9chan_init (const char *path)
 {
