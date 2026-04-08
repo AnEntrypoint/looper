@@ -3,7 +3,7 @@ PRH_HOME = ../..
 
 OBJS = main.o kernel.o audio.o app.o apcKey25.o usbMidi.o \
        loopBuffer.o loopClip.o loopClipUpdate.o loopClipState.o loopTrack.o loopMachine.o dprobe.o \
-       abletonLink.o
+       abletonLink.o wlan_firmware.o
 
 LIBS = $(PRH_HOME)/audio/libaudio.a \
        $(PRH_HOME)/utils/lib_my_utils.a \

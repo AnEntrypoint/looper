@@ -51,6 +51,8 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/kernel.h circle/_prh/_apps/Looper/kernel.h
           cp circle/_prh/_apps/Looper/patches/kernel.cpp circle/_prh/_apps/Looper/kernel.cpp
           cp circle/_prh/_apps/Looper/patches/main.cpp circle/_prh/_apps/Looper/main.cpp
+          cp circle/_prh/_apps/Looper/patches/p9chan.h circle/addon/wlan/p9chan.h
+          cp circle/_prh/_apps/Looper/patches/p9chan.cpp circle/addon/wlan/p9chan.cpp
 
       - name: Build circle libraries
         run: |
@@ -73,6 +75,29 @@ jobs:
           wget -q -O circle/_prh/_apps/Looper/dist/firmware/brcmfmac43455-sdio.bin ${BASE}/cypress/cyfmac43455-sdio-minimal.bin
           wget -q -O circle/_prh/_apps/Looper/dist/firmware/brcmfmac43455-sdio.txt ${BASE}/brcm/brcmfmac43455-sdio.txt
           wget -q -O circle/_prh/_apps/Looper/dist/firmware/brcmfmac43455-sdio.clm_blob ${BASE}/cypress/cyfmac43455-sdio.clm_blob
+
+      - name: Generate embedded firmware
+        run: |
+          FW=circle/_prh/_apps/Looper/dist/firmware
+          OUT=circle/_prh/_apps/Looper/wlan_firmware.cpp
+          python3 - <<'EOF'
+          import struct, os
+          fw_dir = "circle/_prh/_apps/Looper/dist/firmware"
+          out = "circle/_prh/_apps/Looper/wlan_firmware.cpp"
+          files = [
+            ("wlan_bin", "brcmfmac43455-sdio.bin"),
+            ("wlan_txt", "brcmfmac43455-sdio.txt"),
+            ("wlan_clm", "brcmfmac43455-sdio.clm_blob"),
+          ]
+          with open(out, "w") as f:
+            f.write('#include <circle/types.h>\n')
+            for sym, fname in files:
+              data = open(os.path.join(fw_dir, fname), "rb").read()
+              f.write(f'const unsigned char {sym}[] = {{')
+              f.write(','.join(str(b) for b in data))
+              f.write(f'}};\nconst unsigned long {sym}_size = {len(data)};\n')
+          print(f"Generated {out}")
+          EOF
 
       - name: Build circle-prh libraries
         run: |
