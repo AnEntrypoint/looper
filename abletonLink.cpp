@@ -22,6 +22,8 @@ static double          s_bpm      = 120.0;
 static u64             s_nodeId   = 0;
 static u64             s_lastSend = 0;
 static bool            s_synced   = false;
+static bool            s_loggedSend = false;
+static u32             s_rxCount  = 0;
 
 static inline u16 swap16(u16 v) { return __builtin_bswap16(v); }
 static inline u32 swap32(u32 v) { return __builtin_bswap32(v); }
@@ -160,6 +162,12 @@ void linkProcess(void)
 	unsigned len;
 	while (s_pWLAN->ReceiveFrame(buf, &len))
 	{
+		s_rxCount++;
+		if (s_rxCount <= 3)
+			CLogger::Get()->Write("link", LogNotice, "rx frame len=%u eth=%02x%02x ip=%d proto=%d",
+				len, buf[12], buf[13],
+				len > IP_HDR_OFF ? buf[IP_HDR_OFF+9] : 0,
+				len > IP_HDR_OFF ? buf[IP_HDR_OFF+16] : 0);
 		if (len < PAYLOAD_OFF + 18) continue;
 		if (buf[12] != 0x08 || buf[13] != 0x00) continue;
 		u8 *ip = buf + IP_HDR_OFF;
@@ -175,6 +183,11 @@ void linkProcess(void)
 	u64 now = (u64)CTimer::GetClockTicks();
 	if (now - s_lastSend >= SEND_INTERVAL_US)
 	{
+		if (!s_loggedSend)
+		{
+			CLogger::Get()->Write("link", LogNotice, "sending alive bpm=%d", (int)s_bpm);
+			s_loggedSend = true;
+		}
 		sendAlive();
 		s_lastSend = now;
 	}
