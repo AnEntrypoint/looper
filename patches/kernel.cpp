@@ -102,14 +102,8 @@ boolean CKernel::Initialize(void)
 	p9chan_set_firmware(s_wlanFW, 3);
 
 	s_wlanOK = m_WLAN.Initialize();
-	if (s_wlanOK) {
+	if (s_wlanOK)
 		s_wlanJoined = m_WLAN.JoinOpenNet(WLAN_SSID);
-		if (s_wlanJoined) {
-			u8 mac[6];
-			m_WLAN.GetMACAddress()->CopyTo(mac);
-			wlanDhcpGetIP(&m_WLAN, mac);
-		}
-	}
 	m_ActLED.Blink(1);
 
 	if (bOK) bOK = m_Net.Initialize(FALSE);
@@ -129,6 +123,12 @@ TShutdownMode CKernel::Run(void)
 	m_Logger.Write(log_name, LogNotice, "WLAN init=%s join=%s",
 		s_wlanOK ? "OK" : "FAILED",
 		s_wlanOK ? (s_wlanJoined ? "OK" : "FAILED") : "N/A");
+
+	if (s_wlanJoined) {
+		u8 mac[6];
+		m_WLAN.GetMACAddress()->CopyTo(mac);
+		wlanDhcpGetIP(&m_WLAN, mac);
+	}
 
 	linkInit(&m_WLAN);
 
