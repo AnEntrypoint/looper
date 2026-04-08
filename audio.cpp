@@ -208,13 +208,4 @@ static u32 s_last_audio_tick = 0;
 void loop()
 {
 	if (pTheAPC) pTheAPC->update();
-
-#if USE_USB_AUDIO
-	u32 now = CTimer::GetClockTicks();
-	if ((u32)(now - s_last_audio_tick) >= (AUDIO_BLOCK_SAMPLES * 1000000u / AUDIO_SAMPLE_RATE))
-	{
-		s_last_audio_tick = now;
-		AudioSystem::startUpdate();
-	}
-#endif
 }
