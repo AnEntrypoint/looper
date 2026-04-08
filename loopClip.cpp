@@ -543,7 +543,7 @@ void loopClip::updateState(u16 cur_command)
                 return;
             }
             u32 target = _calcQuantizeTarget();
-            if ((m_state & CLIP_STATE_RECORD_MAIN) && target <= m_record_block)
+            if (target <= m_record_block)
             {
                 _startEndingRecording(target);
             }

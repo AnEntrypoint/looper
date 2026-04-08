@@ -623,6 +623,18 @@ void loopMachine::update(void)
 				pTrack->update(m_input_buffer,m_output_buffer);
 			}
 		}
+		if (m_masterPhase == 0)
+		{
+			for (int t = 0; t < LOOPER_NUM_TRACKS; t++)
+			{
+				loopTrack *pT = getTrack(t);
+				for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
+				{
+					loopClip *pC = pT->getClip(c);
+					if (pC) pC->tryUnmute();
+				}
+			}
+		}
 	}   // m_running
 
 	u32 outPeak = 0;
@@ -774,19 +786,6 @@ void loopMachine::updateState(void)
 			m_pending_command = LOOP_COMMAND_SET_LOOP_START;
 		}
 	}
-
-    if (m_masterPhase == 0)
-    {
-        for (int t = 0; t < LOOPER_NUM_TRACKS; t++)
-        {
-            loopTrack *pT = getTrack(t);
-            for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
-            {
-                loopClip *pC = pT->getClip(c);
-                if (pC) pC->tryUnmute();
-            }
-        }
-    }
 
     if (m_pending_command)
     {
