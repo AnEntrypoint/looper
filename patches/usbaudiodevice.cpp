@@ -115,8 +115,12 @@ boolean CUSBAudioDevice::StartInRequest (void)
     assert (m_pEndpointIn != 0);
     assert (m_pInURB == 0);
 
-    m_pInURB = new CUSBRequest (m_pEndpointIn, m_InBuf, sizeof m_InBuf);
+    u16 usPacketSize = (u16) m_pEndpointIn->GetMaxPacketSize ();
+    if (usPacketSize > sizeof m_InBuf) usPacketSize = sizeof m_InBuf;
+
+    m_pInURB = new CUSBRequest (m_pEndpointIn, m_InBuf, usPacketSize);
     assert (m_pInURB != 0);
+    m_pInURB->AddIsoPacket (usPacketSize);
     m_pInURB->SetCompletionRoutine (InStub, 0, this);
     return GetHost ()->SubmitAsyncRequest (m_pInURB);
 }
@@ -126,8 +130,12 @@ boolean CUSBAudioDevice::StartOutRequest (void)
     assert (m_pEndpointOut != 0);
     assert (m_pOutURB == 0);
 
-    m_pOutURB = new CUSBRequest (m_pEndpointOut, m_OutBuf, sizeof m_OutBuf);
+    u16 usPacketSize = (u16) m_pEndpointOut->GetMaxPacketSize ();
+    if (usPacketSize > sizeof m_OutBuf) usPacketSize = sizeof m_OutBuf;
+
+    m_pOutURB = new CUSBRequest (m_pEndpointOut, m_OutBuf, usPacketSize);
     assert (m_pOutURB != 0);
+    m_pOutURB->AddIsoPacket (usPacketSize);
     m_pOutURB->SetCompletionRoutine (OutStub, 0, this);
     return GetHost ()->SubmitAsyncRequest (m_pOutURB);
 }
