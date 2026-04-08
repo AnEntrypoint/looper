@@ -124,12 +124,6 @@ TShutdownMode CKernel::Run(void)
 		s_wlanOK ? "OK" : "FAILED",
 		s_wlanOK ? (s_wlanJoined ? "OK" : "FAILED") : "N/A");
 
-	if (s_wlanJoined) {
-		u8 mac[6];
-		m_WLAN.GetMACAddress()->CopyTo(mac);
-		wlanDhcpGetIP(&m_WLAN, mac);
-	}
-
 	linkInit(&m_WLAN);
 
 	CSocket *pRebootSocket = new CSocket(&m_Net, IPPROTO_UDP);
@@ -147,6 +141,12 @@ TShutdownMode CKernel::Run(void)
 
 	bool bPlugAndPlayUpdated = FALSE;
 	unsigned nLastHeartbeat = m_Timer.GetClockTicks();
+	bool bDhcpDone = !s_wlanJoined;
+	if (s_wlanJoined) {
+		u8 mac[6];
+		m_WLAN.GetMACAddress()->CopyTo(mac);
+		wlanDhcpSendDiscover(&m_WLAN, mac);
+	}
 	while (TRUE)
 	{
 		bPlugAndPlayUpdated = m_USBHCI.UpdatePlugAndPlay();
@@ -154,6 +154,7 @@ TShutdownMode CKernel::Run(void)
 		m_Net.Process();
 		usbMidiProcess(bPlugAndPlayUpdated);
 		loop();
+		if (!bDhcpDone) bDhcpDone = wlanDhcpPoll(&m_WLAN);
 		linkProcess();
 		m_Scheduler.Yield();
 
