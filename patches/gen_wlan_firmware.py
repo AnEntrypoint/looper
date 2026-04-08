@@ -7,10 +7,19 @@ files = [
     ('wlan_clm', 'brcmfmac43455-sdio.clm_blob'),
 ]
 with open(out, 'w') as f:
-    f.write('#ifdef __cplusplus\nextern "C" {\n#endif\n')
+    f.write('.section .rodata\n')
     for sym, fname in files:
-        data = open(os.path.join(fw, fname), 'rb').read()
-        f.write('const unsigned char %s[] = {%s};\n' % (sym, ','.join(str(b) for b in data)))
-        f.write('const unsigned long %s_size = %d;\n' % (sym, len(data)))
-    f.write('#ifdef __cplusplus\n}\n#endif\n')
-print('Generated', out, len(open(out).read()), 'bytes')
+        path = os.path.join(fw, fname)
+        size = os.path.getsize(path)
+        abspath = os.path.abspath(path)
+        f.write('.global %s\n' % sym)
+        f.write('.type %s, %%object\n' % sym)
+        f.write('%s:\n' % sym)
+        f.write('.incbin "%s"\n' % abspath)
+        f.write('.size %s, %d\n' % (sym, size))
+        f.write('.global %s_size\n' % sym)
+        f.write('.type %s_size, %%object\n' % sym)
+        f.write('%s_size:\n' % sym)
+        f.write('.long %d\n' % size)
+        f.write('.size %s_size, 4\n' % sym)
+print('Generated', out)

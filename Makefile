@@ -28,4 +28,7 @@ endif
 
 include $(CIRCLEHOME)/Rules.mk
 
+wlan_firmware.o: wlan_firmware.S
+	$(AS) $(AFLAGS) -o $@ $<
+
 -include $(DEPS)

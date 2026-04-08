@@ -80,7 +80,7 @@ jobs:
         run: |
           python3 circle/_prh/_apps/Looper/patches/gen_wlan_firmware.py \
             circle/_prh/_apps/Looper/dist/firmware \
-            circle/_prh/_apps/Looper/wlan_firmware.cpp
+            circle/_prh/_apps/Looper/wlan_firmware.S
 
       - name: Build circle-prh libraries
         run: |
