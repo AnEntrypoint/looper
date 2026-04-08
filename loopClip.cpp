@@ -384,14 +384,19 @@ void loopClip::update(s32 *ip, s32 *op)
 	{
 		m_record_block++;
 
-		// if we have recorded all of the FADE_IN, progress
-		// from state RECORD_IN to state RECORD_MAIN
-
 		if ((m_state & CLIP_STATE_RECORD_IN) &&
 			(m_record_block >= CROSSFADE_BLOCKS))
 		{
 			clearClipBits(CLIP_STATE_RECORD_IN);
 			setClipBits(CLIP_STATE_RECORD_MAIN);
+		}
+
+		if (m_quantizeTarget > 0 &&
+			(m_state & CLIP_STATE_RECORD_MAIN) &&
+			m_record_block >= m_quantizeTarget)
+		{
+			m_quantizeTarget = 0;
+			_startEndingRecording();
 		}
 
 		// if RECORD_END, and m_record_block has reached the crossfade out,
@@ -429,6 +434,17 @@ void loopClip::update(s32 *ip, s32 *op)
 // UPDATE STATE
 //----------------------------------------------
 
+u32 loopClip::_calcQuantizeTarget()
+{
+    u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
+    if (masterLen == 0) return m_record_block;
+    u32 lower = (m_record_block / masterLen) * masterLen;
+    if (lower < CROSSFADE_BLOCKS) lower = masterLen;
+    u32 upper = lower + masterLen;
+    u32 mid = lower + masterLen / 2;
+    return (m_record_block >= mid) ? upper : lower;
+}
+
 void loopClip::updateState(u16 cur_command)
 {
     LOOPER_LOG("clip(%d,%d) updateState(%s)",m_track_num,m_clip_num,getLoopCommandName(cur_command));
@@ -459,7 +475,7 @@ void loopClip::updateState(u16 cur_command)
     {
         if (m_state & CLIP_STATE_RECORD_MAIN)
         {
-            _startEndingRecording();
+            m_quantizeTarget = _calcQuantizeTarget();
         }
         else if (m_state & CLIP_STATE_PLAY_MAIN)
         {
@@ -480,20 +496,17 @@ void loopClip::updateState(u16 cur_command)
     }
     else if (cur_command == LOOP_COMMAND_PLAY)
     {
-        CLogger::Get()->Write(log_name, LogNotice, "clip(%d,%d) PLAY state=0x%04x rb=%d", m_track_num, m_clip_num, m_state, m_record_block);
         if (m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN))
         {
             if ((m_state & CLIP_STATE_RECORD_IN) && m_record_block == 0)
             {
                 stopImmediate();
-                CLogger::Get()->Write(log_name, LogNotice, "clip(%d,%d) aborted(rb=0)", m_track_num, m_clip_num);
                 return;
             }
-            _startEndingRecording();
+            m_quantizeTarget = _calcQuantizeTarget();
         }
         if (!(m_state & CLIP_STATE_PLAY_MAIN))
             _startPlaying();
-        CLogger::Get()->Write(log_name, LogNotice, "clip(%d,%d) PLAY done state=0x%04x", m_track_num, m_clip_num, m_state);
     }
     else if (cur_command == LOOP_COMMAND_RECORD)
     {

@@ -214,6 +214,7 @@ class publicClip
             m_crossfade_start = 0;
             m_crossfade_offset = 0;
             m_origNumBlocks = 0;
+            m_quantizeTarget = 0;
             m_mute = false;
             m_volume = 1.0;
             m_mark_point = -1;
@@ -230,6 +231,7 @@ class publicClip
         u32  m_crossfade_start;
         u32  m_crossfade_offset;
         u32  m_origNumBlocks;
+        u32  m_quantizeTarget;
 
         s32  m_mark_point;
         bool m_mark_point_active;
@@ -321,6 +323,7 @@ class loopClip : public publicClip
         void _startCrossFade();
         void _endFadeOut();
 
+        u32 _calcQuantizeTarget();
         void setClipBits(u16 b);
         void clearClipBits(u16 b);
 };
