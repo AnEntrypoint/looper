@@ -78,19 +78,9 @@ jobs:
 
       - name: Generate embedded firmware
         run: |
-          FW=circle/_prh/_apps/Looper/dist/firmware
-          OUT=circle/_prh/_apps/Looper/wlan_firmware.cpp
-          python3 -c "
-import os
-fw = 'circle/_prh/_apps/Looper/dist/firmware'
-out = 'circle/_prh/_apps/Looper/wlan_firmware.cpp'
-files = [('wlan_bin','brcmfmac43455-sdio.bin'),('wlan_txt','brcmfmac43455-sdio.txt'),('wlan_clm','brcmfmac43455-sdio.clm_blob')]
-with open(out,'w') as f:
-  for sym,fname in files:
-    data=open(os.path.join(fw,fname),'rb').read()
-    f.write('extern \"C\" { const unsigned char %s[]={%s}; const unsigned long %s_size=%d; }\n'%(sym,','.join(str(b) for b in data),sym,len(data)))
-print('Generated',out)
-"
+          python3 circle/_prh/_apps/Looper/patches/gen_wlan_firmware.py \
+            circle/_prh/_apps/Looper/dist/firmware \
+            circle/_prh/_apps/Looper/wlan_firmware.cpp
 
       - name: Build circle-prh libraries
         run: |
