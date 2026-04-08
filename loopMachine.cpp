@@ -471,7 +471,10 @@ void loopMachine::command(u16 command)
         else
             next_cmd = LOOP_COMMAND_RECORD;
 
-        pTrack->updateState(next_cmd);
+        if (next_cmd == LOOP_COMMAND_RECORD && m_masterLoopBlocks > 0)
+            m_track_pending[track_num] = LOOP_COMMAND_RECORD;
+        else
+            pTrack->updateState(next_cmd);
 
     }   // TRACK COMMAND
 
@@ -782,27 +785,12 @@ void loopMachine::updateState(void)
         loopClip  *pClip0 = pTrack->getClip(0);
         u16 clip0_state = pClip0 ? pClip0->getClipState() : 0;
 
-        bool at_beat = false;
-        if (m_masterLoopBlocks > 0)
-        {
-            u32 beatLen = m_masterLoopBlocks / 4;
-            if (beatLen == 0) beatLen = 1;
-            for (int t = 0; t < LOOPER_NUM_TRACKS; t++)
-            {
-                loopClip *pC = getTrack(t)->getClip(0);
-                if (pC && (pC->getClipState() & CLIP_STATE_PLAY_MAIN))
-                {
-                    u32 pos = pC->getPlayBlockNum() % m_masterLoopBlocks;
-                    if (pos % beatLen < 2 || (beatLen - pos % beatLen) < 2)
-                        at_beat = true;
-                }
-            }
-        }
+        bool at_phrase_start = (m_masterLoopBlocks > 0) && (m_masterPhase == 0);
         bool track_latch =
             !pTrack->getNumRunningClips() ||
             (clip0_state & CLIP_STATE_PLAY_MAIN) && !pClip0->getPlayBlockNum() ||
             (clip0_state & CLIP_STATE_RECORD_MAIN) ||
-            (m_masterLoopBlocks > 0 && at_beat && m_track_pending[i] == LOOP_COMMAND_RECORD);
+            (at_phrase_start && m_track_pending[i] == LOOP_COMMAND_RECORD);
 
         if (track_latch)
         {
