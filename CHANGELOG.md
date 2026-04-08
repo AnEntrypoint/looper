@@ -1,8 +1,11 @@
 ## [unreleased] 2026-04-08
-- feat: WiFi via BCM43455 (ticker open network), DHCP, syslog to 192.168.4.1
+- fix: Ethernet restored as boot/syslog interface (static 192.168.137.x); WiFi used only for Ableton Link via CBcm4343Device raw frames
+- fix: abletonLink rewritten to use SendFrame/ReceiveFrame (no CSocket, no CNetSubSystem dependency)
+- fix: WLAN init/join non-fatal; Ethernet always available regardless of WiFi state
+- fix: tftp-server.js copies firmware/ from release zip to tftproot/firmware/ for SD card placement
+- feat: WiFi via BCM43455 (ticker open network), syslog to 192.168.137.1
 - feat: Ableton Link multicast peer (224.76.78.75:20808), BPM sync via tmln TLV
 - infra: CI builds circle/addon/wlan, downloads rPi4 WiFi firmware into release zip
-- refactor: Makefile adds abletonLink.o and libwlan.a; kernel switches from static Ethernet to WLAN
 
 ## fc7727c — 2026-04-08
 - feat: clear button on empty track now acts as record button (sets phrase length on first track)

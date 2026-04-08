@@ -39,13 +39,13 @@
 
 ## WiFi and Ableton Link
 
-- **Network switched from Ethernet to WiFi.** `CNetSubSystem` constructed with `NetDeviceTypeWLAN` and no static IP (DHCP). `CBcm4343Device` handles BCM43455 on rPi4. WiFi firmware (`brcmfmac43455-sdio.{bin,txt,clm_blob}`) must be at `SD:/firmware/` — included in release zip via CI.
-- **Open network join**: `m_WLAN.JoinOpenNet("ticker")` in `Initialize()`, called after fatfs mount and before `m_Net.Initialize(FALSE)`. Member order in kernel class matters: `CBcm4343Device m_WLAN` must come after `FATFS m_FileSystem`, before `CNetSubSystem m_Net`.
-- **DHCP wait in Run()**: `while (!m_Net.IsRunning()) m_Scheduler.MsSleep(100)` — network is not usable until this completes. All socket setup follows.
-- **Syslog target is 192.168.4.1** (ticker AP gateway). Connect dev machine to ticker WiFi to receive syslog.
-- **Ableton Link**: minimal protocol in `abletonLink.cpp`. UDP multicast on `224.76.78.75:20808`. Magic header is 8 bytes `_asdp_v\x01` stored as `u8 MAGIC[8]`. Parses `tmln` TLV (key `0x746d6c6e`, 24 bytes: microsPerBeat + beatOrigin + timeOrigin, all big-endian int64). Sends alive packets every 1s with `mmbe` (session membership) + `tmln` TLVs. All wire values big-endian — use `__builtin_bswap32`/`__builtin_bswap64`. Self-echo filtered: packets with nodeId at buf+10 matching our own `s_nodeId` are discarded. `linkIsSynced()` returns true only after a remote peer tmln has been received.
-- **Link-driven quantize**: When `linkIsSynced()` and no clips are recorded (`m_running == 0`), `loopMachine::update()` sets `m_masterLoopBlocks = round(INTEGRAL_BLOCKS_PER_SECOND * 60.0 / bpm)` each tick. This makes the first recording quantize to one Link beat via the existing `_calcQuantizeTarget()` path. Once any clip is recorded, `m_masterLoopBlocks` is owned by the recording system and Link no longer overrides it. Clearing all clips resets `m_masterLoopBlocks` to 0, handing control back to Link.
-- **`linkProcess()` called in main loop** (after `loop()`, before `m_Scheduler.Yield()`). Non-blocking — uses `MSG_DONTWAIT` on receive.
+- **Ethernet is the boot/syslog interface.** `CNetSubSystem` uses static IP `192.168.137.100`, gateway/DNS `192.168.137.1`, syslog target `192.168.137.1`. No DHCP wait. Connect dev machine to the same Ethernet segment.
+- **WiFi (`CBcm4343Device m_WLAN`) is used only for Ableton Link.** `CNetSubSystem` runs on Ethernet. `CBcm4343Device` is initialized standalone (no `CNetSubSystem`) and used via raw `SendFrame`/`ReceiveFrame`. WLAN init/join failures are warnings only — Ethernet always boots.
+- **Open network join**: `m_WLAN.JoinOpenNet("ticker")` in `Initialize()`, called after fatfs mount and before `m_Net.Initialize(FALSE)`. Member order in kernel class: `CBcm4343Device m_WLAN` after `FATFS m_FileSystem`, before `CNetSubSystem m_Net`.
+- **WiFi firmware** (`brcmfmac43455-sdio.{bin,txt,clm_blob}`) must be at `SD:/firmware/`. `tftp-server.js` copies them to `tftproot/firmware/` from the release zip for manual SD card placement.
+- **Ableton Link** in `abletonLink.cpp` builds raw Ethernet+IP+UDP frames (14+20+8 byte headers) for multicast `224.76.78.75:20808` and calls `CBcm4343Device::SendFrame`. Receive via `ReceiveFrame` polls each loop, filters by ethertype `0x0800`, proto `17`, dst IP and port. Magic header `_asdp_v\x01`. Parses `tmln` TLV (key `0x746d6c6e`, 24 bytes: microsPerBeat + beatOrigin + timeOrigin, big-endian int64). Sends alive every 1s with `mmbe` + `tmln`. Self-echo filtered on nodeId at buf+10.
+- **Link-driven quantize**: When `linkIsSynced()` and no clips are recorded (`m_running == 0`), `loopMachine::update()` sets `m_masterLoopBlocks = round(INTEGRAL_BLOCKS_PER_SECOND * 60.0 / bpm)` each tick. Clears hand control back to Link.
+- **`linkProcess()` called in main loop** (after `loop()`, before `m_Scheduler.Yield()`).
 - **libwlan.a** built via `make -C circle/addon/wlan RASPPI=4 AARCH=32`. Linked before libcircle.a. INCLUDE adds `$(CIRCLEHOME)/addon/wlan`.
 
 ## Planned architecture (not yet implemented)
