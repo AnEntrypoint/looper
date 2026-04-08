@@ -15,7 +15,7 @@
 #define USE_ILI_TFT		0
 #define USE_XPT2046		0
 
-#define CORE_FOR_AUDIO_SYSTEM	1
+#define CORE_FOR_AUDIO_SYSTEM	0
 #define CORE_FOR_UI_SYSTEM	2
 
 #include <circle/types.h>
