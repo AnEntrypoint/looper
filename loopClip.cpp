@@ -241,6 +241,11 @@ void loopClip::_finishRecording()
     clearClipBits(CLIP_STATE_RECORD_END);
     setClipBits(CLIP_STATE_RECORDED);
     m_pLoopTrack->incDecRunning(-1);
+    if (m_pendingPlay)
+    {
+        m_pendingPlay = false;
+        _startPlaying();
+    }
 }
 
 
@@ -550,9 +555,11 @@ void loopClip::updateState(u16 cur_command)
             else
             {
                 m_quantizeTarget = target;
+                m_pendingPlay = true;
             }
         }
-        if (!(m_state & CLIP_STATE_PLAY_MAIN))
+        if (!(m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN | CLIP_STATE_RECORD_END)) &&
+            !(m_state & CLIP_STATE_PLAY_MAIN))
             _startPlaying();
     }
     else if (cur_command == LOOP_COMMAND_RECORD)

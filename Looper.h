@@ -218,6 +218,7 @@ class publicClip
             m_recordStartPhaseOffset = 0;
             m_mute = false;
             m_pendingUnmute = false;
+            m_pendingPlay = false;
             m_volume = 1.0;
             m_mark_point = -1;
             m_mark_point_active = false;
@@ -241,6 +242,7 @@ class publicClip
 
         bool m_mute;
         bool m_pendingUnmute;
+        bool m_pendingPlay;
 
         float m_volume;
 
