@@ -38,6 +38,7 @@ static u16 csum16(const u8 *d, int n)
 static void parsePkt(const u8 *buf, int len)
 {
 	if (len < 18) return;
+	if (s_rxCount <= 22) CLogger::Get()->Write("link",LogNotice,"pkt magic=%02x%02x%02x%02x len=%d",buf[0],buf[1],buf[2],buf[3],len);
 	if (memcmp(buf, MAGIC, 8) != 0) return;
 
 	u64 senderId;
