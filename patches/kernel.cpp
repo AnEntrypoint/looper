@@ -6,12 +6,14 @@
 #include <circle/net/socket.h>
 #include "p9chan.h"
 
+extern "C" {
 extern const unsigned char wlan_bin[];
 extern const unsigned long wlan_bin_size;
 extern const unsigned char wlan_txt[];
 extern const unsigned long wlan_txt_size;
 extern const unsigned char wlan_clm[];
 extern const unsigned long wlan_clm_size;
+}
 
 #define SERIAL_BAUD_RATE	115200
 #define DRIVE			"SD:"

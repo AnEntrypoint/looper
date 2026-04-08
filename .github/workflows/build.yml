@@ -88,7 +88,7 @@ files = [('wlan_bin','brcmfmac43455-sdio.bin'),('wlan_txt','brcmfmac43455-sdio.t
 with open(out,'w') as f:
   for sym,fname in files:
     data=open(os.path.join(fw,fname),'rb').read()
-    f.write('const unsigned char %s[]={%s};\nconst unsigned long %s_size=%d;\n'%(sym,','.join(str(b) for b in data),sym,len(data)))
+    f.write('extern \"C\" { const unsigned char %s[]={%s}; const unsigned long %s_size=%d; }\n'%(sym,','.join(str(b) for b in data),sym,len(data)))
 print('Generated',out)
 "
 
