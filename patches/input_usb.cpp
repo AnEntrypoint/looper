@@ -9,12 +9,16 @@ audio_block_t *AudioInputUSB::s_block_left  = 0;
 audio_block_t *AudioInputUSB::s_block_right = 0;
 bool           AudioInputUSB::s_update_responsibility = false;
 
-static s16 s_accum_left [AUDIO_BLOCK_SAMPLES];
-static s16 s_accum_right[AUDIO_BLOCK_SAMPLES];
-static unsigned s_accum_pos = 0;
+#define IN_RING_SIZE 256
+static s16 s_in_ring_left [IN_RING_SIZE];
+static s16 s_in_ring_right[IN_RING_SIZE];
+static volatile unsigned s_in_ring_wr = 0;
+static volatile unsigned s_in_ring_rd = 0;
 
 AudioInputUSB::AudioInputUSB (void) : AudioStream (0, 2, 0)
 {
+    memset (s_in_ring_left,  0, sizeof s_in_ring_left);
+    memset (s_in_ring_right, 0, sizeof s_in_ring_right);
 }
 
 void AudioInputUSB::start (void)
@@ -27,28 +31,14 @@ void AudioInputUSB::start (void)
 
 void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
 {
+    unsigned wr = s_in_ring_wr;
     for (unsigned i = 0; i < nSamples; i++)
     {
-        s_accum_left [s_accum_pos] = pLeft[i];
-        s_accum_right[s_accum_pos] = pRight[i];
-        s_accum_pos++;
-
-        if (s_accum_pos >= AUDIO_BLOCK_SAMPLES)
-        {
-            audio_block_t *left  = s_block_left;
-            audio_block_t *right = s_block_right;
-
-            if (left)
-                memcpy (left->data,  s_accum_left,  AUDIO_BLOCK_SAMPLES * sizeof (s16));
-            if (right)
-                memcpy (right->data, s_accum_right, AUDIO_BLOCK_SAMPLES * sizeof (s16));
-
-            s_accum_pos = 0;
-
-            if (s_update_responsibility)
-                AudioSystem::startUpdate ();
-        }
+        s_in_ring_left [wr & (IN_RING_SIZE - 1)] = pLeft[i];
+        s_in_ring_right[wr & (IN_RING_SIZE - 1)] = pRight[i];
+        wr++;
     }
+    s_in_ring_wr = wr;
 }
 
 void AudioInputUSB::update (void)
@@ -65,15 +55,28 @@ void AudioInputUSB::update (void)
         }
     }
 
-    __disable_irq ();
-    audio_block_t *out_left  = s_block_left;
-    audio_block_t *out_right = s_block_right;
-    s_block_left  = new_left;
-    s_block_right = new_right;
-    __enable_irq ();
+    if (new_left && new_right)
+    {
+        unsigned rd = s_in_ring_rd;
+        for (unsigned i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+        {
+            if (rd != s_in_ring_wr)
+            {
+                new_left->data[i]  = s_in_ring_left [rd & (IN_RING_SIZE - 1)];
+                new_right->data[i] = s_in_ring_right[rd & (IN_RING_SIZE - 1)];
+                rd++;
+            }
+            else
+            {
+                new_left->data[i]  = 0;
+                new_right->data[i] = 0;
+            }
+        }
+        s_in_ring_rd = rd;
+    }
 
-    transmit (out_left,  0);
-    AudioSystem::release (out_left);
-    transmit (out_right, 1);
-    AudioSystem::release (out_right);
+    transmit (new_left,  0);
+    transmit (new_right, 1);
+    if (new_left)  AudioSystem::release (new_left);
+    if (new_right) AudioSystem::release (new_right);
 }
