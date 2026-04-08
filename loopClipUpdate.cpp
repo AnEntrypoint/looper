@@ -104,7 +104,19 @@ void loopClip::update(s32 *ip, s32 *op)
     {
         m_crossfade_offset++;
         if (m_crossfade_offset == CROSSFADE_BLOCKS)
-            _endFadeOut();
+        {
+            if (m_state == CS_LOOPING)
+            {
+                m_state = CS_PLAYING;
+                m_crossfade_start = 0;
+                m_crossfade_offset = 0;
+                m_pLoopTrack->incDecRunning(-1);
+            }
+            else
+            {
+                _endFadeOut();
+            }
+        }
     }
 
     if (pp_main)

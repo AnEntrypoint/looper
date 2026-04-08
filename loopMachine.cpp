@@ -470,20 +470,27 @@ void loopMachine::command(u16 command)
         loopTrack *pTrack = getTrack(track_num);
         int ts = pTrack->getTrackState();
 
-        u16 next_cmd = LOOP_COMMAND_NONE;
-        if (ts & TRACK_STATE_RECORDING)
-            next_cmd = LOOP_COMMAND_PLAY;
-        else if (ts & TRACK_STATE_PLAYING)
-            next_cmd = LOOP_COMMAND_RECORD;
-        else if (ts & TRACK_STATE_STOPPED)
-            next_cmd = LOOP_COMMAND_PLAY;
+        if (ts & TRACK_STATE_PENDING_RECORD)
+        {
+            m_track_pending[track_num] = LOOP_COMMAND_NONE;
+        }
         else
-            next_cmd = LOOP_COMMAND_RECORD;
+        {
+            u16 next_cmd = LOOP_COMMAND_NONE;
+            if (ts & TRACK_STATE_RECORDING)
+                next_cmd = LOOP_COMMAND_PLAY;
+            else if (ts & TRACK_STATE_PLAYING)
+                next_cmd = LOOP_COMMAND_RECORD;
+            else if (ts & TRACK_STATE_STOPPED)
+                next_cmd = LOOP_COMMAND_PLAY;
+            else
+                next_cmd = LOOP_COMMAND_RECORD;
 
-        if (next_cmd == LOOP_COMMAND_RECORD && m_masterLoopBlocks > 0)
-            m_track_pending[track_num] = LOOP_COMMAND_RECORD;
-        else
-            pTrack->updateState(next_cmd);
+            if (next_cmd == LOOP_COMMAND_RECORD && m_masterLoopBlocks > 0)
+                m_track_pending[track_num] = LOOP_COMMAND_RECORD;
+            else
+                pTrack->updateState(next_cmd);
+        }
 
     }   // TRACK COMMAND
 
