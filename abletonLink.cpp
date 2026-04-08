@@ -163,11 +163,15 @@ void linkProcess(void)
 	while (s_pWLAN->ReceiveFrame(buf, &len))
 	{
 		s_rxCount++;
-		if (s_rxCount <= 3)
-			CLogger::Get()->Write("link", LogNotice, "rx frame len=%u eth=%02x%02x ip=%d proto=%d",
+		if (s_rxCount <= 5)
+			CLogger::Get()->Write("link", LogNotice, "rx len=%u eth=%02x%02x proto=%d dst=%d.%d.%d.%d port=%d",
 				len, buf[12], buf[13],
 				len > IP_HDR_OFF ? buf[IP_HDR_OFF+9] : 0,
-				len > IP_HDR_OFF ? buf[IP_HDR_OFF+16] : 0);
+				len > IP_HDR_OFF ? buf[IP_HDR_OFF+16] : 0,
+				len > IP_HDR_OFF ? buf[IP_HDR_OFF+17] : 0,
+				len > IP_HDR_OFF ? buf[IP_HDR_OFF+18] : 0,
+				len > IP_HDR_OFF ? buf[IP_HDR_OFF+19] : 0,
+				len > UDP_HDR_OFF+2 ? (int)swap16(*(u16*)(buf+UDP_HDR_OFF+2)) : 0);
 		if (len < PAYLOAD_OFF + 18) continue;
 		if (buf[12] != 0x08 || buf[13] != 0x00) continue;
 		u8 *ip = buf + IP_HDR_OFF;
