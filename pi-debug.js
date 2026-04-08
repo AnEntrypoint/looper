@@ -6,8 +6,11 @@ const sock = dgram.createSocket('udp4');
 sock.send('STATUS', PORT, PI_IP, err => {
 	if (err) { console.error('send failed:', err.message); sock.close(); return; }
 });
+let closed = false;
 sock.on('message', (msg, rinfo) => {
 	console.log('[pi]', msg.toString());
-	sock.close();
+	if (!closed) { closed = true; sock.close(); }
 });
-setTimeout(() => { console.log('timeout — no reply'); sock.close(); }, 3000);
+setTimeout(() => {
+	if (!closed) { closed = true; console.log('timeout — no reply'); sock.close(); }
+}, 3000);
