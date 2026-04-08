@@ -90,15 +90,17 @@ typedef struct              // avoid byte sized structs
     int32_t multiplier;     // for WITH_INT_VOLUMES
 } controlDescriptor_t;
 
-// clip states
-
-#define CLIP_STATE_NONE             0x0000
-#define CLIP_STATE_RECORD_IN        0x0001       // The clip is recording the minimum duration fade-in
-#define CLIP_STATE_RECORD_MAIN      0x0002       // The clip is recording the main portion
-#define CLIP_STATE_RECORD_END       0x0004       // The clip is recording the crossfade out portion
-#define CLIP_STATE_RECORDED         0x0010       // The clip contains a full recorded buffer
-#define CLIP_STATE_PLAY_MAIN        0x0020       // The clip is playing the main portion
-#define CLIP_STATE_PLAY_END         0x0040       // The clip is playing the crossfade out portion
+enum ClipState {
+    CS_IDLE,
+    CS_RECORDING,
+    CS_RECORDING_MAIN,
+    CS_RECORDING_TAIL,
+    CS_FINISHING,
+    CS_RECORDED,
+    CS_PLAYING,
+    CS_LOOPING,
+    CS_STOPPING
+};
 
 
 // An in memory log message
@@ -118,27 +120,13 @@ class loopTrack;
 
 // static externs
 
-extern CString *getClipStateName(u16 clip_state);
-    // in loopClip.cpp
-    // you must delete the CString when done
+extern CString *getClipStateName(ClipState state);
 extern const char *getLoopStateName(u16 state);
 extern const char *getLoopCommandName(u16 name);
-    // in loopMachine.cpp
 extern CString *getTrackStateName(u16 track_state);
-    // in loopTrack.cpp
-    // you must delete the CString when done
 
-
-//-----------------------------------------------------
-// loopBuffer
-//-----------------------------------------------------
 
 class loopBuffer
-    // The loopBuffer is a big contiguous piece of memory that
-    // contains clips. It is implemented as a simple heap with
-    // the general idea that chunks will be recorded once, and
-    // typically not re-allocated.  There is no "free" mechanism,
-    // except to re-initialize the whole buffer.
 {
     public:
 
@@ -168,12 +156,6 @@ class loopBuffer
 
 
 
-//-------------------------------------------------------
-// Clip
-//-------------------------------------------------------
-// a clip is selected in every track, even if the track
-// is not selected.
-
 class publicClip
 {
     public:
@@ -188,7 +170,7 @@ class publicClip
 
         u16 getClipNum()            { return m_clip_num; }
         u16 getTrackNum()           { return m_track_num; }
-        u16 getClipState()          { return m_state; }
+        ClipState getClipState()    { return m_state; }
         u32 getNumBlocks()          { return m_num_blocks; }
         u32 getMaxBlocks()          { return m_max_blocks; }
         u32 getPlayBlockNum()       { return m_play_block; }
@@ -200,13 +182,12 @@ class publicClip
 
         int getVolume()             { return m_volume * 100.00; }
         void setVolume(int vol)     { m_volume = ((float)vol)/100.00; }
-            // midi volumes 0..127 result in 0-1.27 multiplier
-
+            
     protected:
 
         void init()
         {
-            m_state = 0;
+            m_state = CS_IDLE;
             m_num_blocks = 0;
             m_max_blocks = 0;
             m_play_block = 0;
@@ -217,8 +198,6 @@ class publicClip
             m_quantizeTarget = 0;
             m_recordStartPhaseOffset = 0;
             m_mute = false;
-            m_pendingUnmute = false;
-            m_pendingPlay = false;
             m_volume = 1.0;
             m_mark_point = -1;
             m_mark_point_active = false;
@@ -226,7 +205,7 @@ class publicClip
 
         u16  m_track_num;
         u16  m_clip_num;
-        u16  m_state;
+        ClipState  m_state;
         u32  m_num_blocks;      // the number of blocks NOT including the crossfade blocks
         u32  m_max_blocks;      // the number of blocks available for recording
         u32  m_play_block;
@@ -241,8 +220,6 @@ class publicClip
         bool m_mark_point_active;
 
         bool m_mute;
-        bool m_pendingUnmute;
-        bool m_pendingPlay;
 
         float m_volume;
 
@@ -250,40 +227,6 @@ class publicClip
 
 
 class loopClip : public publicClip
-    // A loop clip is essentially a buffer containing one
-    // "take" within a synchronized track.
-    //
-    // The first clip within a track is called the "base clip",
-    // and is unconstrained in length.  Once the base clip has
-    // been established, all other clips in the track must be
-    // an exact integer multiple of it in "length", in terms of
-    // audio blocks.
-    //
-    // The minimum length of a clip is CROSSFADE_BLOCKS, as
-    // every clip starts with a fade in from zero upto the nominal
-    // maximum volume (1.0) over the first CROSSFADE_BLOCKS.
-    // Setting CROSSFAE_BLOCKS to zero disables crossfades.
-    //
-    // Every clip records a crossfade-out set of blocks at the end of its creation.
-    // The fade-out blocks are NOT included in the nominal "length" of the clip,
-    // which is, once again, unbounded on the 0th clip of a track but which is an
-    // integral multiplier of the base clip "length" on all other clips in the track.
-    //
-    // Thus there is a notion of the "main" part of the clip, which
-    // does not include the final crossfade-out blocks.
-    //
-    // A loop clip can be simultaneously in several states at the same time
-    // due to the notion of cross fading. For example, it can be recording
-    // or playing back the crossfade out, while at the same time it could be
-    // playing the beginning of the (next) loop through the same clip.
-    //
-    // Only one clip in the system, may, at any given time, be recording it's
-    // "main" portion, but another clip *may* still be recording it's crossfade
-    // out portion.
-    //
-    // When implemented, muted clips still have their pointers updated and
-    // will contuinue to "loop" thru the loopMachine, though they don't
-    // actually do the cpu intensive loops through the samples.
 {
     public:
 
@@ -291,18 +234,11 @@ class loopClip : public publicClip
         virtual ~loopClip();
 
         void init();
-            // init() clears the clip and
-            // MUST must be called on abort of recording
 
         inline s16 *getBlock(u32 block_num)
         {
             return &(m_buffer[block_num * AUDIO_BLOCK_SAMPLES * LOOPER_NUM_CHANNELS]);
         }
-
-        // note that all 'post' processing of cross_fade outs,
-        // and recording the extra blocks at the end happens
-        // in the update() method ... as updateState() is only
-        // called on the current and/or selected tracks()
 
         void update(s32 *in, s32 *out);
 
@@ -312,14 +248,6 @@ class loopClip : public publicClip
         void clearMarkPoint();
         void halveLength();
         void doubleLength();
-        void tryUnmute()
-        {
-            if (m_pendingUnmute &&
-                !(m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN | CLIP_STATE_RECORD_END)))
-            {
-                m_mute = false;
-                m_pendingUnmute = false;
-            }
         }
 
 
@@ -330,7 +258,7 @@ class loopClip : public publicClip
         s16 *m_buffer;
 
         void _startRecording();
-        void _startEndingRecording(u32 trimToBlocks = 0);
+        void _startEndingRecording(u32 trimToBlocks, bool willPlay);
         void _finishRecording();
 
         void _startPlaying();
@@ -339,16 +267,9 @@ class loopClip : public publicClip
         void _endFadeOut();
 
         u32 _calcQuantizeTarget();
-        void setClipBits(u16 b);
-        void clearClipBits(u16 b);
 };
 
 
-
-//---------------------------------------------------
-// Track
-//---------------------------------------------------
-// prh - add Volume to track
 
 class publicTrack
 {
@@ -393,21 +314,13 @@ class publicTrack
 
 
 class loopTrack : public publicTrack
-    // A loopTrack consists of a number of clips (also referred to as "layers").
-    // There is always a "selected" clip, within the (always existing) selected
-    // track, which will be the next clip to be acted upon by commmands.
-    //
-    // A track, more than a clip, can be in mulitple states simultaneously.
-    // It can be playing (a subset) of previously recorded clips, and/or
-    // recording a clip, and/or in the process finishing up the crossfade
-    // out of a recorded or playing clip.
 {
     public:
 
         loopTrack(u16 track_num);
         virtual ~loopTrack();
 
-        void init();                // called to clear the loopMachine
+        void init();
 
         virtual int getTrackState();
 
@@ -415,12 +328,7 @@ class loopTrack : public publicTrack
         void setSelected(bool selected)  { m_selected = selected; }
 
         void updateState(u16 cur_command);
-            // called before update() if there is a command for the
-            // current or selected track to handle. The "previous"
-            // track is entirely handled in the update() call chain.
-         void update(s32 *in, s32 *out);
-            // called only once for any track on the
-            // previous and/or current tracks.
+        void update(s32 *in, s32 *out);
 
         void incDecRunning(int inc);
         void incDecNumUsedClips(int inc);
@@ -443,18 +351,12 @@ class loopTrack : public publicTrack
 
 
 
-//----------------------------------------------------
-// loopMachine
-//----------------------------------------------------
-
 class publicLoopMachine : public AudioStream
 {
     public:
 
         publicLoopMachine();
         ~publicLoopMachine();
-
-        // public (UI) API
 
         virtual void command(u16 command) = 0;
 
@@ -469,8 +371,6 @@ class publicLoopMachine : public AudioStream
         volatile u32 m_outputPeakLevel;
 
         virtual publicTrack *getPublicTrack(u16 num) = 0;
-
-        // controls
 
         float getMeter(u16 meter, u16 channel);
         u8 getControlValue(u16 control);
@@ -488,8 +388,6 @@ class publicLoopMachine : public AudioStream
 
     protected:
 
-        // audio system implementation
-
         virtual void update() = 0;
         virtual const char *getName() 	{ return "looper"; }
         virtual u16   getType()  		{ return AUDIO_DEVICE_OTHER; }
@@ -505,8 +403,6 @@ class publicLoopMachine : public AudioStream
             m_dub_mode = false;
             m_pending_loop_notify = 0;
         }
-
-        // member variables
 
         AudioCodec *pCodec;
       	audio_block_t *inputQueueArray[LOOPER_NUM_CHANNELS];
@@ -545,18 +441,12 @@ class loopMachine : public publicLoopMachine
 
     private:
 
-        // implementation of public (UI) API
-
         virtual void command(u16 command);
         virtual publicTrack *getPublicTrack(u16 num)            { return (publicTrack *) m_tracks[num]; }
         virtual void update(void);
 
-        // internal implementation
-
         void init();
         void updateState();
-
-        // member variables
 
         u16 m_cur_command;
         int m_cur_track_num;

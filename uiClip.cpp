@@ -35,7 +35,7 @@ uiClip::uiClip(
 
 	m_pressed = 0;
 
-	m_clip_state = 0;
+	m_clip_state = CS_IDLE;
 	m_rec_block = 0;
 	m_play_block = 0;
 	m_fade_block = 0;
@@ -107,7 +107,7 @@ void uiClip::updateFrame()
 	publicClip *pClip = pTrack->getPublicClip(m_clip_num);
 
 	bool sel 	= pTrack->isSelected();
-	u16 state 	= pClip->getClipState();
+	ClipState state = pClip->getClipState();
 	u32 rec 	= pClip->getRecordBlockNum();
 	u32 play 	= pClip->getPlayBlockNum();
 	u32 fade 	= pClip->getCrossfadeBlockNum();
@@ -186,9 +186,9 @@ void uiClip::onDraw()
 
 	if (m_selected)
 	{
-		bool playing = m_clip_state & CLIP_STATE_PLAY_MAIN;
-		bool recording = m_clip_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN);
-		bool recorded = m_clip_state & CLIP_STATE_RECORDED;
+		bool playing = (m_clip_state == CS_PLAYING || m_clip_state == CS_LOOPING);
+		bool recording = (m_clip_state == CS_RECORDING || m_clip_state == CS_RECORDING_MAIN || m_clip_state == CS_RECORDING_TAIL || m_clip_state == CS_FINISHING);
+		bool recorded = (m_clip_state == CS_RECORDED);
 		bool will_play = recording || recorded;
 
 		if (pend == LOOP_COMMAND_STOP)
@@ -208,11 +208,11 @@ void uiClip::onDraw()
 			if (will_play)
 			    frame_color = wsYELLOW;
 		}
-		else if (m_clip_state & CLIP_STATE_PLAY_MAIN)
+		else if (m_clip_state == CS_PLAYING || m_clip_state == CS_LOOPING)
 		{
 			frame_color = wsYELLOW;
 		}
-		else if (m_clip_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN))
+		else if (m_clip_state == CS_RECORDING || m_clip_state == CS_RECORDING_MAIN || m_clip_state == CS_RECORDING_TAIL || m_clip_state == CS_FINISHING)
 		{
 			frame_color = wsRED;
 		}
@@ -247,7 +247,7 @@ void uiClip::onDraw()
 		s32 text_area_ys = ys + BAR_HEIGHT;
 		m_pDC->fillFrame(xs,text_area_ys,xe,ye,m_back_color);
 
-		int color = m_clip_state ? wsWHITE : wsMEDIUM_PURPLE;	// wsGRAY;
+		int color = (m_clip_state != CS_IDLE) ? wsWHITE : wsMEDIUM_PURPLE;
 		m_pDC->setFont(wsFont12x16);
 		m_pDC->setForeColor(color);
 		m_pDC->setBackColor(m_back_color);
@@ -272,11 +272,11 @@ void uiClip::onDraw()
 		float pct = 0;
 		float width = xe - xs + 1;
 
-		if (m_clip_state & (CLIP_STATE_PLAY_MAIN | CLIP_STATE_RECORD_MAIN | CLIP_STATE_RECORD_IN))
+		if (m_clip_state == CS_PLAYING || m_clip_state == CS_LOOPING || m_clip_state == CS_RECORDING || m_clip_state == CS_RECORDING_MAIN || m_clip_state == CS_RECORDING_TAIL || m_clip_state == CS_FINISHING)
 		{
 			float f_cur_block =
-				m_clip_state & (CLIP_STATE_RECORD_MAIN | CLIP_STATE_RECORD_IN) ? m_rec_block :
-				m_clip_state & CLIP_STATE_PLAY_MAIN ? m_play_block : 0;
+				(m_clip_state == CS_RECORDING || m_clip_state == CS_RECORDING_MAIN || m_clip_state == CS_RECORDING_TAIL || m_clip_state == CS_FINISHING) ? m_rec_block :
+				(m_clip_state == CS_PLAYING || m_clip_state == CS_LOOPING) ? m_play_block : 0;
 
 			wsColor bar_color = m_mute ? wsDARK_RED : wsRED;
 			if (m_num_blocks)	// tracks that are playing are fairly simple

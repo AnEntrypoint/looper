@@ -3,6 +3,7 @@
 #define _uiClip_h
 
 #include <ws/ws.h>
+#include "Looper.h"
 #include <system/midiEvent.h>
 
 #define NUM_LTB_ROWS   3
@@ -32,7 +33,7 @@ class uiClip : public wsWindow
 
 		u8 m_pressed;
 
-		u16 m_clip_state;	// last clip state from the clip
+		ClipState m_clip_state;
 
 		u32 m_rec_block;	// last record or play block from the clip
 		u32 m_play_block;	// last record or play block from the clip

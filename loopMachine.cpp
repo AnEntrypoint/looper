@@ -623,18 +623,6 @@ void loopMachine::update(void)
 				pTrack->update(m_input_buffer,m_output_buffer);
 			}
 		}
-		if (m_masterPhase == 0)
-		{
-			for (int t = 0; t < LOOPER_NUM_TRACKS; t++)
-			{
-				loopTrack *pT = getTrack(t);
-				for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
-				{
-					loopClip *pC = pT->getClip(c);
-					if (pC) pC->tryUnmute();
-				}
-			}
-		}
 	}   // m_running
 
 	u32 outPeak = 0;
@@ -768,14 +756,14 @@ void loopMachine::updateState(void)
 
 	loopTrack *pCurTrack = m_cur_track_num >= 0 ?  getTrack(m_cur_track_num) : 0;
 	loopClip  *pCurClip0 = pCurTrack ? pCurTrack->getClip(0) : 0;
-	u16 cur_clip0_state = pCurClip0 ? pCurClip0->getClipState() : 0;
+	ClipState cur_clip0_state = pCurClip0 ? pCurClip0->getClipState() : CS_IDLE;
 
 	loopTrack *pSelTrack = m_selected_track_num >=0 ? getTrack(m_selected_track_num) : 0;
 	// loopClip  *pSelClip0 = pSelTrack ? pSelTrack->getClip(0) : 0;
 	// u16 sel_clip0_state = pSelClip0 ? pSelClip0->getClipState() : 0;
 
 		// the current base clip, and it's state, if any
-	bool at_loop_point = (cur_clip0_state & CLIP_STATE_PLAY_MAIN) && !pCurClip0->getPlayBlockNum();
+	bool at_loop_point = (cur_clip0_state == CS_PLAYING || cur_clip0_state == CS_LOOPING) && !pCurClip0->getPlayBlockNum();
 
 	if (at_loop_point)
 	{
@@ -792,7 +780,7 @@ void loopMachine::updateState(void)
         bool latch_command =
             !m_running ||
             at_loop_point ||
-            (cur_clip0_state & CLIP_STATE_RECORD_MAIN) ||
+            (cur_clip0_state == CS_RECORDING_MAIN) ||
 			m_pending_command == LOOP_COMMAND_LOOP_IMMEDIATE;
 
         if (latch_command)
@@ -814,13 +802,13 @@ void loopMachine::updateState(void)
 
         loopTrack *pTrack = getTrack(i);
         loopClip  *pClip0 = pTrack->getClip(0);
-        u16 clip0_state = pClip0 ? pClip0->getClipState() : 0;
+        ClipState clip0_state = pClip0 ? pClip0->getClipState() : CS_IDLE;
 
         bool at_phrase_start = (m_masterLoopBlocks > 0) && (m_masterPhase == 0);
         bool track_latch =
             !pTrack->getNumRunningClips() ||
-            (clip0_state & CLIP_STATE_PLAY_MAIN) && !pClip0->getPlayBlockNum() ||
-            (clip0_state & CLIP_STATE_RECORD_MAIN) ||
+            (clip0_state == CS_PLAYING || clip0_state == CS_LOOPING) && !pClip0->getPlayBlockNum() ||
+            (clip0_state == CS_RECORDING_MAIN) ||
             (at_phrase_start && m_track_pending[i] == LOOP_COMMAND_RECORD);
 
         if (track_latch)

@@ -3,72 +3,8 @@
 
 #define log_name "lclip"
 
-#define DEBUG_CLIP_STATE   0
-
-
-//-------------------------------
-// static extern
-//-------------------------------
-
-// static
-CString *getClipStateName(u16 clip_state)
-{
-	CString *msg = new CString();
-
-    if (clip_state == CLIP_STATE_NONE)
-    {
-        msg->Append("NONE ");
-    }
-    else
-    {
-        if (clip_state & CLIP_STATE_RECORD_IN)
-            msg->Append("R_IN ");
-        if (clip_state & CLIP_STATE_RECORD_MAIN)
-            msg->Append("R_MAIN ");
-        if (clip_state & CLIP_STATE_RECORD_END)
-            msg->Append("R_END ");
-        if (clip_state & CLIP_STATE_RECORDED)
-            msg->Append("R_DONE ");
-        if (clip_state & CLIP_STATE_PLAY_MAIN)
-            msg->Append("P_MAIN ");
-        if (clip_state & CLIP_STATE_PLAY_END)
-            msg->Append("P_END ");
-    }
-
-    return msg;
-}
-
-void loopClip::setClipBits(u16 b)
-{
-	m_state |= b;
-	#if DEBUG_CLIP_STATE
-		LOOPER_LOG("setClipBits(%d,%d,0x%04x)  new_state=0x%04x",
-			m_track_num,
-			m_clip_num,
-			b,
-			m_state);
-	#endif
-}
-void loopClip::clearClipBits(u16 b)
-{
-	m_state &= ~b;
-	#if DEBUG_CLIP_STATE
-		LOOPER_LOG("clearClipBits(%d,%d,0x%04x)  new_state=0x%04x",
-			m_track_num,
-			m_clip_num,
-			b,
-			m_state);
-	#endif
-}
-
-
-
-//-------------------------------
-// loopClip
-//-------------------------------
-
-loopClip::loopClip(u16 clip_num, loopTrack* pTrack) :
-    publicClip(pTrack->getTrackNum(),clip_num)
+loopClip::loopClip(u16 clip_num, loopTrack *pTrack) :
+    publicClip(pTrack->getTrackNum(), clip_num)
 {
     m_pLoopTrack = pTrack;
     init();
@@ -80,25 +16,19 @@ loopClip::~loopClip()
     m_pLoopTrack = 0;
 }
 
-// virtual
 void loopClip::init()
-    // init() clears the clip and
-    // MUST must be called on abort of recording
 {
-    // LOG("clip(%d,%d)::init()",m_track_num,m_clip_num);
     publicClip::init();
     m_buffer = 0;
-	m_mark_point = -1;
-	m_mark_point_active	= false;
+    m_mark_point = -1;
+    m_mark_point_active = false;
 }
-
 
 void loopClip::clearMarkPoint()
 {
-	LOOPER_LOG("clip(%d:%d) clearMarkPoint",m_track_num,m_clip_num);
-	m_mark_point = -1;
-	m_mark_point_active	= false;
-		// becomes active on LOOP_COMMAND_SET_LOOP_START
+    LOOPER_LOG("clip(%d:%d) clearMarkPoint", m_track_num, m_clip_num);
+    m_mark_point = -1;
+    m_mark_point_active = false;
 }
 
 void loopClip::halveLength()
@@ -129,64 +59,53 @@ void loopClip::doubleLength()
 }
 
 void loopClip::setMarkPoint()
-	// ONLY IN CLIP_STATE_PLAY_MAIN
 {
-	LOOPER_LOG("clip(%d%:%d) setMarkPoint=%d",m_track_num,m_clip_num,m_play_block);
-	m_mark_point = m_play_block;
+    LOOPER_LOG("clip(%d:%d) setMarkPoint=%d", m_track_num, m_clip_num, m_play_block);
+    m_mark_point = m_play_block;
 }
-
-
-
-//--------------------------------
-// atomic state changes
-//--------------------------------
 
 void loopClip::stopImmediate()
-    // aborts the current recording, if any
-    // or returns the play pointers to zero.
-    // It is assumed that the loopMachine will stop the
-    // m_running value (no dec takes place)
 {
-    if (m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN | CLIP_STATE_RECORD_END))
+    LOOPER_LOG("clip(%d,%d)::stopImmediate state=%d", m_track_num, m_clip_num, (int)m_state);
+    switch (m_state)
     {
-        LOOPER_LOG("clip(%d,%d)::stopImmediate(WhileRecording)",m_track_num,m_clip_num);
-
-		m_pLoopTrack->incDecRunning(-1);
-
-		// the track was 'used' by virtue of being recorded
-
-        m_pLoopTrack->incDecNumUsedClips(-1);
-
-        // and we even 'unrecord' it if it happens to be in that RECORD_END window
-
-        if (m_state & CLIP_STATE_RECORD_END)
-            m_pLoopTrack->incDecNumRecordedClips(-1);
-
-        init();
-    }
-    else
-    {
-        LOOPER_LOG("clip(%d,%d)::stopImmediate()",m_track_num,m_clip_num);
-
-		// decrement running count up to two times
-
-		if (m_state & CLIP_STATE_PLAY_MAIN)
-			m_pLoopTrack->incDecRunning(-1);
-		if (m_state & CLIP_STATE_PLAY_END)
-			m_pLoopTrack->incDecRunning(-1);
-
-        m_play_block = 0;
-        m_crossfade_start = 0;
-        m_crossfade_offset = 0;
-        clearClipBits(~CLIP_STATE_RECORDED);
-            // maintain only the recorded state
+        case CS_RECORDING:
+        case CS_RECORDING_MAIN:
+        case CS_RECORDING_TAIL:
+        case CS_FINISHING:
+            m_pLoopTrack->incDecRunning(-1);
+            m_pLoopTrack->incDecNumUsedClips(-1);
+            if (m_state == CS_RECORDING_TAIL || m_state == CS_FINISHING)
+                m_pLoopTrack->incDecNumRecordedClips(-1);
+            init();
+            break;
+        case CS_PLAYING:
+            m_pLoopTrack->incDecRunning(-1);
+            m_play_block = 0;
+            m_state = CS_RECORDED;
+            break;
+        case CS_LOOPING:
+            m_pLoopTrack->incDecRunning(-2);
+            m_play_block = 0;
+            m_crossfade_start = 0;
+            m_crossfade_offset = 0;
+            m_state = CS_RECORDED;
+            break;
+        case CS_STOPPING:
+            m_pLoopTrack->incDecRunning(-1);
+            m_play_block = 0;
+            m_crossfade_start = 0;
+            m_crossfade_offset = 0;
+            m_state = CS_RECORDED;
+            break;
+        default:
+            break;
     }
 }
-
 
 void loopClip::_startRecording()
 {
-    LOOPER_LOG("clip(%d,%d)::startRecording()",m_track_num,m_clip_num);
+    LOOPER_LOG("clip(%d,%d)::startRecording()", m_track_num, m_clip_num);
     m_play_block = 0;
     m_record_block = 0;
     m_crossfade_start = 0;
@@ -201,22 +120,21 @@ void loopClip::_startRecording()
         for (int t = 0; t < LOOPER_NUM_TRACKS; t++)
         {
             loopClip *pC = pTheLoopMachine->getTrack(t)->getClip(0);
-            if (pC && (pC->getClipState() & CLIP_STATE_PLAY_MAIN))
+            if (pC && pC->getClipState() == CS_PLAYING)
             {
                 m_recordStartPhaseOffset = pC->getPlayBlockNum() % masterLen;
                 break;
             }
         }
     }
-    setClipBits(CLIP_STATE_RECORD_IN);
+    m_state = CS_RECORDING;
     m_pLoopTrack->incDecNumUsedClips(1);
     m_pLoopTrack->incDecRunning(1);
 }
 
-
-void loopClip::_startEndingRecording(u32 trimToBlocks)
+void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
 {
-    LOOPER_LOG("clip(%d,%d)::startEndingRecording(trim=%d)",m_track_num,m_clip_num,trimToBlocks);
+    LOOPER_LOG("clip(%d,%d)::startEndingRecording(trim=%d,play=%d)", m_track_num, m_clip_num, trimToBlocks, willPlay);
     if (trimToBlocks > 0 && trimToBlocks < m_record_block)
         m_num_blocks = trimToBlocks;
     else
@@ -228,27 +146,19 @@ void loopClip::_startEndingRecording(u32 trimToBlocks)
         pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
         pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
     }
-    clearClipBits(CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN);
-    setClipBits(CLIP_STATE_RECORD_END);
+    m_state = willPlay ? CS_RECORDING_TAIL : CS_FINISHING;
     m_pLoopTrack->incDecNumRecordedClips(1);
 }
 
 void loopClip::_finishRecording()
-    // called after recording the crossfade out
-    // to "finalize" the recording of this clip
 {
-    LOOPER_LOG("clip(%d,%d)::finishRecording()",m_track_num,m_clip_num);
-    clearClipBits(CLIP_STATE_RECORD_END);
-    setClipBits(CLIP_STATE_RECORDED);
+    LOOPER_LOG("clip(%d,%d)::finishRecording() willPlay=%d", m_track_num, m_clip_num, m_state == CS_RECORDING_TAIL);
+    bool willPlay = (m_state == CS_RECORDING_TAIL);
+    m_state = CS_RECORDED;
     m_pLoopTrack->incDecRunning(-1);
-    if (m_pendingPlay)
-    {
-        m_pendingPlay = false;
+    if (willPlay)
         _startPlaying();
-    }
 }
-
-
 
 void loopClip::_startPlaying()
 {
@@ -256,314 +166,35 @@ void loopClip::_startPlaying()
     m_play_block = (masterLen > 0 && m_num_blocks > 0)
         ? (pTheLoopMachine->m_masterPhase + 1) % m_num_blocks
         : 0;
-    LOOPER_LOG("clip(%d,%d)::startPlaying(play_block=%d)",m_track_num,m_clip_num,m_play_block);
+    LOOPER_LOG("clip(%d,%d)::startPlaying(play_block=%d)", m_track_num, m_clip_num, m_play_block);
     m_crossfade_start = 0;
     m_crossfade_offset = 0;
-    setClipBits(CLIP_STATE_PLAY_MAIN);
+    m_state = CS_PLAYING;
     m_pLoopTrack->incDecRunning(1);
 }
-
-
-
-
 void loopClip::_startCrossFade()
-    // start a fade out and DO start playing the next time through
 {
-    LOOPER_LOG("clip(%d,%d)::startCrossFade",m_track_num,m_clip_num);
-
-    setClipBits(CLIP_STATE_PLAY_END);
+    LOOPER_LOG("clip(%d,%d)::startCrossFade", m_track_num, m_clip_num);
+    m_state = CS_LOOPING;
     m_crossfade_start = m_play_block;
     m_crossfade_offset = 0;
     m_pLoopTrack->incDecRunning(1);
 }
 
-
 void loopClip::_startFadeOut()
-    // start a fade out, but do NOT start playing next time through
-    // so we do not increment OR decrement the 'loop' running count
-    //
-    // effectively 'cancel' the PLAY_MAIN bit, and start, or
-    // continue fading out where we are ..
 {
-    LOOPER_LOG("clip(%d,%d)::_startFadeOut",m_track_num,m_clip_num);
-
-    if (m_play_block)
-        m_crossfade_start = m_play_block;
-
-    clearClipBits(CLIP_STATE_PLAY_MAIN);
-    setClipBits(CLIP_STATE_PLAY_END);
+    LOOPER_LOG("clip(%d,%d)::startFadeOut", m_track_num, m_clip_num);
+    m_crossfade_start = m_play_block ? m_play_block : 0;
+    m_state = CS_STOPPING;
     m_crossfade_offset = 0;
     m_play_block = 0;
-    // m_pLoopTrack->incDecRunning(-1);
 }
 
-
 void loopClip::_endFadeOut()
-    // end a fade out
 {
-    LOOPER_LOG("clip(%d,%d)::_endFadeOut",m_track_num,m_clip_num);
-    clearClipBits(CLIP_STATE_PLAY_END);
+    LOOPER_LOG("clip(%d,%d)::endFadeOut", m_track_num, m_clip_num);
+    m_state = CS_RECORDED;
     m_crossfade_start = 0;
     m_crossfade_offset = 0;
     m_pLoopTrack->incDecRunning(-1);
-}
-
-
-
-
-
-//----------------------------------------------
-// update
-//----------------------------------------------
-// note use of doubles for math ....
-
-#define FADE_BLOCK_INCREMENT (1.0/((double)CROSSFADE_BLOCKS))
-	// percentage fade per block
-
-#define FADE_SAMPLE_INCREMENT (FADE_BLOCK_INCREMENT/((double)AUDIO_BLOCK_SAMPLES))
-	// percentage fade per sample
-
-void loopClip::update(s32 *ip, s32 *op)
-{
-	s16 *rp = 0;
-	s16 *pp_main = 0;
-	s16 *pp_fade = 0;
-	uint32_t use_play_block = m_play_block;
-
-	if (m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN | CLIP_STATE_RECORD_END))
-		rp = getBlock(m_record_block);
-	if (m_state & (CLIP_STATE_PLAY_MAIN))
-	{
-		// if the mark point has been activated,
-		// and we have otherwise wrapped to zero,
-		// set the the play block to the mark point
-		// and use that for the fade in too ..
-
-		if (m_mark_point_active)
-		{
-			if (m_play_block == 0)
-			{
-				m_play_block = m_mark_point;
-				LOOPER_LOG("clip(%d:%d) advancing to mark_point(%d) use_play_block=0",m_mark_point);
-			}
-			use_play_block = m_play_block - m_mark_point;
-		}
-		pp_main = getBlock(m_play_block);
-
-	}
-	if (m_state & (CLIP_STATE_PLAY_END))
-		pp_fade = getBlock(m_crossfade_start+m_crossfade_offset);
-
-	bool fade_in = (pp_main && use_play_block < CROSSFADE_BLOCKS) ? 1 : 0;
-	float sample_fade = FADE_SAMPLE_INCREMENT;
-
-	for (int channel=0; channel<LOOPER_NUM_CHANNELS; channel++)
-	{
-		double i_fade = 1.0;
-		double o_fade = 1.0;
-
-		if (fade_in)
-			i_fade = ((double)use_play_block) * FADE_BLOCK_INCREMENT;
-		if (pp_fade)
-			o_fade = ((double)(CROSSFADE_BLOCKS-m_crossfade_offset)) * FADE_BLOCK_INCREMENT;
-
-		for (int i=0; i<AUDIO_BLOCK_SAMPLES; i++)
-		{
-			// add the unmodified input data to the recording
-			// should not overflow as *ip is raw 16 bit input cast to 32 bits
-
-			if (rp) *rp++ = *ip++;
-
-			if (!m_mute)
-			{
-				// add the main input (subject to in-fading)
-
-				if (pp_main)
-				{
-					double val = *pp_main++;
-					val = val * m_volume;
-					if (fade_in)
-					{
-						val = val * i_fade;
-						i_fade += sample_fade;
-					}
-					*op += (s32) val;
-			   }
-
-				if (pp_fade)
-				{
-					double val = *pp_fade++;
-					val = val * m_volume;
-					val = val * o_fade;
-					*op += (s32) val;
-					o_fade -= sample_fade;
-				}
-			}
-
-			op++;
-		}
-	}
-
-	// increment block pointers
-	// handling post increment state changes ....
-
-	if (rp)
-	{
-		m_record_block++;
-
-		if ((m_state & CLIP_STATE_RECORD_IN) &&
-			(m_record_block >= CROSSFADE_BLOCKS))
-		{
-			clearClipBits(CLIP_STATE_RECORD_IN);
-			setClipBits(CLIP_STATE_RECORD_MAIN);
-		}
-
-		if (m_quantizeTarget > 0 &&
-			(m_state & CLIP_STATE_RECORD_MAIN) &&
-			m_record_block >= m_quantizeTarget)
-		{
-			u32 trim = m_quantizeTarget;
-			m_quantizeTarget = 0;
-			_startEndingRecording(trim);
-		}
-
-		// if RECORD_END, and m_record_block has reached the crossfade out,
-		// we change our state (but leave the loop machine to it's own fate)
-
-		else if ((m_state & CLIP_STATE_RECORD_END) &&
-			m_record_block >= m_max_blocks)
-		{
-			_finishRecording();
-		}
-	}
-
-	if (pp_fade)
-	{
-		m_crossfade_offset++;
-		if (m_crossfade_offset == CROSSFADE_BLOCKS)
-			_endFadeOut();
-	}
-	if (pp_main)
-	{
-		u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
-		if (masterLen > 0 && !(m_state & CLIP_STATE_PLAY_END))
-		{
-			u32 next = pTheLoopMachine->m_masterPhase % m_num_blocks;
-			bool wrapped = (next == 0) && (m_play_block > 0);
-			m_play_block = next;
-			if (wrapped)
-				_startCrossFade();
-		}
-		else
-		{
-			m_play_block++;
-			if (m_play_block == m_num_blocks)
-				_startCrossFade();
-		}
-	}
-
-}
-
-
-
-//----------------------------------------------
-// UPDATE STATE
-//----------------------------------------------
-
-u32 loopClip::_calcQuantizeTarget()
-{
-    u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
-    if (masterLen == 0) return m_record_block;
-    u32 n = m_record_block / masterLen;
-    if (n == 0) n = 1;
-    return n * masterLen;
-}
-
-void loopClip::updateState(u16 cur_command)
-{
-    LOOPER_LOG("clip(%d,%d) updateState(%s)",m_track_num,m_clip_num,getLoopCommandName(cur_command));
-
-	if (cur_command == LOOP_COMMAND_LOOP_IMMEDIATE)
-	{
-		// should NOT be called while recording, but if so, we abort the track
-
-        if (m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN | CLIP_STATE_RECORD_END))
-        {
-            stopImmediate();
-        }
-
-		// otherwise we start the fade out now
-
-		else if (m_play_block)
-		{
-			_startCrossFade();
-		}
-	}
-	else if (cur_command == LOOP_COMMAND_SET_LOOP_START)
-	{
-		m_mark_point_active = 1;
-		if (m_play_block)
-        	_startCrossFade();
-	}
-    else if (cur_command == LOOP_COMMAND_STOP)
-    {
-        if (m_state & CLIP_STATE_RECORD_MAIN)
-        {
-            u32 target = _calcQuantizeTarget();
-            if (target <= m_record_block)
-            {
-                _startEndingRecording(target);
-            }
-            else
-            {
-                m_quantizeTarget = target;
-                m_mute = true;
-                m_pendingUnmute = true;
-            }
-        }
-        else if (m_state & CLIP_STATE_PLAY_MAIN)
-        {
-			if (m_play_block)
-			{
-				_startFadeOut();
-			}
-			else	// undo the previous startCrossFade
-			{
-				clearClipBits(CLIP_STATE_PLAY_MAIN);
-				m_play_block = 0;
-				m_pLoopTrack->incDecRunning(-1);
-			}
-
-			// else
-			// stopImmediate();
-        }
-    }
-    else if (cur_command == LOOP_COMMAND_PLAY)
-    {
-        if (m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN))
-        {
-            if ((m_state & CLIP_STATE_RECORD_IN) && m_record_block == 0)
-            {
-                stopImmediate();
-                return;
-            }
-            u32 target = _calcQuantizeTarget();
-            if (target <= m_record_block)
-            {
-                _startEndingRecording(target);
-            }
-            else
-            {
-                m_quantizeTarget = target;
-                m_pendingPlay = true;
-            }
-        }
-        if (!(m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN | CLIP_STATE_RECORD_END)) &&
-            !(m_state & CLIP_STATE_PLAY_MAIN))
-            _startPlaying();
-    }
-    else if (cur_command == LOOP_COMMAND_RECORD)
-    {
-        _startRecording();
-    }
 }

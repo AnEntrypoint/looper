@@ -6,7 +6,7 @@ CIRCLEHOME = ../../..
 PRH_HOME = ../..
 
 OBJS = main.o kernel.o audio.o app.o apcKey25.o usbMidi.o \
-       loopBuffer.o loopClip.o loopTrack.o loopMachine.o dprobe.o
+       loopBuffer.o loopClip.o loopClipUpdate.o loopClipState.o loopTrack.o loopMachine.o dprobe.o
 
 LIBS = $(PRH_HOME)/audio/libaudio.a \
        $(PRH_HOME)/utils/lib_my_utils.a \

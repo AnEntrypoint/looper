@@ -41,10 +41,10 @@ int loopTrack::getTrackState()
     for (int i=0; i<m_num_used_clips; i++)
     {
         loopClip *pClip = m_clips[i];
-        int clip_state = pClip->getClipState();
-        if (clip_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN))
+        ClipState clip_state = pClip->getClipState();
+        if (clip_state == CS_RECORDING || clip_state == CS_RECORDING_MAIN || clip_state == CS_RECORDING_TAIL || clip_state == CS_FINISHING)
             state |= TRACK_STATE_RECORDING;
-        if (clip_state & CLIP_STATE_PLAY_MAIN)
+        if (clip_state == CS_PLAYING || clip_state == CS_LOOPING)
             state |= TRACK_STATE_PLAYING;
     }
 
@@ -172,7 +172,8 @@ void loopTrack::clearClip(int layer)
 {
     if (layer < 0 || layer >= m_num_used_clips) return;
     loopClip *pClip = m_clips[layer];
-    if (pClip->getClipState() & (CLIP_STATE_PLAY_MAIN | CLIP_STATE_PLAY_END))
+    ClipState cs = pClip->getClipState();
+    if (cs == CS_PLAYING || cs == CS_LOOPING || cs == CS_STOPPING)
         incDecRunning(-1);
     pClip->init();
     if (layer < m_num_recorded_clips)
