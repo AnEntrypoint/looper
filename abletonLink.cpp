@@ -38,8 +38,8 @@ static u16 csum16(const u8 *d, int n)
 static void parsePkt(const u8 *buf, int len)
 {
 	if (len < 18) return;
-	if (s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"pkt m=%02x%02x%02x%02x l=%d",buf[0],buf[1],buf[2],buf[3],len);
-	if (memcmp(buf, MAGIC, 8) != 0) return;
+	if (s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"pkt %02x%02x%02x%02x%02x%02x%02x%02x l=%d",buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6],buf[7],len);
+	if (memcmp(buf, MAGIC, 8) != 0) { if(s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"magic mismatch"); return; }
 
 	u64 senderId;
 	memcpy(&senderId, buf + 10, 8);
