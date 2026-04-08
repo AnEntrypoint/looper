@@ -210,9 +210,8 @@ void loopClip::_startEndingRecording(u32 trimToBlocks)
         m_num_blocks = m_record_block;
     m_max_blocks = m_record_block + CROSSFADE_BLOCKS;
     pTheLoopBuffer->commitBlocks(m_max_blocks * LOOPER_NUM_CHANNELS);
-    u32 musicalLen = m_num_blocks > CROSSFADE_BLOCKS ? m_num_blocks - CROSSFADE_BLOCKS : m_num_blocks;
     if (m_clip_num == 0 && pTheLoopMachine->m_masterLoopBlocks == 0)
-        pTheLoopMachine->m_masterLoopBlocks = musicalLen;
+        pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
     clearClipBits(CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN);
     setClipBits(CLIP_STATE_RECORD_END);
     m_pLoopTrack->incDecNumRecordedClips(1);
@@ -403,7 +402,7 @@ void loopClip::update(s32 *ip, s32 *op)
 			(m_state & CLIP_STATE_RECORD_MAIN) &&
 			m_record_block >= m_quantizeTarget)
 		{
-			u32 trim = m_quantizeTarget > CROSSFADE_BLOCKS ? m_quantizeTarget - CROSSFADE_BLOCKS : 0;
+			u32 trim = m_quantizeTarget;
 			m_quantizeTarget = 0;
 			_startEndingRecording(trim);
 		}
@@ -455,11 +454,9 @@ u32 loopClip::_calcQuantizeTarget()
 {
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
     if (masterLen == 0) return m_record_block;
-    u32 musical = m_record_block > CROSSFADE_BLOCKS ? m_record_block - CROSSFADE_BLOCKS : 0;
-    u32 n = musical / masterLen;
+    u32 n = m_record_block / masterLen;
     if (n == 0) n = 1;
-    u32 lower = n * masterLen;
-    return lower + CROSSFADE_BLOCKS;
+    return n * masterLen;
 }
 
 void loopClip::updateState(u16 cur_command)
@@ -495,8 +492,7 @@ void loopClip::updateState(u16 cur_command)
             u32 target = _calcQuantizeTarget();
             if (target <= m_record_block)
             {
-                u32 musical = target > CROSSFADE_BLOCKS ? target - CROSSFADE_BLOCKS : 0;
-                _startEndingRecording(musical);
+                _startEndingRecording(target);
             }
             else
             {
@@ -532,8 +528,7 @@ void loopClip::updateState(u16 cur_command)
             u32 target = _calcQuantizeTarget();
             if ((m_state & CLIP_STATE_RECORD_MAIN) && target <= m_record_block)
             {
-                u32 trim = target > CROSSFADE_BLOCKS ? target - CROSSFADE_BLOCKS : 0;
-                _startEndingRecording(trim);
+                _startEndingRecording(target);
             }
             else
             {
