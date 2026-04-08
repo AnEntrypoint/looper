@@ -128,7 +128,6 @@ void apcKey25::_onPadPress(int row, int col)
     if (row >= LOOPER_NUM_TRACKS) return;
     if (col == 0)
     {
-        CLogger::Get()->Write(log_name, LogNotice, "TRACK press row=%d", row);
         _queueCmd(ApcCmd::TRACK, row);
     }
     else if (col == 1)
@@ -140,17 +139,14 @@ void apcKey25::_onPadPress(int row, int col)
     else if (col >= 2 && col <= 5)
     {
         int layer = col - 2;
-        CLogger::Get()->Write(log_name, LogNotice, "CLEAR layer=%d track=%d", layer, row);
         _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_CLEAR_LAYER_BASE + row * LOOPER_NUM_LAYERS + layer);
     }
     else if (col == 6)
     {
-        CLogger::Get()->Write(log_name, LogNotice, "HALVE track=%d", row);
         _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_HALVE_TRACK_BASE + row);
     }
     else if (col == 7)
     {
-        CLogger::Get()->Write(log_name, LogNotice, "DOUBLE track=%d", row);
         _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_DOUBLE_TRACK_BASE + row);
     }
 }
@@ -219,7 +215,6 @@ void apcKey25::update()
         if (type == ApcCmd::TRACK)
         {
             u16 ts = pTheLooper->getPublicTrack(arg)->getTrackState();
-            CLogger::Get()->Write(log_name, LogNotice, "TRACK cmd t%d ts=0x%04x", arg, ts);
             pTheLooper->command(LOOP_COMMAND_TRACK_BASE + arg);
         }
         else if (type == ApcCmd::ERASE_TRACK)

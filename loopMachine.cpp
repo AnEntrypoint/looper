@@ -471,8 +471,6 @@ void loopMachine::command(u16 command)
         else
             next_cmd = LOOP_COMMAND_RECORD;
 
-        LOOPER_LOG("TRACK(%d) ts=0x%04x -> %s", track_num, ts, getLoopCommandName(next_cmd));
-        CLogger::Get()->Write(log_name, LogNotice, "TRACK(%d) run=%d cmd=%d", track_num, pTrack->getNumRunningClips(), next_cmd);
         pTrack->updateState(next_cmd);
 
     }   // TRACK COMMAND

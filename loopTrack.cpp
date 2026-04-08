@@ -202,7 +202,6 @@ void loopTrack::doubleLength()
 void loopTrack::updateState(u16 cur_command)
 {
     LOOPER_LOG("track(%d) updateState(%s)",m_track_num,getLoopCommandName(cur_command));
-    CLogger::Get()->Write(log_name, LogNotice, "track(%d) updateState cmd=%d used=%d rec=%d run=%d", m_track_num, cur_command, m_num_used_clips, m_num_recorded_clips, m_num_running_clips);
 
     if (cur_command == LOOP_COMMAND_STOP ||
         cur_command == LOOP_COMMAND_PLAY ||
