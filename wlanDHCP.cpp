@@ -3,6 +3,11 @@
 #include <circle/logger.h>
 #include <circle/util.h>
 
+static void busyWait(unsigned ms) {
+	volatile unsigned n = ms * 5000;
+	while (n--) {}
+}
+
 #define ETH_HDR  14
 #define IP_HDR   20
 #define UDP_HDR  8
@@ -123,7 +128,7 @@ void wlanDhcpGetIP(CBcm4343Device *pWLAN, const u8 *mac) {
 	CLogger::Get()->Write("wdhcp", LogNotice, "DISCOVER sent");
 	u8 offer[4]={0};
 	for (int pass = 0; pass < 50 && !offer[0]; pass++) {
-		CTimer::SimpleMsDelay(200);
+		busyWait(200);
 		u8 buf[FRAME_SZ]; unsigned rlen;
 		while (pWLAN->ReceiveFrame(buf, &rlen)) {
 			if (parseOffer(buf, rlen, xid, offer)) {
