@@ -213,6 +213,7 @@ class publicClip
             m_record_block = 0;
             m_crossfade_start = 0;
             m_crossfade_offset = 0;
+            m_origNumBlocks = 0;
             m_mute = false;
             m_volume = 1.0;
             m_mark_point = -1;
@@ -228,6 +229,7 @@ class publicClip
         u32  m_record_block;
         u32  m_crossfade_start;
         u32  m_crossfade_offset;
+        u32  m_origNumBlocks;
 
         s32  m_mark_point;
         bool m_mark_point_active;
@@ -407,6 +409,9 @@ class loopTrack : public publicTrack
         void stopImmediate();
         void setMarkPoint();
         void clearMarkPoint();
+        void clearClip(int layer);
+        void halveLength();
+        void doubleLength();
 
     private:
 
@@ -469,6 +474,7 @@ class publicLoopMachine : public AudioStream
         void init()
         {
             m_running = 0;
+            m_masterLoopBlocks = 0;
             m_pending_command = 0;
             m_selected_track_num = -1;
             m_dub_mode = false;
@@ -481,6 +487,7 @@ class publicLoopMachine : public AudioStream
       	audio_block_t *inputQueueArray[LOOPER_NUM_CHANNELS];
 
         int m_running;
+        u32 m_masterLoopBlocks;
         u16 m_pending_command;
         int m_selected_track_num;
         bool m_dub_mode;

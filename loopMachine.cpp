@@ -328,7 +328,11 @@ void loopMachine::command(u16 command)
         LOOPER_LOG("LOOP_COMMAND_STOP_IMMEDIATE",0);
 
         for (int i=0; i<LOOPER_NUM_TRACKS; i++)
-            getTrack(i)->stopImmediate();
+        {
+            loopTrack *pT = getTrack(i);
+            if (pT->getNumRunningClips())
+                pT->stopImmediate();
+        }
 
         m_running = 0;
         m_cur_track_num = -1;
@@ -472,6 +476,34 @@ void loopMachine::command(u16 command)
         pTrack->updateState(next_cmd);
 
     }   // TRACK COMMAND
+
+
+    else if (command >= LOOP_COMMAND_CLEAR_LAYER_BASE &&
+             command < LOOP_COMMAND_CLEAR_LAYER_BASE + LOOPER_NUM_TRACKS * LOOPER_NUM_LAYERS)
+    {
+        int idx = command - LOOP_COMMAND_CLEAR_LAYER_BASE;
+        int track_num = idx / LOOPER_NUM_LAYERS;
+        int layer = idx % LOOPER_NUM_LAYERS;
+        LOOPER_LOG("CLEAR_LAYER track=%d layer=%d", track_num, layer);
+        if (track_num < LOOPER_NUM_TRACKS)
+            getTrack(track_num)->clearClip(layer);
+    }
+
+    else if (command >= LOOP_COMMAND_HALVE_TRACK_BASE &&
+             command < LOOP_COMMAND_HALVE_TRACK_BASE + LOOPER_NUM_TRACKS)
+    {
+        int track_num = command - LOOP_COMMAND_HALVE_TRACK_BASE;
+        LOOPER_LOG("HALVE_TRACK(%d)", track_num);
+        getTrack(track_num)->halveLength();
+    }
+
+    else if (command >= LOOP_COMMAND_DOUBLE_TRACK_BASE &&
+             command < LOOP_COMMAND_DOUBLE_TRACK_BASE + LOOPER_NUM_TRACKS)
+    {
+        int track_num = command - LOOP_COMMAND_DOUBLE_TRACK_BASE;
+        LOOPER_LOG("DOUBLE_TRACK(%d)", track_num);
+        getTrack(track_num)->doubleLength();
+    }
 
 }   // loopMachine::command()
 
@@ -741,10 +773,27 @@ void loopMachine::updateState(void)
         loopClip  *pClip0 = pTrack->getClip(0);
         u16 clip0_state = pClip0 ? pClip0->getClipState() : 0;
 
+        bool at_beat = false;
+        if (m_masterLoopBlocks > 0)
+        {
+            u32 beatLen = m_masterLoopBlocks / 4;
+            if (beatLen == 0) beatLen = 1;
+            for (int t = 0; t < LOOPER_NUM_TRACKS; t++)
+            {
+                loopClip *pC = getTrack(t)->getClip(0);
+                if (pC && (pC->getClipState() & CLIP_STATE_PLAY_MAIN))
+                {
+                    u32 pos = pC->getPlayBlockNum() % m_masterLoopBlocks;
+                    if (pos % beatLen < 2 || (beatLen - pos % beatLen) < 2)
+                        at_beat = true;
+                }
+            }
+        }
         bool track_latch =
-            !pTrack->getNumRunningClips() ||        // track not running: immediate
-            (clip0_state & CLIP_STATE_PLAY_MAIN) && !pClip0->getPlayBlockNum() ||  // at loop point
-            (clip0_state & CLIP_STATE_RECORD_MAIN); // recording: stop immediately
+            !pTrack->getNumRunningClips() ||
+            (clip0_state & CLIP_STATE_PLAY_MAIN) && !pClip0->getPlayBlockNum() ||
+            (clip0_state & CLIP_STATE_RECORD_MAIN) ||
+            (m_masterLoopBlocks > 0 && at_beat && m_track_pending[i] == LOOP_COMMAND_RECORD);
 
         if (track_latch)
         {

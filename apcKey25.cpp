@@ -49,8 +49,15 @@ u8 apcKey25::_trackLedColor(int track)
 u8 apcKey25::_muteLedColor(int track)
 {
     if (track >= LOOPER_NUM_TRACKS) return APC_VEL_LED_OFF;
-    return pTheLooper->getPublicTrack(track)->getNumRecordedClips() > 0
-        ? APC_VEL_LED_GREEN : APC_VEL_LED_OFF;
+    publicTrack *pTrack = pTheLooper->getPublicTrack(track);
+    int layers = pTrack->getNumRecordedClips();
+    if (layers == 0) return APC_VEL_LED_OFF;
+    bool stopped = (pTrack->getTrackState() & TRACK_STATE_STOPPED) != 0;
+    u8 color = APC_VEL_LED_GREEN;
+    if (layers >= 3) color = APC_VEL_LED_RED;
+    else if (layers >= 2) color = APC_VEL_LED_YELLOW;
+    if (stopped) color++;
+    return color;
 }
 
 void apcKey25::_updateGridLeds()
@@ -118,23 +125,33 @@ void apcKey25::_queueCmd(ApcCmd::Type type, int arg)
 
 void apcKey25::_onPadPress(int row, int col)
 {
+    if (row >= LOOPER_NUM_TRACKS) return;
     if (col == 0)
     {
-        if (row < LOOPER_NUM_TRACKS)
-        {
-            CLogger::Get()->Write(log_name, LogNotice, "TRACK press row=%d", row);
-            _queueCmd(ApcCmd::TRACK, row);
-        }
+        CLogger::Get()->Write(log_name, LogNotice, "TRACK press row=%d", row);
+        _queueCmd(ApcCmd::TRACK, row);
     }
     else if (col == 1)
     {
-        // Hold to erase, short press = mute toggle (handled on release)
-        if (row < LOOPER_NUM_TRACKS)
-        {
-            m_col1Held[row]           = true;
-            m_col1EraseTriggered[row] = false;
-            m_col1HoldStart[row]      = m_nowMs;
-        }
+        m_col1Held[row]           = true;
+        m_col1EraseTriggered[row] = false;
+        m_col1HoldStart[row]      = m_nowMs;
+    }
+    else if (col >= 2 && col <= 5)
+    {
+        int layer = col - 2;
+        CLogger::Get()->Write(log_name, LogNotice, "CLEAR layer=%d track=%d", layer, row);
+        _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_CLEAR_LAYER_BASE + row * LOOPER_NUM_LAYERS + layer);
+    }
+    else if (col == 6)
+    {
+        CLogger::Get()->Write(log_name, LogNotice, "HALVE track=%d", row);
+        _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_HALVE_TRACK_BASE + row);
+    }
+    else if (col == 7)
+    {
+        CLogger::Get()->Write(log_name, LogNotice, "DOUBLE track=%d", row);
+        _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_DOUBLE_TRACK_BASE + row);
     }
 }
 

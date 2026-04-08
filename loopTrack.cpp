@@ -168,6 +168,51 @@ void loopTrack::stopImmediate()
 }
 
 
+void loopTrack::clearClip(int layer)
+{
+    if (layer < 0 || layer >= m_num_used_clips) return;
+    loopClip *pClip = m_clips[layer];
+    if (pClip->getClipState() & (CLIP_STATE_PLAY_MAIN | CLIP_STATE_PLAY_END))
+        incDecRunning(-1);
+    pClip->init();
+    if (layer < m_num_recorded_clips)
+        m_num_recorded_clips--;
+    m_num_used_clips--;
+    for (int i = layer; i < LOOPER_NUM_LAYERS - 1; i++)
+    {
+        loopClip *tmp = m_clips[i];
+        m_clips[i] = m_clips[i+1];
+        m_clips[i+1] = tmp;
+    }
+}
+
+void loopTrack::halveLength()
+{
+    for (int i = 0; i < m_num_used_clips; i++)
+    {
+        loopClip *pClip = m_clips[i];
+        u32 nb = pClip->getNumBlocks();
+        if (nb <= CROSSFADE_BLOCKS * 2) continue;
+        if (pClip->m_origNumBlocks == 0)
+            pClip->m_origNumBlocks = nb;
+        pClip->m_num_blocks = nb / 2;
+        if (pClip->m_play_block >= pClip->m_num_blocks)
+            pClip->m_play_block = 0;
+    }
+}
+
+void loopTrack::doubleLength()
+{
+    for (int i = 0; i < m_num_used_clips; i++)
+    {
+        loopClip *pClip = m_clips[i];
+        u32 nb = pClip->getNumBlocks();
+        u32 maxNb = pClip->m_origNumBlocks ? pClip->m_origNumBlocks : pClip->m_max_blocks;
+        if (nb * 2 <= maxNb)
+            pClip->m_num_blocks = nb * 2;
+    }
+}
+
 
 void loopTrack::updateState(u16 cur_command)
 {

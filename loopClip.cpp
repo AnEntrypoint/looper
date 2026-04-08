@@ -187,6 +187,8 @@ void loopClip::_startEndingRecording()
     m_num_blocks = m_record_block;
     m_max_blocks = m_record_block + CROSSFADE_BLOCKS;
     pTheLoopBuffer->commitBlocks(m_max_blocks * LOOPER_NUM_CHANNELS);
+    if (m_clip_num == 0 && pTheLoopMachine->m_masterLoopBlocks == 0)
+        pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
     clearClipBits(CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN);
     setClipBits(CLIP_STATE_RECORD_END);
     m_pLoopTrack->incDecNumRecordedClips(1);
