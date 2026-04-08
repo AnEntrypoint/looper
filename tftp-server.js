@@ -73,6 +73,14 @@ async function checkAndUpdate(){
       const sub=path.join(TFTPROOT,entry);
       if(fs.statSync(sub).isDirectory()){const dest=path.join(sub,'kernel7l.img');if(fs.existsSync(dest)){fs.writeFileSync(dest,kernelBuf);console.log('[UPDATE] synced ->',entry+'/');}}
     }
+    const findFirmware=dir=>{for(const e of fs.readdirSync(dir)){const p=path.join(dir,e);if(e==='firmware'&&fs.statSync(p).isDirectory())return p;if(fs.statSync(p).isDirectory()){const r=findFirmware(p);if(r)return r;}}return null;};
+    const fwSrc=findFirmware(extractDir);
+    if(fwSrc){
+      const fwDest=path.join(TFTPROOT,'firmware');
+      fs.mkdirSync(fwDest,{recursive:true});
+      for(const f of fs.readdirSync(fwSrc)){fs.copyFileSync(path.join(fwSrc,f),path.join(fwDest,f));}
+      console.log('[UPDATE] firmware synced to tftproot/firmware/');
+    }
     currentSha=sha;fs.writeFileSync(SHA_FILE,sha);
     console.log('[UPDATE] tftproot updated',kernelBuf.length,'bytes');
     const sock=dgram.createSocket('udp4');

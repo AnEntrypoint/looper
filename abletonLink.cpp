@@ -1,28 +1,43 @@
 #include "abletonLink.h"
-#include <circle/net/ipaddress.h>
-#include <circle/net/in.h>
+#include <circle/macaddress.h>
 #include <circle/timer.h>
 #include <circle/logger.h>
 #include <circle/util.h>
 
-#define log_name "link"
 #define LINK_PORT		20808
 #define KEY_TMLN		0x746d6c6eu
 #define KEY_MMBE		0x6d6d6265u
 #define SEND_INTERVAL_US	1000000u
+#define FRAME_BUF		1600
+#define IP_HDR_OFF		14
+#define UDP_HDR_OFF		34
+#define PAYLOAD_OFF		42
 
 static const u8 MAGIC[8] = {'_','a','s','d','p','_','v',0x01};
 static const u8 MCAST[4] = {224, 76, 78, 75};
+static const u8 OWN_IP[4] = {192, 168, 137, 100};
 
-static CNetSubSystem *s_pNet    = nullptr;
-static CSocket       *s_pSocket = nullptr;
-static double         s_bpm     = 120.0;
-static u64            s_nodeId  = 0;
-static u64            s_lastSend = 0;
-static bool           s_synced  = false;
+static CBcm4343Device *s_pWLAN    = nullptr;
+static double          s_bpm      = 120.0;
+static u64             s_nodeId   = 0;
+static u64             s_lastSend = 0;
+static bool            s_synced   = false;
 
+static inline u16 swap16(u16 v) { return __builtin_bswap16(v); }
 static inline u32 swap32(u32 v) { return __builtin_bswap32(v); }
 static inline u64 swap64(u64 v) { return __builtin_bswap64(v); }
+
+static u16 ipChecksum(const u8 *hdr, int len)
+{
+	u32 sum = 0;
+	for (int i = 0; i < len; i += 2)
+	{
+		u16 w = ((u16)hdr[i] << 8) | hdr[i+1];
+		sum += w;
+	}
+	while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+	return (u16)(~sum);
+}
 
 static void parsePkt(const u8 *buf, int len)
 {
@@ -51,7 +66,7 @@ static void parsePkt(const u8 *buf, int len)
 			mpb = (s64)swap64((u64)mpb);
 			if (mpb > 0)
 			{
-				s_bpm = 60000000.0 / (double)mpb;
+				s_bpm    = 60000000.0 / (double)mpb;
 				s_synced = true;
 			}
 		}
@@ -61,21 +76,21 @@ static void parsePkt(const u8 *buf, int len)
 
 static void sendAlive(void)
 {
-	u8 buf[64];
-	memset(buf, 0, sizeof buf);
+	u8 payload[64];
+	int plen = 0;
+	memset(payload, 0, sizeof payload);
 
-	memcpy(buf, MAGIC, 8);
-	buf[8] = 1;
-	buf[9] = 1;
-	memcpy(buf + 10, &s_nodeId, 8);
+	memcpy(payload, MAGIC, 8);
+	payload[8] = 1;
+	payload[9] = 1;
+	memcpy(payload + 10, &s_nodeId, 8);
 
 	u32 key = swap32(KEY_MMBE);
 	u32 sz  = swap32(8);
-	memcpy(buf + 18, &key, 4);
-	memcpy(buf + 22, &sz,  4);
-	memcpy(buf + 26, &s_nodeId, 8);
-
-	int total = 34;
+	memcpy(payload + 18, &key, 4);
+	memcpy(payload + 22, &sz,  4);
+	memcpy(payload + 26, &s_nodeId, 8);
+	plen = 34;
 
 	if (s_bpm > 0.0)
 	{
@@ -84,37 +99,78 @@ static void sendAlive(void)
 		s64 zero  = 0;
 		u32 tkey  = swap32(KEY_TMLN);
 		u32 tsz   = swap32(24);
-		memcpy(buf + total, &tkey,  4); total += 4;
-		memcpy(buf + total, &tsz,   4); total += 4;
-		memcpy(buf + total, &mpbBE, 8); total += 8;
-		memcpy(buf + total, &zero,  8); total += 8;
-		memcpy(buf + total, &zero,  8); total += 8;
+		memcpy(payload + plen, &tkey,  4); plen += 4;
+		memcpy(payload + plen, &tsz,   4); plen += 4;
+		memcpy(payload + plen, &mpbBE, 8); plen += 8;
+		memcpy(payload + plen, &zero,  8); plen += 8;
+		memcpy(payload + plen, &zero,  8); plen += 8;
 	}
 
-	CIPAddress dest(MCAST);
-	s_pSocket->SendTo(buf, total, 0, dest, LINK_PORT);
+	u8 frame[FRAME_BUF];
+	memset(frame, 0, PAYLOAD_OFF + plen);
+
+	CMACAddress mcast;
+	CIPAddress mcastIP(MCAST);
+	mcast.SetMulticast(&mcastIP);
+	mcast.CopyTo(frame + 0);
+	s_pWLAN->GetMACAddress()->CopyTo(frame + 6);
+	frame[12] = 0x08;
+	frame[13] = 0x00;
+
+	u8 *ip = frame + IP_HDR_OFF;
+	ip[0]  = 0x45;
+	ip[1]  = 0;
+	u16 ipLen = swap16(20 + 8 + plen);
+	memcpy(ip + 2, &ipLen, 2);
+	ip[6]  = 0x40;
+	ip[8]  = 1;
+	ip[9]  = 17;
+	memcpy(ip + 12, OWN_IP, 4);
+	memcpy(ip + 16, MCAST,  4);
+	u16 csum = swap16(ipChecksum(ip, 20));
+	memcpy(ip + 10, &csum, 2);
+
+	u8 *udp = frame + UDP_HDR_OFF;
+	u16 srcPort = swap16(LINK_PORT);
+	u16 dstPort = swap16(LINK_PORT);
+	u16 udpLen  = swap16(8 + plen);
+	memcpy(udp + 0, &srcPort, 2);
+	memcpy(udp + 2, &dstPort, 2);
+	memcpy(udp + 4, &udpLen,  2);
+
+	memcpy(frame + PAYLOAD_OFF, payload, plen);
+
+	s_pWLAN->SendFrame(frame, PAYLOAD_OFF + plen);
 }
 
-void linkInit(CNetSubSystem *pNet, CSocket *pSocket)
+void linkInit(CBcm4343Device *pWLAN)
 {
-	s_pNet    = pNet;
-	s_pSocket = pSocket;
-	s_nodeId  = (u64)CTimer::GetClockTicks();
-	s_bpm     = 120.0;
+	s_pWLAN    = pWLAN;
+	s_nodeId   = (u64)CTimer::GetClockTicks();
+	s_bpm      = 120.0;
 	s_lastSend = 0;
-	s_synced  = false;
+	s_synced   = false;
 }
 
 void linkProcess(void)
 {
-	if (!s_pSocket) return;
+	if (!s_pWLAN) return;
 
-	u8 buf[512];
-	CIPAddress sender;
-	u16 senderPort;
-	int n;
-	while ((n = s_pSocket->ReceiveFrom(buf, sizeof buf, MSG_DONTWAIT, &sender, &senderPort)) > 0)
-		parsePkt(buf, n);
+	u8 buf[FRAME_BUF];
+	unsigned len;
+	while (s_pWLAN->ReceiveFrame(buf, &len))
+	{
+		if (len < PAYLOAD_OFF + 18) continue;
+		if (buf[12] != 0x08 || buf[13] != 0x00) continue;
+		u8 *ip = buf + IP_HDR_OFF;
+		if (ip[9] != 17) continue;
+		if (memcmp(ip + 16, MCAST, 4) != 0) continue;
+		u8 *udp = buf + UDP_HDR_OFF;
+		u16 dstPort;
+		memcpy(&dstPort, udp + 2, 2);
+		if (swap16(dstPort) != LINK_PORT) continue;
+		parsePkt(buf + PAYLOAD_OFF, (int)(len - PAYLOAD_OFF));
+	}
 
 	u64 now = (u64)CTimer::GetClockTicks();
 	if (now - s_lastSend >= SEND_INTERVAL_US)

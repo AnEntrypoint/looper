@@ -17,8 +17,6 @@
 #include <circle/net/netsubsystem.h>
 #include <circle/net/syslogdaemon.h>
 #include <circle/net/ipaddress.h>
-#include <circle/net/socket.h>
-#include <circle/net/in.h>
 #include <SDCard/emmc.h>
 #include <fatfs/ff.h>
 #include <wlan/bcm4343.h>
@@ -31,7 +29,11 @@ enum TShutdownMode
 	ShutdownReboot
 };
 
-#define NET_LOG_HOST		192, 168, 4, 1
+#define NET_OWN_IP		192, 168, 137, 100
+#define NET_NETMASK		255, 255, 255, 0
+#define NET_GATEWAY		192, 168, 137, 1
+#define NET_DNS			192, 168, 137, 1
+#define NET_LOG_HOST		192, 168, 137, 1
 
 class CKernel
 {

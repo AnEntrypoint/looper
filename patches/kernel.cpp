@@ -8,10 +8,14 @@
 #define CDC_DEVICE_NAME		"utty1"
 #define WLAN_FIRMWARE_PATH	"SD:/firmware/"
 #define WLAN_SSID		"ticker"
-#define LINK_PORT		20808
 
 static const char log_name[] = "kernel";
 static const char build_id[] = "BUILD-" __DATE__ "-" __TIME__;
+
+static const u8 s_OwnIP[] = { NET_OWN_IP };
+static const u8 s_Mask[]  = { NET_NETMASK };
+static const u8 s_GW[]    = { NET_GATEWAY };
+static const u8 s_DNS[]   = { NET_DNS };
 
 static CActLED *s_pActLED = nullptr;
 extern "C" void debug_blink(int n) { if (s_pActLED) s_pActLED->Blink(n); }
@@ -30,7 +34,7 @@ CKernel::CKernel(void) :
 	m_CDCGadget(&m_Interrupt, 0x2E8A, 0x000A),
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED),
 	m_WLAN(WLAN_FIRMWARE_PATH),
-	m_Net(0, 0, 0, 0, "looper", NetDeviceTypeWLAN),
+	m_Net(s_OwnIP, s_Mask, s_GW, s_DNS, "looper"),
 	m_pSysLog(nullptr)
 {
 	m_ActLED.On();
@@ -74,24 +78,10 @@ boolean CKernel::Initialize(void)
 	f_mount(&m_FileSystem, DRIVE, 1);
 	m_ActLED.Blink(1);
 
-	if (bOK)
-	{
-		if (!m_WLAN.Initialize())
-		{
-			m_Logger.Write(log_name, LogWarning, "WLAN init failed");
-			bOK = FALSE;
-		}
-	}
-	m_ActLED.Blink(1);
-
-	if (bOK)
-	{
-		if (!m_WLAN.JoinOpenNet(WLAN_SSID))
-		{
-			m_Logger.Write(log_name, LogWarning, "WLAN join failed");
-			bOK = FALSE;
-		}
-	}
+	if (!m_WLAN.Initialize())
+		m_Logger.Write(log_name, LogWarning, "WLAN init failed");
+	else if (!m_WLAN.JoinOpenNet(WLAN_SSID))
+		m_Logger.Write(log_name, LogWarning, "WLAN join failed");
 	m_ActLED.Blink(1);
 
 	if (bOK) bOK = m_Net.Initialize(FALSE);
@@ -104,32 +94,11 @@ TShutdownMode CKernel::Run(void)
 {
 	m_Logger.Write(log_name, LogNotice, "Looper starting %s", build_id);
 
-	while (!m_Net.IsRunning())
-		m_Scheduler.MsSleep(100);
-
-	m_Logger.Write(log_name, LogNotice, "Network up");
 	static const u8 logHostIP[] = { NET_LOG_HOST };
 	CIPAddress logHost(logHostIP);
 	m_pSysLog = new CSysLogDaemon(&m_Net, logHost);
 
-	CSocket *pLinkSocket = new CSocket(&m_Net, IPPROTO_UDP);
-	if (pLinkSocket->Bind(LINK_PORT) < 0)
-	{
-		m_Logger.Write(log_name, LogWarning, "Link socket bind failed");
-		delete pLinkSocket;
-		pLinkSocket = nullptr;
-	}
-	else
-	{
-		static const u8 grp[] = {224, 76, 78, 75};
-		CIPAddress grpAddr(grp);
-		if (pLinkSocket->SetOptionAddMembership(grpAddr) < 0)
-			m_Logger.Write(log_name, LogWarning, "Link multicast join failed");
-		else
-			m_Logger.Write(log_name, LogNotice, "Link multicast joined");
-	}
-
-	linkInit(&m_Net, pLinkSocket);
+	linkInit(&m_WLAN);
 
 	CSocket *pRebootSocket = new CSocket(&m_Net, IPPROTO_UDP);
 	if (pRebootSocket->Bind(4444) < 0)
