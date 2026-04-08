@@ -511,14 +511,34 @@ void loopMachine::command(u16 command)
         LOOPER_LOG("CLEAR_LAYER track=%d layer=%d", track_num, layer);
         if (track_num < LOOPER_NUM_TRACKS)
         {
-            getTrack(track_num)->clearClip(layer);
-            bool anyClips = false;
-            for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
-                if (getTrack(i)->getNumRecordedClips() > 0) { anyClips = true; break; }
-            if (!anyClips)
+            loopTrack *pTrack = getTrack(track_num);
+            if (pTrack->getNumUsedClips() == 0)
             {
-                m_masterLoopBlocks = 0;
-                m_masterPhase = 0;
+                int ts = pTrack->getTrackState();
+                if (ts & TRACK_STATE_PENDING_RECORD)
+                {
+                    m_track_pending[track_num] = LOOP_COMMAND_NONE;
+                }
+                else
+                {
+                    u16 next_cmd = LOOP_COMMAND_RECORD;
+                    if (next_cmd == LOOP_COMMAND_RECORD && m_masterLoopBlocks > 0)
+                        m_track_pending[track_num] = LOOP_COMMAND_RECORD;
+                    else
+                        pTrack->updateState(next_cmd);
+                }
+            }
+            else
+            {
+                pTrack->clearClip(layer);
+                bool anyClips = false;
+                for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
+                    if (getTrack(i)->getNumRecordedClips() > 0) { anyClips = true; break; }
+                if (!anyClips)
+                {
+                    m_masterLoopBlocks = 0;
+                    m_masterPhase = 0;
+                }
             }
         }
     }
