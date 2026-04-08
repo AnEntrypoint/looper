@@ -594,6 +594,14 @@ void loopMachine::update(void)
 		}
 	}   // m_running
 
+	u32 outPeak = 0;
+	for (int i = 0; i < LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES; i++)
+	{
+		u32 abs = m_output_buffer[i] < 0 ? (u32)(-m_output_buffer[i]) : (u32)m_output_buffer[i];
+		if (abs > outPeak) outPeak = abs;
+	}
+	if (outPeak > m_outputPeakLevel) m_outputPeakLevel = outPeak;
+
 	s32 *iip = m_input_buffer;
 	s32 *iop = m_output_buffer;
 

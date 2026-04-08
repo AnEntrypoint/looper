@@ -100,10 +100,26 @@ void apcKey25::_updateGridLeds()
     if (peak > 2000)  vuLevel = 3;
     if (peak > 5000)  vuLevel = 4;
     if (peak > 10000) vuLevel = 5;
+    for (int i = 0; i < 5; i++)
+    {
+        u8 color = APC_VEL_LED_OFF;
+        if (i < vuLevel)
+            color = (i >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_GREEN;
+        _sendLed(0x52 + i, color);
+    }
+
+    u32 outPeak = pTheLooper->m_outputPeakLevel;
+    pTheLooper->m_outputPeakLevel = 0;
+    int outVu = 0;
+    if (outPeak > 50)    outVu = 1;
+    if (outPeak > 200)   outVu = 2;
+    if (outPeak > 1000)  outVu = 3;
+    if (outPeak > 4000)  outVu = 4;
+    if (outPeak > 10000) outVu = 5;
     for (int row = 0; row < APC_ROWS; row++)
     {
         u8 color = APC_VEL_LED_OFF;
-        if (row < vuLevel)
+        if (row < outVu)
             color = (row >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_GREEN;
         _sendLed(_padNote(row, APC_COLS - 1), color);
     }
