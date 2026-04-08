@@ -23,23 +23,18 @@ static double          s_bpm      = 120.0;
 static u64             s_nodeId   = 0;
 static u64             s_lastSend = 0;
 static bool            s_synced   = false;
-static bool            s_loggedSend = false;
-static u32             s_rxCount  = 0;
+static unsigned        s_lastIgmp = 0;
 
 static inline u16 swap16(u16 v) { return __builtin_bswap16(v); }
 static inline u32 swap32(u32 v) { return __builtin_bswap32(v); }
 static inline u64 swap64(u64 v) { return __builtin_bswap64(v); }
 
-static u16 ipChecksum(const u8 *hdr, int len)
+static u16 csum16(const u8 *d, int n)
 {
-	u32 sum = 0;
-	for (int i = 0; i < len; i += 2)
-	{
-		u16 w = ((u16)hdr[i] << 8) | hdr[i+1];
-		sum += w;
-	}
-	while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
-	return (u16)(~sum);
+	u32 s = 0;
+	for (int i = 0; i < n; i += 2) s += ((u16)d[i] << 8) | d[i+1];
+	while (s >> 16) s = (s & 0xffff) + (s >> 16);
+	return (u16)~s;
 }
 
 static void parsePkt(const u8 *buf, int len)
@@ -115,36 +110,45 @@ static void sendAlive(void)
 	u8 frame[FRAME_BUF];
 	memset(frame, 0, PAYLOAD_OFF + plen);
 
-	memcpy(frame + 0, MCAST_MAC, 6);
-	memcpy(frame + 6, &s_nodeId, 6);
-	frame[12] = 0x08;
-	frame[13] = 0x00;
+	memcpy(frame+0,MCAST_MAC,6); memcpy(frame+6,&s_nodeId,6);
+	frame[12]=0x08; frame[13]=0x00;
 
 	u8 *ip = frame + IP_HDR_OFF;
-	ip[0]  = 0x45;
-	ip[1]  = 0;
-	u16 ipLen = swap16(20 + 8 + plen);
-	memcpy(ip + 2, &ipLen, 2);
-	ip[6]  = 0x40;
-	ip[8]  = 1;
-	ip[9]  = 17;
+	ip[0]=0x45; ip[6]=0x40; ip[8]=1; ip[9]=17;
+	u16 ipLen=swap16(20+8+plen); memcpy(ip+2,&ipLen,2);
 	if (wlanDhcpOK()) memcpy(s_ownIP, wlanDhcpIP(), 4);
-	memcpy(ip + 12, s_ownIP, 4);
-	memcpy(ip + 16, MCAST,  4);
-	u16 csum = swap16(ipChecksum(ip, 20));
-	memcpy(ip + 10, &csum, 2);
-
-	u8 *udp = frame + UDP_HDR_OFF;
-	u16 srcPort = swap16(LINK_PORT);
-	u16 dstPort = swap16(LINK_PORT);
-	u16 udpLen  = swap16(8 + plen);
-	memcpy(udp + 0, &srcPort, 2);
-	memcpy(udp + 2, &dstPort, 2);
-	memcpy(udp + 4, &udpLen,  2);
+	memcpy(ip+12,s_ownIP,4); memcpy(ip+16,MCAST,4);
+	u16 csum=swap16(csum16(ip,20)); memcpy(ip+10,&csum,2);
+	u8 *udp=frame+UDP_HDR_OFF;
+	u16 p16=swap16(LINK_PORT), uLen=swap16(8+plen);
+	memcpy(udp,&p16,2); memcpy(udp+2,&p16,2); memcpy(udp+4,&uLen,2);
 
 	memcpy(frame + PAYLOAD_OFF, payload, plen);
 
 	s_pWLAN->SendFrame(frame, PAYLOAD_OFF + plen);
+}
+
+static void sendIgmpJoin(void)
+{
+	u8 f[60];
+	memset(f, 0, sizeof f);
+	memcpy(f, MCAST_MAC, 6);
+	memcpy(f + 6, &s_nodeId, 6);
+	f[12] = 0x08; f[13] = 0x00;
+	u8 *ip = f + 14;
+	ip[0] = 0x46; ip[1] = 0xc0;
+	u16 tot = swap16(32); memcpy(ip + 2, &tot, 2);
+	ip[6] = 0x40; ip[8] = 1; ip[9] = 2;
+	memcpy(ip + 12, wlanDhcpIP(), 4);
+	memcpy(ip + 16, MCAST, 4);
+	ip[20] = 0x94; ip[21] = 0x04;
+	u16 cs = swap16(csum16(ip, 24)); memcpy(ip + 10, &cs, 2);
+	u8 *igmp = ip + 24;
+	igmp[0] = 0x16;
+	memcpy(igmp + 4, MCAST, 4);
+	u16 ics = swap16(csum16(igmp, 8)); memcpy(igmp + 2, &ics, 2);
+	s_pWLAN->SendFrame(f, 14 + 32);
+	CLogger::Get()->Write("link", LogNotice, "IGMP join 224.76.78.75");
 }
 
 void linkInit(CBcm4343Device *pWLAN)
@@ -164,16 +168,6 @@ void linkProcess(void)
 	unsigned len;
 	while (s_pWLAN->ReceiveFrame(buf, &len))
 	{
-		s_rxCount++;
-		if (s_rxCount <= 5)
-			CLogger::Get()->Write("link", LogNotice, "rx len=%u eth=%02x%02x proto=%d dst=%d.%d.%d.%d port=%d",
-				len, buf[12], buf[13],
-				len > IP_HDR_OFF ? buf[IP_HDR_OFF+9] : 0,
-				len > IP_HDR_OFF ? buf[IP_HDR_OFF+16] : 0,
-				len > IP_HDR_OFF ? buf[IP_HDR_OFF+17] : 0,
-				len > IP_HDR_OFF ? buf[IP_HDR_OFF+18] : 0,
-				len > IP_HDR_OFF ? buf[IP_HDR_OFF+19] : 0,
-				len > UDP_HDR_OFF+2 ? (int)swap16(*(u16*)(buf+UDP_HDR_OFF+2)) : 0);
 		if (len < PAYLOAD_OFF + 18) continue;
 		if (buf[12] != 0x08 || buf[13] != 0x00) continue;
 		u8 *ip = buf + IP_HDR_OFF;
@@ -189,13 +183,13 @@ void linkProcess(void)
 	u64 now = (u64)CTimer::GetClockTicks();
 	if (now - s_lastSend >= SEND_INTERVAL_US)
 	{
-		if (!s_loggedSend)
-		{
-			CLogger::Get()->Write("link", LogNotice, "sending alive bpm=%d", (int)s_bpm);
-			s_loggedSend = true;
-		}
 		sendAlive();
 		s_lastSend = now;
+	}
+	if (wlanDhcpOK() && (unsigned)now - s_lastIgmp >= 30 * CLOCKHZ)
+	{
+		sendIgmpJoin();
+		s_lastIgmp = (unsigned)now;
 	}
 }
 
