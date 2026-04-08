@@ -190,7 +190,9 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
     delete m_pOutURB;
     m_pOutURB = 0;
 
-    unsigned nSamples = sizeof m_OutBuf / 4;
+    u16 usPacketSize = (u16) m_pEndpointOut->GetMaxPacketSize ();
+    if (usPacketSize > sizeof m_OutBuf) usPacketSize = sizeof m_OutBuf;
+    unsigned nSamples = usPacketSize / 4;
     if (m_pOutHandler)
     {
         s16 left_buf[USB_AUDIO_BLOCK_BYTES / 4], right_buf[USB_AUDIO_BLOCK_BYTES / 4];
@@ -204,7 +206,7 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
     }
     else
     {
-        memset (m_OutBuf, 0, nSamples * 4);
+        memset (m_OutBuf, 0, usPacketSize);
     }
     StartOutRequest ();
 }
