@@ -6,12 +6,19 @@
 audio_block_t *AudioOutputUSB::s_block_left  = 0;
 audio_block_t *AudioOutputUSB::s_block_right = 0;
 
-static s16 s_out_left [AUDIO_BLOCK_SAMPLES];
-static s16 s_out_right[AUDIO_BLOCK_SAMPLES];
+static s16 s_play_left [AUDIO_BLOCK_SAMPLES];
+static s16 s_play_right[AUDIO_BLOCK_SAMPLES];
+static s16 s_next_left [AUDIO_BLOCK_SAMPLES];
+static s16 s_next_right[AUDIO_BLOCK_SAMPLES];
+static volatile boolean s_next_ready = FALSE;
 static unsigned s_out_pos = AUDIO_BLOCK_SAMPLES;
 
 AudioOutputUSB::AudioOutputUSB (void) : AudioStream (2, 0, m_input_queue)
 {
+    memset (s_play_left,  0, sizeof s_play_left);
+    memset (s_play_right, 0, sizeof s_play_right);
+    memset (s_next_left,  0, sizeof s_next_left);
+    memset (s_next_right, 0, sizeof s_next_right);
 }
 
 void AudioOutputUSB::start (void)
@@ -27,23 +34,17 @@ void AudioOutputUSB::outHandler (s16 *pLeft, s16 *pRight, unsigned nSamples)
     {
         if (s_out_pos >= AUDIO_BLOCK_SAMPLES)
         {
-            audio_block_t *left  = s_block_left;
-            audio_block_t *right = s_block_right;
-
-            if (left)
-                memcpy (s_out_left,  left->data,  AUDIO_BLOCK_SAMPLES * sizeof (s16));
-            else
-                memset (s_out_left,  0, AUDIO_BLOCK_SAMPLES * sizeof (s16));
-            if (right)
-                memcpy (s_out_right, right->data, AUDIO_BLOCK_SAMPLES * sizeof (s16));
-            else
-                memset (s_out_right, 0, AUDIO_BLOCK_SAMPLES * sizeof (s16));
-
+            if (s_next_ready)
+            {
+                memcpy (s_play_left,  s_next_left,  sizeof s_play_left);
+                memcpy (s_play_right, s_next_right, sizeof s_play_right);
+                s_next_ready = FALSE;
+            }
             s_out_pos = 0;
         }
 
-        pLeft[i]  = s_out_left [s_out_pos];
-        pRight[i] = s_out_right[s_out_pos];
+        pLeft[i]  = s_play_left [s_out_pos];
+        pRight[i] = s_play_right[s_out_pos];
         s_out_pos++;
     }
 }
@@ -53,13 +54,17 @@ void AudioOutputUSB::update (void)
     audio_block_t *new_left  = receiveReadOnly (0);
     audio_block_t *new_right = receiveReadOnly (1);
 
-    __disable_irq ();
-    audio_block_t *old_left  = s_block_left;
-    audio_block_t *old_right = s_block_right;
-    s_block_left  = new_left;
-    s_block_right = new_right;
-    __enable_irq ();
+    if (new_left)
+        memcpy (s_next_left,  new_left->data,  AUDIO_BLOCK_SAMPLES * sizeof (s16));
+    else
+        memset (s_next_left,  0, AUDIO_BLOCK_SAMPLES * sizeof (s16));
+    if (new_right)
+        memcpy (s_next_right, new_right->data, AUDIO_BLOCK_SAMPLES * sizeof (s16));
+    else
+        memset (s_next_right, 0, AUDIO_BLOCK_SAMPLES * sizeof (s16));
 
-    if (old_left)  AudioSystem::release (old_left);
-    if (old_right) AudioSystem::release (old_right);
+    s_next_ready = TRUE;
+
+    if (new_left)  AudioSystem::release (new_left);
+    if (new_right) AudioSystem::release (new_right);
 }
