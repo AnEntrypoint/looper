@@ -444,6 +444,7 @@ class publicLoopMachine : public AudioStream
 
         bool getDubMode()           { return m_dub_mode; }
         void setDubMode(bool dub)   { m_dub_mode = dub; }
+        u32 m_masterLoopBlocks;
 
         virtual publicTrack *getPublicTrack(u16 num) = 0;
 
@@ -487,7 +488,6 @@ class publicLoopMachine : public AudioStream
       	audio_block_t *inputQueueArray[LOOPER_NUM_CHANNELS];
 
         int m_running;
-        u32 m_masterLoopBlocks;
         u16 m_pending_command;
         int m_selected_track_num;
         bool m_dub_mode;
