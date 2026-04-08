@@ -2,6 +2,8 @@
 #include "abletonLink.h"
 #include <circle/util.h>
 #include <circle/devicenameservice.h>
+#include <circle/net/in.h>
+#include <circle/net/socket.h>
 
 #define SERIAL_BAUD_RATE	115200
 #define DRIVE			"SD:"
