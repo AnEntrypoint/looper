@@ -66,7 +66,10 @@ static void parsePkt(const u8 *buf, int len)
 			mpb = (s64)swap64((u64)mpb);
 			if (mpb > 0)
 			{
-				s_bpm    = 60000000.0 / (double)mpb;
+				double newBpm = 60000000.0 / (double)mpb;
+				if (!s_synced)
+					CLogger::Get()->Write("link", LogNotice, "Link peer synced: bpm=%.2f", newBpm);
+				s_bpm    = newBpm;
 				s_synced = true;
 			}
 		}
