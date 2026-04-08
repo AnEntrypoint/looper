@@ -9,6 +9,10 @@ audio_block_t *AudioInputUSB::s_block_left  = 0;
 audio_block_t *AudioInputUSB::s_block_right = 0;
 bool           AudioInputUSB::s_update_responsibility = false;
 
+static s16 s_accum_left [AUDIO_BLOCK_SAMPLES];
+static s16 s_accum_right[AUDIO_BLOCK_SAMPLES];
+static unsigned s_accum_pos = 0;
+
 AudioInputUSB::AudioInputUSB (void) : AudioStream (0, 2, 0)
 {
 }
@@ -23,17 +27,28 @@ void AudioInputUSB::start (void)
 
 void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
 {
-    audio_block_t *left  = s_block_left;
-    audio_block_t *right = s_block_right;
+    for (unsigned i = 0; i < nSamples; i++)
+    {
+        s_accum_left [s_accum_pos] = pLeft[i];
+        s_accum_right[s_accum_pos] = pRight[i];
+        s_accum_pos++;
 
-    unsigned copy = (nSamples < AUDIO_BLOCK_SAMPLES) ? nSamples : AUDIO_BLOCK_SAMPLES;
-    if (left)
-        memcpy (left->data,  pLeft,  copy * sizeof (s16));
-    if (right)
-        memcpy (right->data, pRight, copy * sizeof (s16));
+        if (s_accum_pos >= AUDIO_BLOCK_SAMPLES)
+        {
+            audio_block_t *left  = s_block_left;
+            audio_block_t *right = s_block_right;
 
-    if (s_update_responsibility)
-        AudioSystem::startUpdate ();
+            if (left)
+                memcpy (left->data,  s_accum_left,  AUDIO_BLOCK_SAMPLES * sizeof (s16));
+            if (right)
+                memcpy (right->data, s_accum_right, AUDIO_BLOCK_SAMPLES * sizeof (s16));
+
+            s_accum_pos = 0;
+
+            if (s_update_responsibility)
+                AudioSystem::startUpdate ();
+        }
+    }
 }
 
 void AudioInputUSB::update (void)
