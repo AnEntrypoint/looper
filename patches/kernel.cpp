@@ -31,6 +31,8 @@ static const u8 s_DNS[]   = { NET_DNS };
 
 static CActLED *s_pActLED = nullptr;
 extern "C" void debug_blink(int n) { if (s_pActLED) s_pActLED->Blink(n); }
+static bool s_wlanOK = false;
+static bool s_wlanJoined = false;
 
 extern void setup(void);
 extern void loop(void);
@@ -97,10 +99,9 @@ boolean CKernel::Initialize(void)
 	};
 	p9chan_set_firmware(s_wlanFW, 3);
 
-	if (!m_WLAN.Initialize())
-		m_Logger.Write(log_name, LogWarning, "WLAN init failed");
-	else if (!m_WLAN.JoinOpenNet(WLAN_SSID))
-		m_Logger.Write(log_name, LogWarning, "WLAN join failed");
+	s_wlanOK = m_WLAN.Initialize();
+	if (s_wlanOK)
+		s_wlanJoined = m_WLAN.JoinOpenNet(WLAN_SSID);
 	m_ActLED.Blink(1);
 
 	if (bOK) bOK = m_Net.Initialize(FALSE);
@@ -116,6 +117,10 @@ TShutdownMode CKernel::Run(void)
 	static const u8 logHostIP[] = { NET_LOG_HOST };
 	CIPAddress logHost(logHostIP);
 	m_pSysLog = new CSysLogDaemon(&m_Net, logHost);
+
+	m_Logger.Write(log_name, LogNotice, "WLAN init=%s join=%s",
+		s_wlanOK ? "OK" : "FAILED",
+		s_wlanOK ? (s_wlanJoined ? "OK" : "FAILED") : "N/A");
 
 	linkInit(&m_WLAN);
 
@@ -135,7 +140,10 @@ TShutdownMode CKernel::Run(void)
 
 	setup();
 
+	m_Logger.Write(log_name, LogNotice, "entering main loop");
+
 	bool bPlugAndPlayUpdated = FALSE;
+	unsigned nLastHeartbeat = m_Timer.GetClockTicks();
 	while (TRUE)
 	{
 		bPlugAndPlayUpdated = m_USBHCI.UpdatePlugAndPlay();
@@ -145,6 +153,13 @@ TShutdownMode CKernel::Run(void)
 		loop();
 		linkProcess();
 		m_Scheduler.Yield();
+
+		unsigned nNow = m_Timer.GetClockTicks();
+		if (nNow - nLastHeartbeat >= 10 * CLOCKHZ)
+		{
+			m_Logger.Write(log_name, LogNotice, "heartbeat wlan=%s", s_wlanJoined ? "joined" : "no");
+			nLastHeartbeat = nNow;
+		}
 
 		if (pRebootSocket)
 		{
