@@ -168,16 +168,17 @@ void linkProcess(void)
 	unsigned len;
 	while (s_pWLAN->ReceiveFrame(buf, &len))
 	{
-		if (len < PAYLOAD_OFF + 18) continue;
+		if ((int)len < 42) continue;
 		if (buf[12] != 0x08 || buf[13] != 0x00) continue;
-		u8 *ip = buf + IP_HDR_OFF;
+		u8 *ip = buf+IP_HDR_OFF; int ihl=(ip[0]&0x0f)*4;
 		if (ip[9] != 17) continue;
 		if (memcmp(ip + 16, MCAST, 4) != 0) continue;
-		u8 *udp = buf + UDP_HDR_OFF;
-		u16 dstPort;
-		memcpy(&dstPort, udp + 2, 2);
-		if (swap16(dstPort) != LINK_PORT) continue;
-		parsePkt(buf + PAYLOAD_OFF, (int)(len - PAYLOAD_OFF));
+		u8 *udp = ip + ihl;
+		u16 dp; memcpy(&dp, udp+2, 2);
+		if (swap16(dp) != LINK_PORT) continue;
+		u8 *pl = udp+8; int plen=(int)(len-(pl-buf));
+		if (plen < 18) continue;
+		parsePkt(pl, plen);
 	}
 
 	u64 now = (u64)CTimer::GetClockTicks();
