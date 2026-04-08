@@ -55,7 +55,7 @@ async function checkAndUpdate(){
     const release=JSON.parse(r.body);
     const asset=release.assets.find(a=>a.name==='looper-sd.zip');
     if(!asset){console.log('[UPDATE] no looper-sd.zip in',release.tag_name);return;}
-    const sha=String(asset.id);
+    const sha=asset.digest||String(asset.updated_at)||String(asset.id);
     if(sha===currentSha){console.log('[UPDATE] up to date',release.tag_name);return;}
     console.log('[UPDATE] new build',release.tag_name,sha);
     const zipPath=path.join(__dirname,'dist','looper-sd.zip');
