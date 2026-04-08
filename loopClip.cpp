@@ -210,21 +210,26 @@ void loopClip::_startEndingRecording(u32 trimToBlocks)
         m_num_blocks = m_record_block;
     m_max_blocks = m_record_block + CROSSFADE_BLOCKS;
     pTheLoopBuffer->commitBlocks(m_max_blocks * LOOPER_NUM_CHANNELS);
-    if (m_clip_num == 0 && pTheLoopMachine->m_masterLoopBlocks == 0)
+    if (m_clip_num == 0 && m_num_blocks > pTheLoopMachine->m_masterLoopBlocks)
     {
         u32 len = m_num_blocks;
-        u32 beat = AUDIO_SAMPLE_RATE / AUDIO_BLOCK_SAMPLES / 2;
-        u32 candidates[] = { beat, beat*2, beat*4, beat*8, beat*16, beat*32 };
-        u32 best = len;
-        u32 bestDist = 0xFFFFFFFF;
-        for (u32 i = 0; i < 6; i++)
+        if (pTheLoopMachine->m_masterLoopBlocks == 0)
         {
-            u32 c = candidates[i];
-            u32 dist = len > c ? len - c : c - len;
-            if (dist < bestDist) { bestDist = dist; best = c; }
+            u32 beat = AUDIO_SAMPLE_RATE / AUDIO_BLOCK_SAMPLES / 2;
+            u32 candidates[] = { beat, beat*2, beat*4, beat*8, beat*16, beat*32 };
+            u32 best = len;
+            u32 bestDist = 0xFFFFFFFF;
+            for (u32 i = 0; i < 6; i++)
+            {
+                u32 c = candidates[i];
+                u32 dist = len > c ? len - c : c - len;
+                if (dist < bestDist) { bestDist = dist; best = c; }
+            }
+            len = (bestDist * 3 < best) ? best : len;
         }
-        pTheLoopMachine->m_masterLoopBlocks = (bestDist * 3 < best) ? best : len;
-        m_num_blocks = pTheLoopMachine->m_masterLoopBlocks;
+        pTheLoopMachine->m_masterLoopBlocks = len;
+        pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % len;
+        m_num_blocks = len;
     }
     clearClipBits(CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN);
     setClipBits(CLIP_STATE_RECORD_END);
