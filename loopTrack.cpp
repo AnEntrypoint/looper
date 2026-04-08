@@ -197,7 +197,6 @@ void loopTrack::doubleLength()
     for (int i = 0; i < m_num_used_clips; i++)
         m_clips[i]->doubleLength();
 }
-}
 
 
 void loopTrack::updateState(u16 cur_command)
