@@ -1,5 +1,6 @@
 #include "kernel.h"
 #include "abletonLink.h"
+#include "wlanDHCP.h"
 #include <circle/util.h>
 #include <circle/string.h>
 #include <circle/devicenameservice.h>
@@ -101,8 +102,14 @@ boolean CKernel::Initialize(void)
 	p9chan_set_firmware(s_wlanFW, 3);
 
 	s_wlanOK = m_WLAN.Initialize();
-	if (s_wlanOK)
+	if (s_wlanOK) {
 		s_wlanJoined = m_WLAN.JoinOpenNet(WLAN_SSID);
+		if (s_wlanJoined) {
+			u8 mac[6];
+			m_WLAN.GetMACAddress()->CopyTo(mac);
+			wlanDhcpGetIP(&m_WLAN, mac);
+		}
+	}
 	m_ActLED.Blink(1);
 
 	if (bOK) bOK = m_Net.Initialize(FALSE);

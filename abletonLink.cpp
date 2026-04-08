@@ -1,4 +1,5 @@
 #include "abletonLink.h"
+#include "wlanDHCP.h"
 #include <circle/timer.h>
 #include <circle/logger.h>
 #include <circle/util.h>
@@ -15,7 +16,7 @@
 static const u8 MAGIC[8] = {'_','a','s','d','p','_','v',0x01};
 static const u8 MCAST[4]     = {224, 76, 78, 75};
 static const u8 MCAST_MAC[6] = {0x01, 0x00, 0x5e, 0x4c, 0x4e, 0x4b};
-static const u8 OWN_IP[4] = {192, 168, 137, 100};
+static u8 s_ownIP[4] = {192, 168, 4, 3};
 
 static CBcm4343Device *s_pWLAN    = nullptr;
 static double          s_bpm      = 120.0;
@@ -127,7 +128,8 @@ static void sendAlive(void)
 	ip[6]  = 0x40;
 	ip[8]  = 1;
 	ip[9]  = 17;
-	memcpy(ip + 12, OWN_IP, 4);
+	if (wlanDhcpOK()) memcpy(s_ownIP, wlanDhcpIP(), 4);
+	memcpy(ip + 12, s_ownIP, 4);
 	memcpy(ip + 16, MCAST,  4);
 	u16 csum = swap16(ipChecksum(ip, 20));
 	memcpy(ip + 10, &csum, 2);
