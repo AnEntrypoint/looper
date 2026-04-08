@@ -463,13 +463,13 @@ void loopMachine::command(u16 command)
 
         u16 next_cmd = LOOP_COMMAND_NONE;
         if (ts & TRACK_STATE_RECORDING)
-            next_cmd = LOOP_COMMAND_PLAY;       // stop recording, start playing
+            next_cmd = LOOP_COMMAND_PLAY;
         else if (ts & TRACK_STATE_PLAYING)
-            next_cmd = LOOP_COMMAND_RECORD;     // overdub
+            next_cmd = LOOP_COMMAND_STOP;
         else if (ts & TRACK_STATE_STOPPED)
-            next_cmd = LOOP_COMMAND_PLAY;       // resume playback
+            next_cmd = LOOP_COMMAND_PLAY;
         else
-            next_cmd = LOOP_COMMAND_RECORD;     // empty: start recording
+            next_cmd = LOOP_COMMAND_RECORD;
 
         LOOPER_LOG("TRACK(%d) ts=0x%04x -> %s", track_num, ts, getLoopCommandName(next_cmd));
         CLogger::Get()->Write(log_name, LogNotice, "TRACK(%d) run=%d cmd=%d", track_num, pTrack->getNumRunningClips(), next_cmd);
