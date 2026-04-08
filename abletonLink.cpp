@@ -44,7 +44,7 @@ static void parsePkt(const u8 *buf, int len)
 	memcpy(&senderId, buf + 10, 8);
 	if (senderId == s_nodeId) return;
 
-	const u8 *p   = buf + 10;
+	const u8 *p   = buf + 18;
 	const u8 *end = buf + len;
 
 	while (p + 8 <= end)
