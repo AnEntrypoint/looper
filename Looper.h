@@ -248,8 +248,6 @@ class loopClip : public publicClip
         void clearMarkPoint();
         void halveLength();
         void doubleLength();
-        }
-
 
     private:
 
