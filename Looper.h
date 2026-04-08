@@ -344,6 +344,7 @@ class publicTrack
         u16 getNumRecordedClips()   { return m_num_recorded_clips; }
         u16 getNumRunningClips()    { return m_num_running_clips; }
         bool isSelected()           { return m_selected; }
+        volatile u32 m_peakLevel;
 
         virtual publicClip *getPublicClip(u16 clip_num) = 0;
         virtual int getTrackState() = 0;
@@ -356,6 +357,7 @@ class publicTrack
             m_num_recorded_clips = 0;
             m_num_running_clips = 0;
             m_selected = 0;
+            m_peakLevel = 0;
         }
 
         u16  m_track_num;

@@ -1,5 +1,6 @@
 #include "Looper.h"
 #include <circle/logger.h>
+#include <circle/util.h>
 
 #define log_name "ltrack"
 
@@ -119,9 +120,20 @@ void loopTrack::setMarkPoint()
 
 void loopTrack::update(s32 *in, s32 *out)
 {
-    // call update() on all active clips
+    u32 peak = 0;
+    s32 snap[LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES];
+    memcpy(snap, out, sizeof snap);
+
     for (int i=0; i<m_num_used_clips; i++)
         m_clips[i]->update(in,out);
+
+    for (int i = 0; i < LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES; i++)
+    {
+        s32 diff = out[i] - snap[i];
+        u32 abs = diff < 0 ? (u32)(-diff) : (u32)diff;
+        if (abs > peak) peak = abs;
+    }
+    if (peak > m_peakLevel) m_peakLevel = peak;
 }
 
 

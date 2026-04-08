@@ -61,8 +61,28 @@ void apcKey25::_updateGridLeds()
         u8 col1 = _muteLedColor(row);
         _sendLed(_padNote(row, 0), col0);
         _sendLed(_padNote(row, 1), col1);
-        for (int col = 2; col < APC_COLS - 1; col++)
-            _sendLed(_padNote(row, col), APC_VEL_LED_OFF);
+    }
+
+    for (int track = 0; track < LOOPER_NUM_TRACKS; track++)
+    {
+        int col = 2 + track;
+        if (col >= APC_COLS - 1) break;
+        publicTrack *pTrack = pTheLooper->getPublicTrack(track);
+        u32 tpeak = pTrack->m_peakLevel;
+        pTrack->m_peakLevel = 0;
+        int tvu = 0;
+        if (tpeak > 50)    tvu = 1;
+        if (tpeak > 200)   tvu = 2;
+        if (tpeak > 1000)  tvu = 3;
+        if (tpeak > 4000)  tvu = 4;
+        if (tpeak > 10000) tvu = 5;
+        for (int row = 0; row < APC_ROWS; row++)
+        {
+            u8 color = APC_VEL_LED_OFF;
+            if (row < tvu)
+                color = (row >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_GREEN;
+            _sendLed(_padNote(row, col), color);
+        }
     }
 
     u32 peak = AudioInputUSB::s_peakLevel;
