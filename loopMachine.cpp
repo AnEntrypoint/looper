@@ -591,6 +591,8 @@ void loopMachine::update(void)
 	updateState();
 	if (m_running)
 	{
+		if (m_masterLoopBlocks > 0)
+			m_masterPhase = (m_masterPhase + 1) % m_masterLoopBlocks;
 		for (int i=0; i<LOOPER_NUM_TRACKS; i++)
 		{
 			loopTrack *pTrack = getTrack(i);
@@ -744,16 +746,10 @@ void loopMachine::updateState(void)
 	if (at_loop_point)
 	{
 		m_pending_loop_notify++;
-		// if (m_mark_point_state == 1)	// was waiting to come into effect for this loop point
-		// {
-		// 	m_mark_point_state = 2;
-		// 	LOOPER_LOG("advance m_mark_point_state to 2",0);
-		// }
 		if (m_mark_point_state && !m_pending_command)
 		{
 			LOOPER_LOG("forcing m_pending_command=LOOP_COMMAND_SET_LOOP_START",0);
 			m_pending_command = LOOP_COMMAND_SET_LOOP_START;
-				// over used as command "ACTUALLY JUMP TO THE MARK POINT"
 		}
 	}
 

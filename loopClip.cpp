@@ -426,15 +426,23 @@ void loopClip::update(s32 *ip, s32 *op)
 	}
 	if (pp_main)
 	{
-		m_play_block++;
-		if (m_play_block == m_num_blocks)
+		u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
+		if (masterLen > 0 && !(m_state & CLIP_STATE_PLAY_END))
 		{
-			_startCrossFade();
-				// note that this post increment starting of
-				// the next loop requires special handling
-				// if it is going to stop
+			u32 next = pTheLoopMachine->m_masterPhase % m_num_blocks;
+			bool wrapped = (m_play_block > 0) && (next < m_play_block);
+			m_play_block = next;
+			if (wrapped)
+				_startCrossFade();
+		}
+		else
+		{
+			m_play_block++;
+			if (m_play_block == m_num_blocks)
+				_startCrossFade();
 		}
 	}
+
 }
 
 
