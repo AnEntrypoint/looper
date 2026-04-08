@@ -1,6 +1,7 @@
 #include "Looper.h"
 #include <circle/logger.h>
 #include <circle/synchronize.h>
+#include "abletonLink.h"
 
 #define log_name "lmachine"
 
@@ -637,6 +638,11 @@ void loopMachine::update(void)
 
 	}   // for each s32 channel
 
+	if (linkIsSynced() && m_running == 0)
+	{
+		double bpm = linkGetBPM();
+		if (bpm > 0) m_masterLoopBlocks = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0) / bpm + 0.5);
+	}
 	updateState();
 	if (m_running)
 	{

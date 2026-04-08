@@ -19,14 +19,19 @@ static CSocket       *s_pSocket = nullptr;
 static double         s_bpm     = 120.0;
 static u64            s_nodeId  = 0;
 static u64            s_lastSend = 0;
+static bool           s_synced  = false;
 
 static inline u32 swap32(u32 v) { return __builtin_bswap32(v); }
 static inline u64 swap64(u64 v) { return __builtin_bswap64(v); }
 
 static void parsePkt(const u8 *buf, int len)
 {
-	if (len < 10) return;
+	if (len < 18) return;
 	if (memcmp(buf, MAGIC, 8) != 0) return;
+
+	u64 senderId;
+	memcpy(&senderId, buf + 10, 8);
+	if (senderId == s_nodeId) return;
 
 	const u8 *p   = buf + 10;
 	const u8 *end = buf + len;
@@ -45,7 +50,10 @@ static void parsePkt(const u8 *buf, int len)
 			memcpy(&mpb, p, 8);
 			mpb = (s64)swap64((u64)mpb);
 			if (mpb > 0)
+			{
 				s_bpm = 60000000.0 / (double)mpb;
+				s_synced = true;
+			}
 		}
 		p += sz;
 	}
@@ -94,6 +102,7 @@ void linkInit(CNetSubSystem *pNet, CSocket *pSocket)
 	s_nodeId  = (u64)CTimer::GetClockTicks();
 	s_bpm     = 120.0;
 	s_lastSend = 0;
+	s_synced  = false;
 }
 
 void linkProcess(void)
@@ -117,3 +126,4 @@ void linkProcess(void)
 
 double linkGetBPM(void)       { return s_bpm; }
 void   linkSetBPM(double bpm) { s_bpm = bpm; }
+bool   linkIsSynced(void)     { return s_synced; }
