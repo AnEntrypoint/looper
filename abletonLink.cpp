@@ -1,5 +1,6 @@
 #include "abletonLink.h"
 #include <circle/macaddress.h>
+#include <circle/net/ipaddress.h>
 #include <circle/timer.h>
 #include <circle/logger.h>
 #include <circle/util.h>
