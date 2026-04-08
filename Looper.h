@@ -196,6 +196,7 @@ class publicClip
             m_crossfade_offset = 0;
             m_origNumBlocks = 0;
             m_quantizeTarget = 0;
+            m_quantizeWillPlay = false;
             m_recordStartPhaseOffset = 0;
             m_mute = false;
             m_volume = 1.0;
@@ -214,6 +215,7 @@ class publicClip
         u32  m_crossfade_offset;
         u32  m_origNumBlocks;
         u32  m_quantizeTarget;
+        bool m_quantizeWillPlay;
         u32  m_recordStartPhaseOffset;
 
         s32  m_mark_point;

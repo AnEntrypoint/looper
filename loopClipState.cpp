@@ -67,7 +67,7 @@ void loopClip::updateState(u16 cur_command)
             else
             {
                 m_quantizeTarget = target;
-                m_state = CS_FINISHING;
+                m_quantizeWillPlay = false;
             }
         }
         else if (m_state == CS_PLAYING)
@@ -97,7 +97,7 @@ void loopClip::updateState(u16 cur_command)
             else
             {
                 m_quantizeTarget = target;
-                m_state = CS_RECORDING_TAIL;
+                m_quantizeWillPlay = true;
             }
         }
         if (m_state == CS_RECORDED)

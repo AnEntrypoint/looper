@@ -90,8 +90,10 @@ void loopClip::update(s32 *ip, s32 *op)
             m_record_block >= m_quantizeTarget)
         {
             u32 trim = m_quantizeTarget;
+            bool play = m_quantizeWillPlay;
             m_quantizeTarget = 0;
-            _startEndingRecording(trim, true);
+            m_quantizeWillPlay = false;
+            _startEndingRecording(trim, play);
         }
         else if ((m_state == CS_RECORDING_TAIL || m_state == CS_FINISHING) &&
             m_record_block >= m_max_blocks)
