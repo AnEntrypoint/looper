@@ -80,24 +80,16 @@ jobs:
         run: |
           FW=circle/_prh/_apps/Looper/dist/firmware
           OUT=circle/_prh/_apps/Looper/wlan_firmware.cpp
-          python3 - <<'EOF'
-          import struct, os
-          fw_dir = "circle/_prh/_apps/Looper/dist/firmware"
-          out = "circle/_prh/_apps/Looper/wlan_firmware.cpp"
-          files = [
-            ("wlan_bin", "brcmfmac43455-sdio.bin"),
-            ("wlan_txt", "brcmfmac43455-sdio.txt"),
-            ("wlan_clm", "brcmfmac43455-sdio.clm_blob"),
-          ]
-          with open(out, "w") as f:
-            f.write('#include <circle/types.h>\n')
-            for sym, fname in files:
-              data = open(os.path.join(fw_dir, fname), "rb").read()
-              f.write(f'const unsigned char {sym}[] = {{')
-              f.write(','.join(str(b) for b in data))
-              f.write(f'}};\nconst unsigned long {sym}_size = {len(data)};\n')
-          print(f"Generated {out}")
-          EOF
+          echo '#include <circle/types.h>' > $OUT
+          for entry in "wlan_bin:brcmfmac43455-sdio.bin" "wlan_txt:brcmfmac43455-sdio.txt" "wlan_clm:brcmfmac43455-sdio.clm_blob"; do
+            sym="${entry%%:*}"; fname="${entry##*:}"
+            file="$FW/$fname"
+            size=$(wc -c < "$file")
+            printf 'const unsigned char %s[] = {' "$sym" >> $OUT
+            xxd -i < "$file" | tr -d '\n ' | sed 's/,$//' >> $OUT
+            printf '};\nconst unsigned long %s_size = %s;\n' "$sym" "$size" >> $OUT
+          done
+          echo "Generated $OUT ($(wc -c < $OUT) bytes)"
 
       - name: Build circle-prh libraries
         run: |
