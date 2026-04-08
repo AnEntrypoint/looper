@@ -106,13 +106,26 @@ void loopClip::halveLength()
     if (m_num_blocks <= CROSSFADE_BLOCKS * 2) return;
     if (m_origNumBlocks == 0) m_origNumBlocks = m_num_blocks;
     m_num_blocks = m_num_blocks / 2;
-    if (m_play_block >= m_num_blocks) m_play_block = 0;
 }
 
 void loopClip::doubleLength()
 {
-    u32 maxNb = m_origNumBlocks ? m_origNumBlocks : m_max_blocks;
-    if (m_num_blocks * 2 <= maxNb) m_num_blocks = m_num_blocks * 2;
+    u32 doubled = m_num_blocks * 2;
+    u32 needed = doubled + CROSSFADE_BLOCKS;
+    if (needed > m_max_blocks) return;
+    s16 *src = getBlock(0);
+    s16 *dst = getBlock(m_num_blocks);
+    u32 samplesToCopy = m_num_blocks * AUDIO_BLOCK_SAMPLES * LOOPER_NUM_CHANNELS;
+    memcpy(dst, src, samplesToCopy * sizeof(s16));
+    pTheLoopBuffer->commitBlocks(needed * LOOPER_NUM_CHANNELS);
+    m_origNumBlocks = doubled;
+    m_num_blocks = doubled;
+    m_max_blocks = needed;
+    if (m_clip_num == 0 && m_num_blocks > pTheLoopMachine->m_masterLoopBlocks)
+    {
+        pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
+        pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
+    }
 }
 
 void loopClip::setMarkPoint()

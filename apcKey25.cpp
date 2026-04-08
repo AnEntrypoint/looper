@@ -94,19 +94,12 @@ void apcKey25::_updateGridLeds()
 
     u32 peak = AudioInputUSB::s_peakLevel;
     AudioInputUSB::s_peakLevel = 0;
-    int vuLevel = 0;
-    if (peak > 100)   vuLevel = 1;
-    if (peak > 500)   vuLevel = 2;
-    if (peak > 2000)  vuLevel = 3;
-    if (peak > 5000)  vuLevel = 4;
-    if (peak > 10000) vuLevel = 5;
-    for (int i = 0; i < 5; i++)
-    {
-        u8 color = APC_VEL_LED_OFF;
-        if (i < vuLevel)
-            color = (i >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_GREEN;
-        _sendLed(0x52 + i, color);
-    }
+    int inVu = 0;
+    if (peak > 100)   inVu = 1;
+    if (peak > 500)   inVu = 2;
+    if (peak > 2000)  inVu = 3;
+    if (peak > 5000)  inVu = 4;
+    if (peak > 10000) inVu = 5;
 
     u32 outPeak = pTheLooper->m_outputPeakLevel;
     pTheLooper->m_outputPeakLevel = 0;
@@ -116,12 +109,15 @@ void apcKey25::_updateGridLeds()
     if (outPeak > 1000)  outVu = 3;
     if (outPeak > 4000)  outVu = 4;
     if (outPeak > 10000) outVu = 5;
-    for (int row = 0; row < APC_ROWS; row++)
+
+    for (int i = 0; i < 5; i++)
     {
         u8 color = APC_VEL_LED_OFF;
-        if (row < outVu)
-            color = (row >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_GREEN;
-        _sendLed(_padNote(row, APC_COLS - 1), color);
+        if (i < inVu)
+            color = (i >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_GREEN;
+        else if (i < outVu)
+            color = (i >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_YELLOW;
+        _sendLed(0x52 + i, color);
     }
 
     bool running = pTheLooper->getRunning();
