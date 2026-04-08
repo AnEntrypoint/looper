@@ -211,7 +211,21 @@ void loopClip::_startEndingRecording(u32 trimToBlocks)
     m_max_blocks = m_record_block + CROSSFADE_BLOCKS;
     pTheLoopBuffer->commitBlocks(m_max_blocks * LOOPER_NUM_CHANNELS);
     if (m_clip_num == 0 && pTheLoopMachine->m_masterLoopBlocks == 0)
-        pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
+    {
+        u32 len = m_num_blocks;
+        u32 beat = AUDIO_SAMPLE_RATE / AUDIO_BLOCK_SAMPLES / 2;
+        u32 candidates[] = { beat, beat*2, beat*4, beat*8, beat*16, beat*32 };
+        u32 best = len;
+        u32 bestDist = 0xFFFFFFFF;
+        for (u32 i = 0; i < 6; i++)
+        {
+            u32 c = candidates[i];
+            u32 dist = len > c ? len - c : c - len;
+            if (dist < bestDist) { bestDist = dist; best = c; }
+        }
+        pTheLoopMachine->m_masterLoopBlocks = (bestDist * 3 < best) ? best : len;
+        m_num_blocks = pTheLoopMachine->m_masterLoopBlocks;
+    }
     clearClipBits(CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN);
     setClipBits(CLIP_STATE_RECORD_END);
     m_pLoopTrack->incDecNumRecordedClips(1);
