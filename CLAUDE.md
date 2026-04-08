@@ -46,6 +46,8 @@
 - **Ableton Link** in `abletonLink.cpp` builds raw Ethernet+IP+UDP frames (14+20+8 byte headers) for multicast `224.76.78.75:20808` and calls `CBcm4343Device::SendFrame`. Receive via `ReceiveFrame` polls each loop, filters by ethertype `0x0800`, proto `17`, dst IP and port. Magic header `_asdp_v\x01`. Parses `tmln` TLV (key `0x746d6c6e`, 24 bytes: microsPerBeat + beatOrigin + timeOrigin, big-endian int64). Sends alive every 1s with `mmbe` + `tmln`. Self-echo filtered on nodeId at buf+10.
 - **Link-driven quantize**: When `linkIsSynced()` and no clips are recorded (`m_running == 0`), `loopMachine::update()` sets `m_masterLoopBlocks = round(INTEGRAL_BLOCKS_PER_SECOND * 60.0 / bpm)` each tick. Clears hand control back to Link.
 - **`linkProcess()` called in main loop** (after `loop()`, before `m_Scheduler.Yield()`).
+- **IGMP v2 membership report** sent for group `224.76.78.75` once DHCP completes, then every 30s. Required for phone hotspot APs with multicast snooping to forward Link frames to the Pi. Frame: ETH 14B + IP 24B (IHL=0x46, Router Alert option 0x94040000) + IGMP 8B (type=0x16). Implemented in `sendIgmpJoin()` in `abletonLink.cpp`.
+- **WiFi DHCP**: `wlanDhcpSendDiscover()` called once before main loop; `wlanDhcpPoll()` called each iteration. DHCP frames arrive only after `m_Scheduler.Yield()`. Pi gets IP from the ticker hotspot (typically 192.168.4.x). Assigned IP used as source IP in Link frames via `wlanDhcpIP()`.
 - **libwlan.a** built via `make -C circle/addon/wlan RASPPI=4 AARCH=32`. Linked before libcircle.a. INCLUDE adds `$(CIRCLEHOME)/addon/wlan`.
 
 ## Planned architecture (not yet implemented)
