@@ -43,6 +43,7 @@ static void parsePkt(const u8 *buf, int len)
 
 	u64 senderId;
 	memcpy(&senderId, buf + 10, 8);
+	if(s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"sender=%08x%08x own=%08x%08x",(u32)(senderId>>32),(u32)senderId,(u32)(s_nodeId>>32),(u32)s_nodeId);
 	if (senderId == s_nodeId) return;
 	const u8 *p=buf+18, *end=buf+len;
 	while (p + 8 <= end)
