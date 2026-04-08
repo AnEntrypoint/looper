@@ -13,17 +13,15 @@
 #define UDP_HDR_OFF		34
 #define PAYLOAD_OFF		42
 
-static const u8 MAGIC[8] = {'_','a','s','d','p','_','v',0x01};
-static const u8 MCAST[4]     = {224, 76, 78, 75};
-static const u8 MCAST_MAC[6] = {0x01, 0x00, 0x5e, 0x4c, 0x4e, 0x4b};
-static u8 s_ownIP[4] = {192, 168, 4, 3};
-
-static CBcm4343Device *s_pWLAN    = nullptr;
-static double          s_bpm      = 120.0;
-static u64             s_nodeId   = 0;
-static u64             s_lastSend = 0;
-static bool            s_synced   = false;
-static unsigned        s_lastIgmp = 0;
+static const u8 MAGIC[8]={'_','a','s','d','p','_','v',0x01};
+static const u8 MCAST[4]={224,76,78,75};
+static const u8 MCAST_MAC[6]={0x01,0x00,0x5e,0x4c,0x4e,0x4b};
+static u8 s_ownIP[4]={192,168,4,3};
+static CBcm4343Device *s_pWLAN=nullptr;
+static double s_bpm=120.0;
+static u64 s_nodeId=0, s_lastSend=0;
+static bool     s_synced=false;
+static unsigned s_lastIgmp=0, s_rxCount=0;
 
 static inline u16 swap16(u16 v) { return __builtin_bswap16(v); }
 static inline u32 swap32(u32 v) { return __builtin_bswap32(v); }
@@ -171,10 +169,12 @@ void linkProcess(void)
 		if ((int)len < 42) continue;
 		if (buf[12] != 0x08 || buf[13] != 0x00) continue;
 		u8 *ip = buf+IP_HDR_OFF; int ihl=(ip[0]&0x0f)*4;
+		if(s_rxCount++<20)CLogger::Get()->Write("link",LogNotice,"rx p=%d d=%d.%d.%d.%d",ip[9],ip[16],ip[17],ip[18],ip[19]);
 		if (ip[9] != 17) continue;
-		if (memcmp(ip + 16, MCAST, 4) != 0) continue;
 		u8 *udp = ip + ihl;
 		u16 dp; memcpy(&dp, udp+2, 2);
+		if(s_rxCount<=20)CLogger::Get()->Write("link",LogNotice,"udp dp=%d",(int)swap16(dp));
+		if (memcmp(ip + 16, MCAST, 4) != 0) continue;
 		if (swap16(dp) != LINK_PORT) continue;
 		u8 *pl = udp+8; int plen=(int)(len-(pl-buf));
 		if (plen < 18) continue;
