@@ -217,6 +217,7 @@ class publicClip
             m_quantizeTarget = 0;
             m_recordStartPhaseOffset = 0;
             m_mute = false;
+            m_pendingUnmute = false;
             m_volume = 1.0;
             m_mark_point = -1;
             m_mark_point_active = false;
@@ -239,6 +240,7 @@ class publicClip
         bool m_mark_point_active;
 
         bool m_mute;
+        bool m_pendingUnmute;
 
         float m_volume;
 
@@ -308,6 +310,15 @@ class loopClip : public publicClip
         void clearMarkPoint();
         void halveLength();
         void doubleLength();
+        void tryUnmute()
+        {
+            if (m_pendingUnmute &&
+                !(m_state & (CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN | CLIP_STATE_RECORD_END)))
+            {
+                m_mute = false;
+                m_pendingUnmute = false;
+            }
+        }
 
 
     private:

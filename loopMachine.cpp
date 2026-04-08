@@ -756,6 +756,19 @@ void loopMachine::updateState(void)
 		}
 	}
 
+    if (m_masterPhase == 0)
+    {
+        for (int t = 0; t < LOOPER_NUM_TRACKS; t++)
+        {
+            loopTrack *pT = getTrack(t);
+            for (int c = 0; c < LOOPER_NUM_LAYERS; c++)
+            {
+                loopClip *pC = pT->getClip(c);
+                if (pC) pC->tryUnmute();
+            }
+        }
+    }
+
     if (m_pending_command)
     {
         bool latch_command =

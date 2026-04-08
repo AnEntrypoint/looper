@@ -513,6 +513,8 @@ void loopClip::updateState(u16 cur_command)
             else
             {
                 m_quantizeTarget = target;
+                m_mute = true;
+                m_pendingUnmute = true;
             }
         }
         else if (m_state & CLIP_STATE_PLAY_MAIN)
