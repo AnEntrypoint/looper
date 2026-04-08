@@ -249,7 +249,7 @@ void loopClip::_startPlaying()
 {
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
     m_play_block = (masterLen > 0 && m_num_blocks > 0)
-        ? pTheLoopMachine->m_masterPhase % m_num_blocks
+        ? (pTheLoopMachine->m_masterPhase + 1) % m_num_blocks
         : 0;
     LOOPER_LOG("clip(%d,%d)::startPlaying(play_block=%d)",m_track_num,m_clip_num,m_play_block);
     m_crossfade_start = 0;
