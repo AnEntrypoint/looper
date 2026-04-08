@@ -1,6 +1,5 @@
 #include "abletonLink.h"
 #include <circle/macaddress.h>
-#include <circle/net/ipaddress.h>
 #include <circle/timer.h>
 #include <circle/logger.h>
 #include <circle/util.h>
@@ -114,8 +113,7 @@ static void sendAlive(void)
 	memset(frame, 0, PAYLOAD_OFF + plen);
 
 	CMACAddress mcast;
-	CIPAddress mcastIP(MCAST);
-	mcast.SetMulticast(&mcastIP);
+	mcast.SetMulticast(MCAST);
 	mcast.CopyTo(frame + 0);
 	s_pWLAN->GetMACAddress()->CopyTo(frame + 6);
 	frame[12] = 0x08;
