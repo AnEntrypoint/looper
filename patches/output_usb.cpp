@@ -6,6 +6,10 @@
 audio_block_t *AudioOutputUSB::s_block_left  = 0;
 audio_block_t *AudioOutputUSB::s_block_right = 0;
 
+static s16 s_out_left [AUDIO_BLOCK_SAMPLES];
+static s16 s_out_right[AUDIO_BLOCK_SAMPLES];
+static unsigned s_out_pos = AUDIO_BLOCK_SAMPLES;
+
 AudioOutputUSB::AudioOutputUSB (void) : AudioStream (2, 0, m_input_queue)
 {
 }
@@ -19,18 +23,29 @@ void AudioOutputUSB::start (void)
 
 void AudioOutputUSB::outHandler (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
-    audio_block_t *left  = s_block_left;
-    audio_block_t *right = s_block_right;
+    for (unsigned i = 0; i < nSamples; i++)
+    {
+        if (s_out_pos >= AUDIO_BLOCK_SAMPLES)
+        {
+            audio_block_t *left  = s_block_left;
+            audio_block_t *right = s_block_right;
 
-    unsigned copy = (nSamples < AUDIO_BLOCK_SAMPLES) ? nSamples : AUDIO_BLOCK_SAMPLES;
-    if (left)
-        memcpy (pLeft,  left->data,  copy * sizeof (s16));
-    else
-        memset (pLeft,  0, copy * sizeof (s16));
-    if (right)
-        memcpy (pRight, right->data, copy * sizeof (s16));
-    else
-        memset (pRight, 0, copy * sizeof (s16));
+            if (left)
+                memcpy (s_out_left,  left->data,  AUDIO_BLOCK_SAMPLES * sizeof (s16));
+            else
+                memset (s_out_left,  0, AUDIO_BLOCK_SAMPLES * sizeof (s16));
+            if (right)
+                memcpy (s_out_right, right->data, AUDIO_BLOCK_SAMPLES * sizeof (s16));
+            else
+                memset (s_out_right, 0, AUDIO_BLOCK_SAMPLES * sizeof (s16));
+
+            s_out_pos = 0;
+        }
+
+        pLeft[i]  = s_out_left [s_out_pos];
+        pRight[i] = s_out_right[s_out_pos];
+        s_out_pos++;
+    }
 }
 
 void AudioOutputUSB::update (void)
