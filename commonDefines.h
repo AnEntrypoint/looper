@@ -40,6 +40,7 @@
 	//		LOOP_CONTROL_BASE for LOOPER_NUM_CONTROLS(6)
 	// Because TE just always pushes the volume controls
 
+#define LOOP_COMMAND_STOP_TRACK_BASE     0x48
 #define LOOP_COMMAND_CLEAR_LAYER_BASE    0x50
 #define LOOP_COMMAND_HALVE_TRACK_BASE   0x60
 #define LOOP_COMMAND_DOUBLE_TRACK_BASE  0x70

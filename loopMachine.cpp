@@ -465,7 +465,7 @@ void loopMachine::command(u16 command)
         if (ts & TRACK_STATE_RECORDING)
             next_cmd = LOOP_COMMAND_PLAY;
         else if (ts & TRACK_STATE_PLAYING)
-            next_cmd = LOOP_COMMAND_STOP;
+            next_cmd = LOOP_COMMAND_RECORD;
         else if (ts & TRACK_STATE_STOPPED)
             next_cmd = LOOP_COMMAND_PLAY;
         else
@@ -475,6 +475,13 @@ void loopMachine::command(u16 command)
 
     }   // TRACK COMMAND
 
+
+    else if (command >= LOOP_COMMAND_STOP_TRACK_BASE &&
+             command < LOOP_COMMAND_STOP_TRACK_BASE + LOOPER_NUM_TRACKS)
+    {
+        int track_num = command - LOOP_COMMAND_STOP_TRACK_BASE;
+        getTrack(track_num)->updateState(LOOP_COMMAND_STOP);
+    }
 
     else if (command >= LOOP_COMMAND_CLEAR_LAYER_BASE &&
              command < LOOP_COMMAND_CLEAR_LAYER_BASE + LOOPER_NUM_TRACKS * LOOPER_NUM_LAYERS)

@@ -172,7 +172,13 @@ void apcKey25::_onPadRelease(int row, int col)
     if (col == 1 && row < LOOPER_NUM_TRACKS)
     {
         if (m_col1Held[row] && !m_col1EraseTriggered[row])
-            _queueCmd(ApcCmd::ERASE_TRACK, row);
+        {
+            publicTrack *pTrack = pTheLooper->getPublicTrack(row);
+            if (pTrack->getNumRunningClips())
+                _queueCmd(ApcCmd::STOP_TRACK, row);
+            else
+                _queueCmd(ApcCmd::ERASE_TRACK, row);
+        }
         m_col1Held[row] = false;
     }
 }
@@ -232,6 +238,10 @@ void apcKey25::update()
         {
             u16 ts = pTheLooper->getPublicTrack(arg)->getTrackState();
             pTheLooper->command(LOOP_COMMAND_TRACK_BASE + arg);
+        }
+        else if (type == ApcCmd::STOP_TRACK)
+        {
+            pTheLooper->command(LOOP_COMMAND_STOP_TRACK_BASE + arg);
         }
         else if (type == ApcCmd::ERASE_TRACK)
         {

@@ -29,7 +29,7 @@
 // Col 1 = track presence (tap to erase, hold to erase)
 
 struct ApcCmd {
-    enum Type { NONE, TRACK, ERASE_TRACK, LOOPER } type;
+    enum Type { NONE, TRACK, ERASE_TRACK, STOP_TRACK, LOOPER } type;
     int arg;
 };
 
