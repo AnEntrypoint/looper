@@ -38,16 +38,13 @@ static u16 csum16(const u8 *d, int n)
 static void parsePkt(const u8 *buf, int len)
 {
 	if (len < 18) return;
-	if (s_rxCount <= 22) CLogger::Get()->Write("link",LogNotice,"pkt magic=%02x%02x%02x%02x len=%d",buf[0],buf[1],buf[2],buf[3],len);
+	if (s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"pkt m=%02x%02x%02x%02x l=%d",buf[0],buf[1],buf[2],buf[3],len);
 	if (memcmp(buf, MAGIC, 8) != 0) return;
 
 	u64 senderId;
 	memcpy(&senderId, buf + 10, 8);
 	if (senderId == s_nodeId) return;
-
-	const u8 *p   = buf + 18;
-	const u8 *end = buf + len;
-
+	const u8 *p=buf+18, *end=buf+len;
 	while (p + 8 <= end)
 	{
 		u32 key, sz;
@@ -56,6 +53,7 @@ static void parsePkt(const u8 *buf, int len)
 		p += 8;
 		if (p + sz > end) break;
 
+		if(s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"tlv k=%08x s=%u",key,sz);
 		if (key == KEY_TMLN && sz >= 24)
 		{
 			s64 mpb;
