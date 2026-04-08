@@ -37,6 +37,16 @@
 - **Phase alignment**: `_startPlaying()` sets `m_play_block = (masterPhase + 1) % numBlocks` because `update()` increments masterPhase before reading it in the same tick.
 - **`loopClip.cpp` is split into three files** at the 200-line limit: `loopClip.cpp` (init/transitions), `loopClipUpdate.cpp` (per-buffer audio processing), `loopClipState.cpp` (state name/quantize/updateState).
 
+## WiFi and Ableton Link
+
+- **Network switched from Ethernet to WiFi.** `CNetSubSystem` constructed with `NetDeviceTypeWLAN` and no static IP (DHCP). `CBcm4343Device` handles BCM43455 on rPi4. WiFi firmware (`brcmfmac43455-sdio.{bin,txt,clm_blob}`) must be at `SD:/firmware/` — included in release zip via CI.
+- **Open network join**: `m_WLAN.JoinOpenNet("ticker")` in `Initialize()`, called after fatfs mount and before `m_Net.Initialize(FALSE)`. Member order in kernel class matters: `CBcm4343Device m_WLAN` must come after `FATFS m_FileSystem`, before `CNetSubSystem m_Net`.
+- **DHCP wait in Run()**: `while (!m_Net.IsRunning()) m_Scheduler.MsSleep(100)` — network is not usable until this completes. All socket setup follows.
+- **Syslog target is 192.168.4.1** (ticker AP gateway). Connect dev machine to ticker WiFi to receive syslog.
+- **Ableton Link**: minimal protocol in `abletonLink.cpp`. UDP multicast on `224.76.78.75:20808`. Magic header is 8 bytes `_asdp_v\x01` stored as `u8 MAGIC[8]`. Parses `tmln` TLV (key `0x746d6c6e`, 24 bytes: microsPerBeat + beatOrigin + timeOrigin, all big-endian int64). Sends alive packets every 1s with `mmbe` (session membership) + `tmln` TLVs. All wire values big-endian — use `__builtin_bswap32`/`__builtin_bswap64`.
+- **`linkProcess()` called in main loop** (after `loop()`, before `m_Scheduler.Yield()`). Non-blocking — uses `MSG_DONTWAIT` on receive.
+- **libwlan.a** built via `make -C circle/addon/wlan RASPPI=4 AARCH=32`. Linked before libcircle.a. INCLUDE adds `$(CIRCLEHOME)/addon/wlan`.
+
 ## Planned architecture (not yet implemented)
 
 - **3-minute rolling recording buffer**: Audio input continuously fills a circular buffer. "Record" marks a start point, second press marks end and deep-copies the segment into a clip. Eliminates recording start/stop clicks.

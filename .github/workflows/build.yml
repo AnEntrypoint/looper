@@ -63,6 +63,16 @@ jobs:
           make -C circle/lib/net RASPPI=4 AARCH=32
           make -C circle/addon/fatfs RASPPI=4 AARCH=32
           make -C circle/addon/SDCard RASPPI=4 AARCH=32
+          make -C circle/addon/wlan RASPPI=4 AARCH=32
+
+      - name: Download WiFi firmware
+        run: |
+          SHA=c9d3ae6584ab79d19a4f94ccf701e888f9f87a53
+          BASE=https://github.com/RPi-Distro/firmware-nonfree/raw/${SHA}/debian/config/brcm80211
+          mkdir -p circle/_prh/_apps/Looper/dist/firmware
+          wget -q -O circle/_prh/_apps/Looper/dist/firmware/brcmfmac43455-sdio.bin ${BASE}/cypress/cyfmac43455-sdio-minimal.bin
+          wget -q -O circle/_prh/_apps/Looper/dist/firmware/brcmfmac43455-sdio.txt ${BASE}/brcm/brcmfmac43455-sdio.txt
+          wget -q -O circle/_prh/_apps/Looper/dist/firmware/brcmfmac43455-sdio.clm_blob ${BASE}/cypress/cyfmac43455-sdio.clm_blob
 
       - name: Build circle-prh libraries
         run: |
@@ -77,6 +87,7 @@ jobs:
           mkdir -p dist
           cp circle/_prh/_apps/Looper/kernel7l.img dist/
           cp -r circle/boot/. dist/
+          cp -r circle/_prh/_apps/Looper/dist/firmware dist/firmware
           echo "usbspeed=full" > dist/cmdline.txt
           printf '[all]\nboot_delay=0\ndisable_splash=1\ngpu_mem=64\n\n[pi4]\narm_64bit=0\nkernel=kernel7l.img\n' > dist/config.txt
           cd dist && zip -r ../looper-sd.zip .

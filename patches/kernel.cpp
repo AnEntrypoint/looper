@@ -1,10 +1,14 @@
 #include "kernel.h"
+#include "abletonLink.h"
 #include <circle/util.h>
 #include <circle/devicenameservice.h>
 
 #define SERIAL_BAUD_RATE	115200
 #define DRIVE			"SD:"
 #define CDC_DEVICE_NAME		"utty1"
+#define WLAN_FIRMWARE_PATH	"SD:/firmware/"
+#define WLAN_SSID		"ticker"
+#define LINK_PORT		20808
 
 static const char log_name[] = "kernel";
 static const char build_id[] = "BUILD-" __DATE__ "-" __TIME__;
@@ -17,11 +21,6 @@ extern void loop(void);
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
 extern void usbMidiInjectMidi(u8 status, u8 data1, u8 data2);
 
-static const u8 s_OwnIP[]  = { NET_OWN_IP };
-static const u8 s_Mask[]   = { NET_NETMASK };
-static const u8 s_GW[]     = { NET_GATEWAY };
-static const u8 s_DNS[]    = { NET_DNS };
-
 CKernel::CKernel(void) :
 	m_Timer(&m_Interrupt),
 	m_Logger(LogDebug, &m_Timer),
@@ -30,7 +29,8 @@ CKernel::CKernel(void) :
 	m_USBHCI(&m_Interrupt, &m_Timer, TRUE),
 	m_CDCGadget(&m_Interrupt, 0x2E8A, 0x000A),
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED),
-	m_Net(s_OwnIP, s_Mask, s_GW, s_DNS, "looper"),
+	m_WLAN(WLAN_FIRMWARE_PATH),
+	m_Net(0, 0, 0, 0, "looper", NetDeviceTypeWLAN),
 	m_pSysLog(nullptr)
 {
 	m_ActLED.On();
@@ -46,33 +46,56 @@ boolean CKernel::Initialize(void)
 	boolean bOK = TRUE;
 
 	if (bOK) bOK = m_Interrupt.Initialize();
-	m_ActLED.Blink(1);  // 1: interrupt ok
+	m_ActLED.Blink(1);
 
 	if (bOK) bOK = m_Timer.Initialize();
-	m_ActLED.Blink(1);  // 2: timer ok
+	m_ActLED.Blink(1);
 
 	if (m_Screen.Initialize())
 		m_Logger.Initialize(&m_Screen);
-	m_ActLED.Blink(1);  // 3: screen ok
+	m_ActLED.Blink(1);
 
 	m_Serial.Initialize(SERIAL_BAUD_RATE);
-	m_ActLED.Blink(1);  // 4: serial ok
+	m_ActLED.Blink(1);
 
 	if (bOK) { boolean bCDC = m_CDCGadget.Initialize(); m_Logger.Write(log_name, LogNotice, "CDC gadget init: %s", bCDC ? "OK" : "FAILED"); }
-	m_ActLED.Blink(1);  // 5: cdc ok
+	m_ActLED.Blink(1);
 
 	if (bOK) bOK = m_USBHCI.Initialize();
-	m_ActLED.Blink(1);  // 6: usbhci ok
+	m_ActLED.Blink(1);
 
 	m_Timer.MsDelay(500);
 	m_CDCGadget.UpdatePlugAndPlay();
-	m_ActLED.Blink(1);  // 7: cdc ready
+	m_ActLED.Blink(1);
 
 	m_EMMC.Initialize();
-	m_ActLED.Blink(1);  // 8: emmc ok
+	m_ActLED.Blink(1);
 
 	f_mount(&m_FileSystem, DRIVE, 1);
-	m_ActLED.Blink(1);  // 9: fmount ok
+	m_ActLED.Blink(1);
+
+	if (bOK)
+	{
+		if (!m_WLAN.Initialize())
+		{
+			m_Logger.Write(log_name, LogWarning, "WLAN init failed");
+			bOK = FALSE;
+		}
+	}
+	m_ActLED.Blink(1);
+
+	if (bOK)
+	{
+		if (!m_WLAN.JoinOpenNet(WLAN_SSID))
+		{
+			m_Logger.Write(log_name, LogWarning, "WLAN join failed");
+			bOK = FALSE;
+		}
+	}
+	m_ActLED.Blink(1);
+
+	if (bOK) bOK = m_Net.Initialize(FALSE);
+	m_ActLED.Blink(1);
 
 	return bOK;
 }
@@ -80,72 +103,61 @@ boolean CKernel::Initialize(void)
 TShutdownMode CKernel::Run(void)
 {
 	m_Logger.Write(log_name, LogNotice, "Looper starting %s", build_id);
-	m_ActLED.Blink(1);  // 10: Run() entered
 
-	// Initialize network with static IP — no DHCP
-	m_Logger.Write(log_name, LogNotice, "Starting network (static 192.168.137.100)...");
-	if (m_Net.Initialize(FALSE))
+	while (!m_Net.IsRunning())
+		m_Scheduler.MsSleep(100);
+
+	m_Logger.Write(log_name, LogNotice, "Network up");
+	static const u8 logHostIP[] = { NET_LOG_HOST };
+	CIPAddress logHost(logHostIP);
+	m_pSysLog = new CSysLogDaemon(&m_Net, logHost);
+
+	CSocket *pLinkSocket = new CSocket(&m_Net, IPPROTO_UDP);
+	if (pLinkSocket->Bind(LINK_PORT) < 0)
 	{
-		m_Logger.Write(log_name, LogNotice, "Network up");
-		static const u8 logHostIP[] = { NET_LOG_HOST };
-		CIPAddress logHost(logHostIP);
-		m_pSysLog = new CSysLogDaemon(&m_Net, logHost);
-		m_Logger.Write(log_name, LogNotice, "Syslog -> 192.168.137.1:514");
+		m_Logger.Write(log_name, LogWarning, "Link socket bind failed");
+		delete pLinkSocket;
+		pLinkSocket = nullptr;
 	}
 	else
 	{
-		m_Logger.Write(log_name, LogWarning, "Network failed — continuing without syslog");
+		static const u8 grp[] = {224, 76, 78, 75};
+		CIPAddress grpAddr(grp);
+		if (pLinkSocket->SetOptionAddMembership(grpAddr) < 0)
+			m_Logger.Write(log_name, LogWarning, "Link multicast join failed");
+		else
+			m_Logger.Write(log_name, LogNotice, "Link multicast joined");
 	}
-	m_ActLED.Blink(1);  // 11: net done
+
+	linkInit(&m_Net, pLinkSocket);
+
+	CSocket *pRebootSocket = new CSocket(&m_Net, IPPROTO_UDP);
+	if (pRebootSocket->Bind(4444) < 0)
+	{
+		delete pRebootSocket;
+		pRebootSocket = nullptr;
+	}
+
+	CSocket *pMidiSocket = new CSocket(&m_Net, IPPROTO_UDP);
+	if (pMidiSocket->Bind(4446) < 0)
+	{
+		delete pMidiSocket;
+		pMidiSocket = nullptr;
+	}
 
 	setup();
-	m_ActLED.Blink(1);  // 12: setup() done
-
-	// Open UDP socket for remote reboot command (send "REBOOT" to port 4444)
-	CSocket *pRebootSocket = nullptr;
-	if (m_pSysLog)
-	{
-		pRebootSocket = new CSocket(&m_Net, IPPROTO_UDP);
-		if (pRebootSocket->Bind(4444) < 0)
-		{
-			delete pRebootSocket;
-			pRebootSocket = nullptr;
-			m_Logger.Write(log_name, LogWarning, "Could not bind reboot socket");
-		}
-		else
-		{
-			m_Logger.Write(log_name, LogNotice, "Reboot socket on UDP:4444 (send 'REBOOT')");
-		}
-	}
-
-	// Open UDP socket for MIDI injection (send 3-byte MIDI to port 4446)
-	CSocket *pMidiSocket = nullptr;
-	if (m_pSysLog)
-	{
-		pMidiSocket = new CSocket(&m_Net, IPPROTO_UDP);
-		if (pMidiSocket->Bind(4446) < 0)
-		{
-			delete pMidiSocket;
-			pMidiSocket = nullptr;
-			m_Logger.Write(log_name, LogWarning, "Could not bind MIDI inject socket");
-		}
-		else
-		{
-			m_Logger.Write(log_name, LogNotice, "MIDI inject socket on UDP:4446");
-		}
-	}
 
 	bool bPlugAndPlayUpdated = FALSE;
 	while (TRUE)
 	{
 		bPlugAndPlayUpdated = m_USBHCI.UpdatePlugAndPlay();
 		m_CDCGadget.UpdatePlugAndPlay();
-		if (m_pSysLog) m_Net.Process();
+		m_Net.Process();
 		usbMidiProcess(bPlugAndPlayUpdated);
 		loop();
+		linkProcess();
 		m_Scheduler.Yield();
 
-		// Check UDP reboot command
 		if (pRebootSocket)
 		{
 			u8 buf[16];
@@ -159,7 +171,6 @@ TShutdownMode CKernel::Run(void)
 			}
 		}
 
-		// Check UDP MIDI inject
 		if (pMidiSocket)
 		{
 			u8 buf[16];
@@ -170,7 +181,6 @@ TShutdownMode CKernel::Run(void)
 				usbMidiInjectMidi(buf[0], buf[1], buf[2]);
 		}
 
-		// Check CDC serial reboot command
 		CDevice *pCDCSerial = CDeviceNameService::Get()->GetDevice(CDC_DEVICE_NAME, FALSE);
 		if (pCDCSerial != nullptr)
 		{

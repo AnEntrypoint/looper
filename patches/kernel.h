@@ -21,6 +21,7 @@
 #include <circle/net/in.h>
 #include <SDCard/emmc.h>
 #include <fatfs/ff.h>
+#include <wlan/bcm4343.h>
 #include <circle/types.h>
 
 enum TShutdownMode
@@ -30,12 +31,7 @@ enum TShutdownMode
 	ShutdownReboot
 };
 
-// Static network config
-#define NET_OWN_IP		192, 168, 137, 100
-#define NET_NETMASK		255, 255, 255, 0
-#define NET_GATEWAY		192, 168, 137, 1
-#define NET_DNS			192, 168, 137, 1
-#define NET_LOG_HOST		192, 168, 137, 1
+#define NET_LOG_HOST		192, 168, 4, 1
 
 class CKernel
 {
@@ -62,6 +58,7 @@ private:
 	CUSBCDCGadget		m_CDCGadget;
 	CEMMCDevice		m_EMMC;
 	FATFS			m_FileSystem;
+	CBcm4343Device		m_WLAN;
 	CNetSubSystem		m_Net;
 	CSysLogDaemon		*m_pSysLog;
 };

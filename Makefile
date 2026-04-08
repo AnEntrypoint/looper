@@ -1,15 +1,13 @@
-#
-# Makefile
-#
-
 CIRCLEHOME = ../../..
 PRH_HOME = ../..
 
 OBJS = main.o kernel.o audio.o app.o apcKey25.o usbMidi.o \
-       loopBuffer.o loopClip.o loopClipUpdate.o loopClipState.o loopTrack.o loopMachine.o dprobe.o
+       loopBuffer.o loopClip.o loopClipUpdate.o loopClipState.o loopTrack.o loopMachine.o dprobe.o \
+       abletonLink.o
 
 LIBS = $(PRH_HOME)/audio/libaudio.a \
        $(PRH_HOME)/utils/lib_my_utils.a \
+       $(CIRCLEHOME)/addon/wlan/libwlan.a \
        $(CIRCLEHOME)/addon/fatfs/libfatfs.a \
        $(CIRCLEHOME)/addon/SDCard/libsdcard.a \
        $(CIRCLEHOME)/lib/net/libnet.a \
@@ -21,7 +19,8 @@ LIBS = $(PRH_HOME)/audio/libaudio.a \
        $(CIRCLEHOME)/lib/libcircle.a
 
 INCLUDE += -I $(PRH_HOME) -I $(PRH_HOME)/utils -I $(PRH_HOME)/audio \
-           -I $(CIRCLEHOME)/addon/fatfs -I $(CIRCLEHOME)/addon/SDCard
+           -I $(CIRCLEHOME)/addon/fatfs -I $(CIRCLEHOME)/addon/SDCard \
+           -I $(CIRCLEHOME)/addon/wlan
 
 ifdef LOOPER_USB_AUDIO
 DEFINE += -DLOOPER_USB_AUDIO
