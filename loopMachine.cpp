@@ -646,7 +646,7 @@ void loopMachine::update(void)
 			// add them to create the Mix value
 			// and apply it's volume if'defd
 
-			s32 mval32 = oval32;
+			s32 mval32 = ival32 + oval32;
 
 			#if WITH_VOLUMES
 				#if WITH_INT_VOLUMES

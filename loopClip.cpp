@@ -442,10 +442,7 @@ u32 loopClip::_calcQuantizeTarget()
     u32 musical = m_record_block > CROSSFADE_BLOCKS ? m_record_block - CROSSFADE_BLOCKS : 0;
     u32 lower = (musical / masterLen) * masterLen;
     if (lower == 0) lower = masterLen;
-    u32 upper = lower + masterLen;
-    u32 mid = lower + masterLen / 2;
-    u32 target = (musical >= mid) ? upper : lower;
-    return target + CROSSFADE_BLOCKS;
+    return lower + CROSSFADE_BLOCKS;
 }
 
 void loopClip::updateState(u16 cur_command)
