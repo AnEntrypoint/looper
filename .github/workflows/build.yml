@@ -80,7 +80,10 @@ jobs:
         run: |
           python3 circle/_prh/_apps/Looper/patches/gen_wlan_firmware.py \
             circle/_prh/_apps/Looper/dist/firmware \
-            circle/_prh/_apps/Looper/wlan_firmware.S
+            /tmp/wlan_firmware.S
+          arm-none-eabi-as -mcpu=cortex-a72 -mfpu=neon-fp-armv8 -mfloat-abi=hard \
+            -o circle/_prh/_apps/Looper/wlan_firmware.o \
+            /tmp/wlan_firmware.S
 
       - name: Build circle-prh libraries
         run: |
