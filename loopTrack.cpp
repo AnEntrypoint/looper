@@ -189,28 +189,14 @@ void loopTrack::clearClip(int layer)
 void loopTrack::halveLength()
 {
     for (int i = 0; i < m_num_used_clips; i++)
-    {
-        loopClip *pClip = m_clips[i];
-        u32 nb = pClip->getNumBlocks();
-        if (nb <= CROSSFADE_BLOCKS * 2) continue;
-        if (pClip->m_origNumBlocks == 0)
-            pClip->m_origNumBlocks = nb;
-        pClip->m_num_blocks = nb / 2;
-        if (pClip->m_play_block >= pClip->m_num_blocks)
-            pClip->m_play_block = 0;
-    }
+        m_clips[i]->halveLength();
 }
 
 void loopTrack::doubleLength()
 {
     for (int i = 0; i < m_num_used_clips; i++)
-    {
-        loopClip *pClip = m_clips[i];
-        u32 nb = pClip->getNumBlocks();
-        u32 maxNb = pClip->m_origNumBlocks ? pClip->m_origNumBlocks : pClip->m_max_blocks;
-        if (nb * 2 <= maxNb)
-            pClip->m_num_blocks = nb * 2;
-    }
+        m_clips[i]->doubleLength();
+}
 }
 
 

@@ -101,6 +101,20 @@ void loopClip::clearMarkPoint()
 		// becomes active on LOOP_COMMAND_SET_LOOP_START
 }
 
+void loopClip::halveLength()
+{
+    if (m_num_blocks <= CROSSFADE_BLOCKS * 2) return;
+    if (m_origNumBlocks == 0) m_origNumBlocks = m_num_blocks;
+    m_num_blocks = m_num_blocks / 2;
+    if (m_play_block >= m_num_blocks) m_play_block = 0;
+}
+
+void loopClip::doubleLength()
+{
+    u32 maxNb = m_origNumBlocks ? m_origNumBlocks : m_max_blocks;
+    if (m_num_blocks * 2 <= maxNb) m_num_blocks = m_num_blocks * 2;
+}
+
 void loopClip::setMarkPoint()
 	// ONLY IN CLIP_STATE_PLAY_MAIN
 {

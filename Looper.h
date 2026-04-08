@@ -302,6 +302,8 @@ class loopClip : public publicClip
         void stopImmediate();
         void setMarkPoint();
         void clearMarkPoint();
+        void halveLength();
+        void doubleLength();
 
 
     private:
