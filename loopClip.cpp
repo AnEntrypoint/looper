@@ -201,8 +201,9 @@ void loopClip::_startEndingRecording()
     m_num_blocks = m_record_block;
     m_max_blocks = m_record_block + CROSSFADE_BLOCKS;
     pTheLoopBuffer->commitBlocks(m_max_blocks * LOOPER_NUM_CHANNELS);
+    u32 musicalLen = m_num_blocks > CROSSFADE_BLOCKS ? m_num_blocks - CROSSFADE_BLOCKS : m_num_blocks;
     if (m_clip_num == 0 && pTheLoopMachine->m_masterLoopBlocks == 0)
-        pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
+        pTheLoopMachine->m_masterLoopBlocks = musicalLen;
     clearClipBits(CLIP_STATE_RECORD_IN | CLIP_STATE_RECORD_MAIN);
     setClipBits(CLIP_STATE_RECORD_END);
     m_pLoopTrack->incDecNumRecordedClips(1);
@@ -438,11 +439,13 @@ u32 loopClip::_calcQuantizeTarget()
 {
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
     if (masterLen == 0) return m_record_block;
-    u32 lower = (m_record_block / masterLen) * masterLen;
-    if (lower < CROSSFADE_BLOCKS) lower = masterLen;
+    u32 musical = m_record_block > CROSSFADE_BLOCKS ? m_record_block - CROSSFADE_BLOCKS : 0;
+    u32 lower = (musical / masterLen) * masterLen;
+    if (lower == 0) lower = masterLen;
     u32 upper = lower + masterLen;
     u32 mid = lower + masterLen / 2;
-    return (m_record_block >= mid) ? upper : lower;
+    u32 target = (musical >= mid) ? upper : lower;
+    return target + CROSSFADE_BLOCKS;
 }
 
 void loopClip::updateState(u16 cur_command)

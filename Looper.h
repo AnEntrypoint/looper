@@ -46,7 +46,7 @@
 #define LOOPER_NUM_CHANNELS   2
     // the whole thing is stereo
 
-#define CROSSFADE_BLOCKS     30
+#define CROSSFADE_BLOCKS     4
     // The number of buffers (10 == approx 30ms) to continue recording
 
 #define LOOP_TRACK_SECONDS  (60 * LOOPER_NUM_TRACKS * LOOPER_NUM_LAYERS)
