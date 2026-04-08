@@ -113,7 +113,7 @@ static void sendAlive(void)
 	memset(frame, 0, PAYLOAD_OFF + plen);
 
 	memcpy(frame + 0, MCAST_MAC, 6);
-	s_pWLAN->GetMACAddress()->CopyTo(frame + 6);
+	memcpy(frame + 6, &s_nodeId, 6);
 	frame[12] = 0x08;
 	frame[13] = 0x00;
 
