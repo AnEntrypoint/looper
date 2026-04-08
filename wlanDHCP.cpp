@@ -115,14 +115,14 @@ static bool parseOffer(const u8 *f, int len, u32 xid, u8 *outIP) {
 void wlanDhcpGetIP(CBcm4343Device *pWLAN, const u8 *mac) {
 	s_got=false;
 	memset(s_ip, 0, 4);
-	u32 xid = (u32)CTimer::GetClockTicks();
+	u32 xid = (u32)(CTimer::GetClockTicks() & 0xFFFFFFFF);
 	u8 frame[FRAME_SZ];
 	int flen;
 	buildDiscover(frame, mac, xid, &flen);
 	pWLAN->SendFrame(frame, flen);
-	CLogger::Get()->Write("wdhcp", LogNotice, "DISCOVER sent xid=%08x", sw32(xid));
+	CLogger::Get()->Write("wdhcp", LogNotice, "DISCOVER sent");
 	u8 offer[4]={0};
-	u32 deadline = CTimer::GetClockTicks() + 5*1000000;
+	u64 deadline = CTimer::GetClockTicks() + (u64)10 * CLOCKHZ;
 	while (CTimer::GetClockTicks() < deadline) {
 		u8 buf[FRAME_SZ]; unsigned rlen;
 		while (pWLAN->ReceiveFrame(buf, &rlen)) {
@@ -135,7 +135,7 @@ void wlanDhcpGetIP(CBcm4343Device *pWLAN, const u8 *mac) {
 		if (offer[0]) { memcpy(s_ip, offer, 4); s_got=true; break; }
 	}
 	if (!s_got)
-		CLogger::Get()->Write("wdhcp", LogWarning, "DHCP timeout");
+		CLogger::Get()->Write("wdhcp", LogWarning, "DHCP timeout — no offer in 10s");
 }
 
 bool wlanDhcpOK(void) { return s_got; }
