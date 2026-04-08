@@ -832,11 +832,14 @@ void loopMachine::updateState(void)
         ClipState clip0_state = pClip0 ? pClip0->getClipState() : CS_IDLE;
 
         bool at_phrase_start = (m_masterLoopBlocks > 0) && (m_masterPhase == 0);
-        bool track_latch =
-            !pTrack->getNumRunningClips() ||
-            (clip0_state == CS_PLAYING || clip0_state == CS_LOOPING) && !pClip0->getPlayBlockNum() ||
-            (clip0_state == CS_RECORDING_MAIN) ||
-            (at_phrase_start && m_track_pending[i] == LOOP_COMMAND_RECORD);
+        bool track_latch;
+        if (m_track_pending[i] == LOOP_COMMAND_RECORD && m_masterLoopBlocks > 0)
+            track_latch = at_phrase_start;
+        else
+            track_latch =
+                !pTrack->getNumRunningClips() ||
+                (clip0_state == CS_PLAYING || clip0_state == CS_LOOPING) && !pClip0->getPlayBlockNum() ||
+                (clip0_state == CS_RECORDING_MAIN);
 
         if (track_latch)
         {
