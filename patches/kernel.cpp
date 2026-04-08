@@ -1,7 +1,7 @@
 #include "kernel.h"
 #include "abletonLink.h"
 #include <circle/util.h>
-#include <cstdio>
+#include <circle/string.h>
 #include <circle/devicenameservice.h>
 #include <circle/net/in.h>
 #include <circle/net/socket.h>
@@ -179,14 +179,13 @@ TShutdownMode CKernel::Run(void)
 			if (n > 0)
 			{
 				buf[n] = 0;
-				char reply[128];
-				snprintf(reply, sizeof reply,
-					"wlan=%s link=%s bpm=%.2f uptime=%u",
+				CString reply;
+				reply.Format("wlan=%s link=%s bpm=%d uptime=%u",
 					s_wlanJoined ? "joined" : "no",
 					linkIsSynced() ? "synced" : "no",
-					linkGetBPM(),
+					(int)linkGetBPM(),
 					m_Timer.GetClockTicks() / CLOCKHZ);
-				pDebugSocket->SendTo((u8 *)reply, strlen(reply), MSG_DONTWAIT, sender, senderPort);
+				pDebugSocket->SendTo((u8 *)(const char *)reply, reply.GetLength(), MSG_DONTWAIT, sender, senderPort);
 			}
 		}
 
