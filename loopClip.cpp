@@ -247,8 +247,11 @@ void loopClip::_finishRecording()
 
 void loopClip::_startPlaying()
 {
-    LOOPER_LOG("clip(%d,%d)::startPlaying(phaseOffset=%d)",m_track_num,m_clip_num,m_recordStartPhaseOffset);
-    m_play_block = m_recordStartPhaseOffset;
+    u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
+    m_play_block = (masterLen > 0 && m_num_blocks > 0)
+        ? pTheLoopMachine->m_masterPhase % m_num_blocks
+        : 0;
+    LOOPER_LOG("clip(%d,%d)::startPlaying(play_block=%d)",m_track_num,m_clip_num,m_play_block);
     m_crossfade_start = 0;
     m_crossfade_offset = 0;
     setClipBits(CLIP_STATE_PLAY_MAIN);
@@ -264,12 +267,8 @@ void loopClip::_startCrossFade()
     LOOPER_LOG("clip(%d,%d)::startCrossFade",m_track_num,m_clip_num);
 
     setClipBits(CLIP_STATE_PLAY_END);
-        // retains PLAY_MAIN bit
     m_crossfade_start = m_play_block;
-        // will be set invariantly at the loop point
-        // set in the loop
     m_crossfade_offset = 0;
-    m_play_block = 0;
     m_pLoopTrack->incDecRunning(1);
 }
 
@@ -445,7 +444,7 @@ void loopClip::update(s32 *ip, s32 *op)
 		if (masterLen > 0 && !(m_state & CLIP_STATE_PLAY_END))
 		{
 			u32 next = pTheLoopMachine->m_masterPhase % m_num_blocks;
-			bool wrapped = (m_play_block > 0) && (next < m_play_block);
+			bool wrapped = (next == 0) && (m_play_block > 0);
 			m_play_block = next;
 			if (wrapped)
 				_startCrossFade();
