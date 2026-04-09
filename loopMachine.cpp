@@ -647,7 +647,7 @@ void loopMachine::update(void)
 			if (blocks != m_masterLoopBlocks)
 			{
 				m_masterLoopBlocks = blocks;
-				LOOPER_LOG("link quantum: bpm=%.1f masterLoopBlocks=%u", bpm, blocks);
+				CLogger::Get()->Write("lmachine", LogNotice, "link quantum: bpm=%.1f masterLoopBlocks=%u", bpm, blocks);
 			}
 		}
 	}
