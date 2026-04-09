@@ -21,7 +21,7 @@ static CBcm4343Device *s_pWLAN=nullptr;
 static double s_bpm=120.0;
 static u64 s_nodeId=0, s_lastSend=0;
 static bool     s_synced=false;
-static unsigned s_lastIgmp=0, s_rxCount=0;
+static unsigned s_lastIgmp=0;
 
 static inline u16 swap16(u16 v) { return __builtin_bswap16(v); }
 static inline u32 swap32(u32 v) { return __builtin_bswap32(v); }
@@ -37,23 +37,19 @@ static u16 csum16(const u8 *d, int n)
 
 static void parsePkt(const u8 *buf, int len)
 {
-	if (len < 18) return;
-	if (s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"pkt %02x%02x%02x%02x%02x%02x%02x%02x l=%d",buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6],buf[7],len);
-	if (memcmp(buf, MAGIC, 8) != 0) { if(s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"magic mismatch"); return; }
+	if (len < 20) return;
+	if (memcmp(buf, MAGIC, 8) != 0) return;
 
 	u64 senderId;
-	memcpy(&senderId, buf + 10, 8);
-	if(s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"sender=%08x%08x own=%08x%08x",(u32)(senderId>>32),(u32)senderId,(u32)(s_nodeId>>32),(u32)s_nodeId);
-	if(s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"hdr8=%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",buf[8],buf[9],buf[10],buf[11],buf[12],buf[13],buf[14],buf[15],buf[16],buf[17]);
+	memcpy(&senderId, buf + 12, 8);
 	if (senderId == s_nodeId) return;
-	const u8 *p=buf+18, *end=buf+len;
+	const u8 *p=buf+20, *end=buf+len;
 	while (p + 8 <= end)
 	{
 		u32 key, sz;
 		memcpy(&key, p,   4); key = swap32(key);
 		memcpy(&sz,  p+4, 4); sz  = swap32(sz);
 		p += 8;
-		if(s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"tlv k=%08x s=%u fit=%d",key,sz,(int)(p+sz<=end));
 		if (p + sz > end) break;
 		if (key == KEY_TMLN && sz >= 24)
 		{
@@ -75,21 +71,21 @@ static void parsePkt(const u8 *buf, int len)
 
 static void sendAlive(void)
 {
-	u8 payload[64];
+	u8 payload[72];
 	int plen = 0;
 	memset(payload, 0, sizeof payload);
 
 	memcpy(payload, MAGIC, 8);
 	payload[8] = 1;
-	payload[9] = 1;
-	memcpy(payload + 10, &s_nodeId, 8);
+	payload[9] = 5;
+	memcpy(payload + 12, &s_nodeId, 8);
 
 	u32 key = swap32(KEY_MMBE);
 	u32 sz  = swap32(8);
-	memcpy(payload + 18, &key, 4);
-	memcpy(payload + 22, &sz,  4);
-	memcpy(payload + 26, &s_nodeId, 8);
-	plen = 34;
+	memcpy(payload + 20, &key, 4);
+	memcpy(payload + 24, &sz,  4);
+	memcpy(payload + 28, &s_nodeId, 8);
+	plen = 36;
 
 	if (s_bpm > 0.0)
 	{
@@ -169,11 +165,9 @@ void linkProcess(void)
 		if ((int)len < 42) continue;
 		if (buf[12] != 0x08 || buf[13] != 0x00) continue;
 		u8 *ip = buf+IP_HDR_OFF; int ihl=(ip[0]&0x0f)*4;
-		if(s_rxCount++<20)CLogger::Get()->Write("link",LogNotice,"rx p=%d d=%d.%d.%d.%d",ip[9],ip[16],ip[17],ip[18],ip[19]);
 		if (ip[9] != 17) continue;
 		u8 *udp = ip + ihl;
 		u16 dp; memcpy(&dp, udp+2, 2);
-		if(s_rxCount<=20)CLogger::Get()->Write("link",LogNotice,"udp dp=%d",(int)swap16(dp));
 		if (memcmp(ip + 16, MCAST, 4) != 0) continue;
 		if (swap16(dp) != LINK_PORT) continue;
 		u8 *pl = udp+8; int plen=(int)(len-(pl-buf));
