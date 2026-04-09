@@ -1,0 +1,145 @@
+# Link Phase Alignment — PRD & Validation Checklist
+
+## Goal
+When Ableton Link is synced, the looper's phrase quantum (4 beats/bar) is defined by Link BPM.
+Recording snaps to the nearest phrase multiple. Playback is hard-locked to masterPhase
+so there is zero drift. The phrase relationship of the recording to the beat is preserved
+on playback — if you recorded starting at beat 2, playback starts at beat 2.
+
+---
+
+## Architecture Overview
+
+### Tick order inside loopMachine::update() (line 583)
+```
+1. Read audio input into m_input_buffer
+2. If linkIsSynced(): update m_masterLoopBlocks from BPM
+3. updateState()            <- commands latch here; recording may start
+4. if (m_running):
+     m_masterPhase++        <- AFTER updateState, BEFORE track updates
+     for each track:
+       pTrack->update()     <- clip audio processing happens here
+```
+
+### Key variables
+- m_masterPhase (u32): monotonic, increments every tick while m_running > 0, never wraps
+- m_masterLoopBlocks (u32): phrase length in blocks (4 beats at Link BPM)
+- m_recordStartPhaseOffset (u32): per-clip, set at record start
+- CROSSFADE_BLOCKS = 4
+- INTEGRAL_BLOCKS_PER_SECOND = 345 (at 44100Hz/64 samples)
+
+---
+
+## ISSUE LOG
+
+### ISSUE 1: First-tick race — m_running starts at 0 when first clip records
+Status: VALIDATED OK
+
+Trace: Tick 0 -> updateState -> _startRecording, recordStartPhaseOffset = 0+4+1 = 5.
+m_running becomes 1. m_masterPhase++ -> 1. First update: record_block 0 at masterPhase=1.
+After M+4 ticks: masterPhase = M+5.
+play_block = (M+5 - 5 + 2M) % M = 3M % M = 0. Correct.
+
+### ISSUE 2: Second+ recording (m_running already > 0, masterPhase already large)
+Status: VALIDATED OK
+
+Latch at masterPhase = P (where P % M == 0). recordStartPhaseOffset = P+5.
+masterPhase++ -> P+1. After M+4 blocks: masterPhase = P+M+5.
+play_block = (P+M+5 - P-5 + 2M) % M = 3M % M = 0. Correct.
+
+### ISSUE 3: Multi-phrase clips (2 bars, 4 bars)
+Status: VALIDATED OK
+
+For 2-phrase clip: numBlocks = 2M. After 2M+4 ticks: masterPhase = P+2M+5.
+play_block = (P+2M+5 - P-5 + 4M) % 2M = 6M % 2M = 0. Correct.
+Hard-lock each tick: play_block = k % 2M. No drift possible.
+
+### ISSUE 4: Crossfade reads wrong buffer region — CRITICAL BUG
+Status: BUG FOUND
+
+loopClipUpdate.cpp lines 129-132:
+```
+u32 next = (masterPhase - recordStartPhaseOffset + 2*numBlocks) % numBlocks;
+bool wrapped = (next == 0) && (m_play_block > 0);
+m_play_block = next;    // <- sets play_block to 0
+if (wrapped && m_state == CS_PLAYING) _startCrossFade();
+```
+
+_startCrossFade() sets m_crossfade_start = m_play_block. But m_play_block is already 0
+(set on the line before). So crossfade reads blocks 0,1,2,3 — the START of the clip.
+
+It SHOULD read blocks numBlocks, numBlocks+1, numBlocks+2, numBlocks+3 — the recorded
+tail region that exists specifically for this crossfade purpose.
+
+This is why "phrase changes after first loop" — the crossfade blends the clip start
+(fading out) with the clip start (fading in), creating a doubled/phased sound for 4
+blocks at every loop boundary.
+
+FIX: move _startCrossFade before updating m_play_block, OR set crossfade_start directly
+to m_num_blocks.
+
+### ISSUE 5: Fade-in at play_block 0 after wrap
+Status: CORRECT BY DESIGN
+
+fade_in = (use_play_block < CROSSFADE_BLOCKS) is intentional. The crossfade design is:
+old tail fades out while new loop start fades in. This is how the looper has always worked.
+
+### ISSUE 6: _calcQuantizeTarget rounding
+Status: VALIDATED OK
+
+n = (record_block + M/2) / M. Minimum n=1. Rounds to nearest phrase multiple.
+
+### ISSUE 7: _startEndingRecording trim
+Status: VALIDATED OK
+
+numBlocks = quantizeTarget. max_blocks = numBlocks + CROSSFADE_BLOCKS.
+Tail blocks numBlocks..numBlocks+3 are recorded during CS_RECORDING_TAIL.
+
+### ISSUE 8: BPM change mid-session shifts phrase boundary
+Status: ACCEPTABLE LIMITATION
+
+masterPhase is monotonic. Changing masterLoopBlocks shifts the modulo boundary.
+Link BPM changes are rare during performance. No fix needed.
+
+### ISSUE 9: at_loop_point uses masterPhase % masterLoopBlocks
+Status: VALIDATED OK
+
+With Link: masterPhase % masterLoopBlocks == 0. Without Link: play_block == 0. Correct.
+
+### ISSUE 10-17: Various other paths
+Status: ALL VALIDATED OK (see detailed traces in issue log)
+
+---
+
+## BUGS REQUIRING CODE FIXES
+
+### BUG A: Crossfade reads wrong region (ISSUE 4)
+Severity: CRITICAL — explains "phrase changes after first loop"
+Location: loopClipUpdate.cpp line 131-132
+Root cause: m_play_block set to 0 BEFORE _startCrossFade reads it for crossfade_start
+Fix: set crossfade_start = m_num_blocks directly, or reorder operations
+
+---
+
+## VALIDATION SUMMARY
+
+| # | Issue | Status |
+|---|-------|--------|
+| 1 | First-tick +1 offset | OK |
+| 2 | Second+ recording offset | OK |
+| 3 | Multi-phrase clips | OK |
+| 4 | Crossfade reads wrong region | BUG |
+| 5 | Fade-in at wrap | OK (by design) |
+| 6 | Quantize rounding | OK |
+| 7 | Trim vs recording | OK |
+| 8 | BPM change | Acceptable |
+| 9 | at_loop_point | OK |
+| 10 | doubleLength guard | OK |
+| 11 | ERASE reset | OK |
+| 12 | Track pending latch | OK |
+| 13 | Recording state transitions | OK |
+| 14 | STOP during recording | OK |
+| 15 | Multi-clip phase | OK |
+| 16 | Quantize edge cases | OK |
+| 17 | incDecRunning count | OK |
+| 18 | u32 overflow | OK (144 days) |

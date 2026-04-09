@@ -128,8 +128,14 @@ void loopClip::update(s32 *ip, s32 *op)
         {
             u32 next = (pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset + 2 * m_num_blocks) % m_num_blocks;
             bool wrapped = (next == 0) && (m_play_block > 0);
+            if (wrapped && m_state == CS_PLAYING)
+            {
+                m_state = CS_LOOPING;
+                m_crossfade_start = m_num_blocks;
+                m_crossfade_offset = 0;
+                m_pLoopTrack->incDecRunning(1);
+            }
             m_play_block = next;
-            if (wrapped && m_state == CS_PLAYING) _startCrossFade();
         }
         else
         {
