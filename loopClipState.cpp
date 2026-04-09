@@ -26,7 +26,7 @@ u32 loopClip::_calcQuantizeTarget()
 {
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
     if (masterLen == 0) return m_record_block;
-    u32 n = (m_record_block + masterLen - 1) / masterLen;
+    u32 n = (m_record_block + masterLen / 2) / masterLen;
     if (n == 0) n = 1;
     return n * masterLen;
 }
