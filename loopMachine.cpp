@@ -641,7 +641,15 @@ void loopMachine::update(void)
 	if (linkIsSynced())
 	{
 		double bpm = linkGetBPM();
-		if (bpm > 0) m_masterLoopBlocks = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0) / bpm + 0.5);
+		if (bpm > 0)
+		{
+			u32 blocks = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0 * 4.0) / bpm + 0.5);
+			if (blocks != m_masterLoopBlocks)
+			{
+				m_masterLoopBlocks = blocks;
+				LOOPER_LOG("link quantum: bpm=%.1f masterLoopBlocks=%u", bpm, blocks);
+			}
+		}
 	}
 	updateState();
 	if (m_running)
