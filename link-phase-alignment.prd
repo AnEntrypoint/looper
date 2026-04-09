@@ -24,122 +24,133 @@ on playback — if you recorded starting at beat 2, playback starts at beat 2.
 ### Key variables
 - m_masterPhase (u32): monotonic, increments every tick while m_running > 0, never wraps
 - m_masterLoopBlocks (u32): phrase length in blocks (4 beats at Link BPM)
-- m_recordStartPhaseOffset (u32): per-clip, set at record start
+- m_recordStartPhaseOffset (u32): per-clip, set to masterPhase at record start
 - CROSSFADE_BLOCKS = 4
 - INTEGRAL_BLOCKS_PER_SECOND = 345 (at 44100Hz/64 samples)
 
----
+### Phase offset formula
+play_block = (masterPhase - recordStartPhaseOffset + 2*numBlocks) % numBlocks
 
-## ISSUE LOG
+With offset = P (masterPhase at recording start, P % masterLoopBlocks == 0):
+- At phrase boundaries (mp % M == 0): play_block = 0 for 1-phrase clips
+- At clip boundaries: play_block = 0 always (verified for all BPMs)
+- For N-phrase clips: play_block cycles 0..M..2M.. correctly across phrases
 
-### ISSUE 1: First-tick race — m_running starts at 0 when first clip records
-Status: VALIDATED OK
-
-Trace: Tick 0 -> updateState -> _startRecording, recordStartPhaseOffset = 0+4+1 = 5.
-m_running becomes 1. m_masterPhase++ -> 1. First update: record_block 0 at masterPhase=1.
-After M+4 ticks: masterPhase = M+5.
-play_block = (M+5 - 5 + 2M) % M = 3M % M = 0. Correct.
-
-### ISSUE 2: Second+ recording (m_running already > 0, masterPhase already large)
-Status: VALIDATED OK
-
-Latch at masterPhase = P (where P % M == 0). recordStartPhaseOffset = P+5.
-masterPhase++ -> P+1. After M+4 blocks: masterPhase = P+M+5.
-play_block = (P+M+5 - P-5 + 2M) % M = 3M % M = 0. Correct.
-
-### ISSUE 3: Multi-phrase clips (2 bars, 4 bars)
-Status: VALIDATED OK
-
-For 2-phrase clip: numBlocks = 2M. After 2M+4 ticks: masterPhase = P+2M+5.
-play_block = (P+2M+5 - P-5 + 4M) % 2M = 6M % 2M = 0. Correct.
-Hard-lock each tick: play_block = k % 2M. No drift possible.
-
-### ISSUE 4: Crossfade reads wrong buffer region — CRITICAL BUG
-Status: BUG FOUND
-
-loopClipUpdate.cpp lines 129-132:
-```
-u32 next = (masterPhase - recordStartPhaseOffset + 2*numBlocks) % numBlocks;
-bool wrapped = (next == 0) && (m_play_block > 0);
-m_play_block = next;    // <- sets play_block to 0
-if (wrapped && m_state == CS_PLAYING) _startCrossFade();
-```
-
-_startCrossFade() sets m_crossfade_start = m_play_block. But m_play_block is already 0
-(set on the line before). So crossfade reads blocks 0,1,2,3 — the START of the clip.
-
-It SHOULD read blocks numBlocks, numBlocks+1, numBlocks+2, numBlocks+3 — the recorded
-tail region that exists specifically for this crossfade purpose.
-
-This is why "phrase changes after first loop" — the crossfade blends the clip start
-(fading out) with the clip start (fading in), creating a doubled/phased sound for 4
-blocks at every loop boundary.
-
-FIX: move _startCrossFade before updating m_play_block, OR set crossfade_start directly
-to m_num_blocks.
-
-### ISSUE 5: Fade-in at play_block 0 after wrap
-Status: CORRECT BY DESIGN
-
-fade_in = (use_play_block < CROSSFADE_BLOCKS) is intentional. The crossfade design is:
-old tail fades out while new loop start fades in. This is how the looper has always worked.
-
-### ISSUE 6: _calcQuantizeTarget rounding
-Status: VALIDATED OK
-
-n = (record_block + M/2) / M. Minimum n=1. Rounds to nearest phrase multiple.
-
-### ISSUE 7: _startEndingRecording trim
-Status: VALIDATED OK
-
-numBlocks = quantizeTarget. max_blocks = numBlocks + CROSSFADE_BLOCKS.
-Tail blocks numBlocks..numBlocks+3 are recorded during CS_RECORDING_TAIL.
-
-### ISSUE 8: BPM change mid-session shifts phrase boundary
-Status: ACCEPTABLE LIMITATION
-
-masterPhase is monotonic. Changing masterLoopBlocks shifts the modulo boundary.
-Link BPM changes are rare during performance. No fix needed.
-
-### ISSUE 9: at_loop_point uses masterPhase % masterLoopBlocks
-Status: VALIDATED OK
-
-With Link: masterPhase % masterLoopBlocks == 0. Without Link: play_block == 0. Correct.
-
-### ISSUE 10-17: Various other paths
-Status: ALL VALIDATED OK (see detailed traces in issue log)
+### Crossfade design
+- Recording: first CB blocks are CS_RECORDING (fade-in region), then CS_RECORDING_MAIN
+- At quantize: CS_RECORDING_TAIL records CB more blocks (tail for crossfade)
+- At wrap: crossfade_start = numBlocks (points to tail region)
+  - pp_main reads blocks 0..CB-1 (fading in)
+  - pp_fade reads blocks numBlocks..numBlocks+CB-1 (fading out)
+- Crossfade happens at clip boundary = phrase boundary
 
 ---
 
-## BUGS REQUIRING CODE FIXES
+## VALIDATED ITEMS (all verified by tick-by-tick simulation)
 
-### BUG A: Crossfade reads wrong region (ISSUE 4)
-Severity: CRITICAL — explains "phrase changes after first loop"
-Location: loopClipUpdate.cpp line 131-132
-Root cause: m_play_block set to 0 BEFORE _startCrossFade reads it for crossfade_start
-Fix: set crossfade_start = m_num_blocks directly, or reorder operations
+### V1: First recording — play_block=0 at phrase boundary
+Trace: P=0, M=690 (120BPM). offset=0. After Q+CB ticks: mp=694.
+  play_block=(694-0+1380)%690 = 2074%690 = 4 (4 blocks into crossfade region)
+  At next phrase boundary (mp=1380): play_block=(1380+1380)%690 = 0. PASS.
+
+### V2: Second recording — offset aligned to phrase boundary
+Latch at mp=P (P%M==0). offset=P. Same math as V1 shifted by P. PASS.
+
+### V3: Multi-phrase clips — clip boundary alignment
+2-phrase: nb=2M. At mp%nb==0: play_block=0. At intermediate phrase: play_block=M. PASS.
+4-phrase: nb=4M. play_block cycles 0, M, 2M, 3M at successive phrase boundaries. PASS.
+
+### V4: Crossfade reads correct buffer region
+Hard-lock path: crossfade setup happens BEFORE m_play_block=next.
+  crossfade_start = m_num_blocks (tail region). PASS.
+
+### V5: No crossfade re-trigger during CS_LOOPING
+Condition: wrapped && m_state == CS_PLAYING. During LOOPING state != PLAYING. PASS.
+
+### V6: Quantize rounding
+_calcQuantizeTarget: n = (record_block + M/2) / M. Minimum n=1. PASS.
+
+### V7: Recording tail and buffer allocation
+max_blocks = numBlocks + CB. Buffer committed for max_blocks * channels.
+getBlock(numBlocks + CB - 1) is within bounds. PASS.
+
+### V8: Drift test (1000 loops)
+120/105/90/140/180/60 BPM: play_block at phrase boundary = 0 after 1000 loops. PASS.
+
+### V9: at_loop_point / at_phrase_start use masterPhase % masterLoopBlocks
+Both correctly use modular arithmetic on monotonic masterPhase. PASS.
+
+### V10: doubleLength / halveLength guards for Link
+!linkIsSynced() prevents overwriting masterLoopBlocks when Link controls it. PASS.
+
+### V11: incDecRunning count correctness
+CS_PLAYING: +1. CS_LOOPING: +1 more. LOOPING->PLAYING: -1. Matches. PASS.
+stopImmediate: correctly handles all states including CS_LOOPING (-2). PASS.
+
+### V12: ERASE/CLEAR_ALL resets phase
+When no clips remain: masterLoopBlocks=0, masterPhase=0. Correct. PASS.
+
+### V13: Track pending latch for RECORD (phrase-quantized)
+masterPhase % masterLoopBlocks == 0 fires correctly with monotonic masterPhase. PASS.
+
+### V14: STOP during recording with quantize
+target calculated, willPlay=false. Clip goes FINISHING->RECORDED (not playing). PASS.
+
+### V15: Overshoot case (user presses PLAY after phrase boundary)
+play_block is non-zero at _startPlaying (up to ~16ms offset at 120BPM).
+At next phrase boundary: hard-lock snaps play_block to 0. Acceptable. PASS.
+
+### V16: u32 overflow of masterPhase
+2^32 / 345 blocks/sec = 144 days. No practical risk. PASS.
+
+### V17: BPM change mid-session
+Changes masterLoopBlocks, shifts modulo boundary. Existing clips unaffected
+(hard-lock uses clip's own numBlocks). New recordings quantize to new M. Acceptable. PASS.
+
+### V18: command() thread safety for pending commands
+m_track_pending is volatile u16, single-writer (MIDI) single-reader (audio).
+Atomic on ARM32. PLAY commands dispatched directly (pre-existing design). PASS.
 
 ---
 
-## VALIDATION SUMMARY
+## CHANGES MADE THIS SESSION
 
-| # | Issue | Status |
-|---|-------|--------|
-| 1 | First-tick +1 offset | OK |
-| 2 | Second+ recording offset | OK |
-| 3 | Multi-phrase clips | OK |
-| 4 | Crossfade reads wrong region | BUG |
-| 5 | Fade-in at wrap | OK (by design) |
-| 6 | Quantize rounding | OK |
-| 7 | Trim vs recording | OK |
-| 8 | BPM change | Acceptable |
-| 9 | at_loop_point | OK |
-| 10 | doubleLength guard | OK |
-| 11 | ERASE reset | OK |
-| 12 | Track pending latch | OK |
-| 13 | Recording state transitions | OK |
-| 14 | STOP during recording | OK |
-| 15 | Multi-clip phase | OK |
-| 16 | Quantize edge cases | OK |
-| 17 | incDecRunning count | OK |
-| 18 | u32 overflow | OK (144 days) |
+### Change 1: recordStartPhaseOffset = masterPhase (no +CB, no +1)
+Old: masterPhase + CROSSFADE_BLOCKS + 1
+New: masterPhase
+Why: +CB caused play_block=N-4 at phrase boundaries (crossfade 4 blocks late).
+     +1 caused play_block=N-1 at _finishRecording (off by one).
+     With just masterPhase: play_block=0 at phrase boundaries, crossfade exactly at boundary.
+Verified: simulation confirms all BPMs, all phrase multiples, 1000-loop drift test.
+
+### Change 2: Crossfade start = numBlocks in hard-lock path (previous commit)
+Old: _startCrossFade() captured m_play_block (already 0 after wrap)
+New: inline crossfade setup with crossfade_start = m_num_blocks
+Why: crossfade must read tail region (numBlocks..numBlocks+CB), not clip start (0..CB).
+
+### Change 3: Phrase boundary detection uses masterPhase % masterLoopBlocks (previous commit)
+Old: masterPhase == 0 (only fired once since masterPhase is monotonic)
+New: masterPhase % masterLoopBlocks == 0 (fires every phrase)
+Affects: at_loop_point (global commands), at_phrase_start (per-track record latch)
+
+---
+
+## SIMULATION RESULTS
+
+All results from tick-by-tick JavaScript simulation matching exact C code logic.
+
+### play_block at initial playback start:
+| Scenario | BPM | recTicks | M | nb | play_block | Status |
+|----------|-----|----------|---|----|------------|--------|
+| short rec | 120 | 50 | 690 | 690 | 4 | OK (within crossfade) |
+| 1phrase overshoot | 120 | 700 | 690 | 690 | 11 | OK (snaps at boundary) |
+| exact boundary | 120 | 690 | 690 | 690 | 4 | OK |
+| 2phrase overshoot | 120 | 1500 | 690 | 1380 | 121 | OK (snaps at boundary) |
+| short rec | 105 | 50 | 789 | 789 | 4 | OK |
+| 3phrase | 140 | 2200 | 591 | 2364 | 4 | OK |
+
+### play_block at phrase boundary (all clips):
+All BPMs tested: play_block = 0 at clip boundary = phrase boundary. PASS.
+
+### Drift after 1000 loops:
+120/105/90/140/180/60 BPM: all PASS (play_block matches formula exactly).

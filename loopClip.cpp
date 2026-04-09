@@ -114,7 +114,7 @@ void loopClip::_startRecording()
     m_num_blocks = 0;
     m_max_blocks = (pTheLoopBuffer->getFreeBlocks() / LOOPER_NUM_CHANNELS) - CROSSFADE_BLOCKS;
     m_buffer = pTheLoopBuffer->getBuffer();
-    m_recordStartPhaseOffset = pTheLoopMachine->m_masterPhase + CROSSFADE_BLOCKS + 1;
+    m_recordStartPhaseOffset = pTheLoopMachine->m_masterPhase;
     CLogger::Get()->Write("lclip", LogNotice, "startRecording: startPhase=%u masterLen=%u", m_recordStartPhaseOffset, pTheLoopMachine->m_masterLoopBlocks);
     m_state = CS_RECORDING;
     m_pLoopTrack->incDecNumUsedClips(1);
