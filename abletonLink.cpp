@@ -52,9 +52,8 @@ static void parsePkt(const u8 *buf, int len)
 		memcpy(&key, p,   4); key = swap32(key);
 		memcpy(&sz,  p+4, 4); sz  = swap32(sz);
 		p += 8;
+		if(s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"tlv k=%08x s=%u fit=%d",key,sz,(int)(p+sz<=end));
 		if (p + sz > end) break;
-
-		if(s_rxCount<=22)CLogger::Get()->Write("link",LogNotice,"tlv k=%08x s=%u",key,sz);
 		if (key == KEY_TMLN && sz >= 24)
 		{
 			s64 mpb;
