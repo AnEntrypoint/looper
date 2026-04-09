@@ -118,6 +118,7 @@ void loopClip::_startRecording()
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
     if (masterLen > 0)
         m_recordStartPhaseOffset = pTheLoopMachine->m_masterPhase % masterLen;
+    CLogger::Get()->Write("lclip", LogNotice, "startRecording: phaseOffset=%u masterLen=%u", m_recordStartPhaseOffset, masterLen);
     m_state = CS_RECORDING;
     m_pLoopTrack->incDecNumUsedClips(1);
     m_pLoopTrack->incDecRunning(1);
@@ -128,6 +129,7 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
     LOOPER_LOG("clip(%d,%d)::startEndingRecording(trim=%d,play=%d)", m_track_num, m_clip_num, trimToBlocks, willPlay);
     m_num_blocks = (trimToBlocks > 0) ? trimToBlocks : m_record_block;
     m_max_blocks = m_num_blocks + CROSSFADE_BLOCKS;
+    CLogger::Get()->Write("lclip", LogNotice, "endRecording: recorded=%u target=%u numBlocks=%u", m_record_block, trimToBlocks, m_num_blocks);
     pTheLoopBuffer->commitBlocks(m_max_blocks * LOOPER_NUM_CHANNELS);
     if (!linkIsSynced() && m_clip_num == 0 && m_num_blocks > pTheLoopMachine->m_masterLoopBlocks)
     {
@@ -155,6 +157,7 @@ void loopClip::_startPlaying()
         m_play_block = m_recordStartPhaseOffset % m_num_blocks;
     else
         m_play_block = 0;
+    CLogger::Get()->Write("lclip", LogNotice, "startPlaying: play_block=%u offset=%u numBlocks=%u", m_play_block, m_recordStartPhaseOffset, m_num_blocks);
     LOOPER_LOG("clip(%d,%d)::startPlaying(play_block=%d offset=%d)", m_track_num, m_clip_num, m_play_block, m_recordStartPhaseOffset);
     m_crossfade_start = 0;
     m_crossfade_offset = 0;
