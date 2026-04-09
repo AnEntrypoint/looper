@@ -638,7 +638,7 @@ void loopMachine::update(void)
 
 	}   // for each s32 channel
 
-	if (linkIsSynced() && m_running == 0)
+	if (linkIsSynced())
 	{
 		double bpm = linkGetBPM();
 		if (bpm > 0) m_masterLoopBlocks = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0) / bpm + 0.5);
