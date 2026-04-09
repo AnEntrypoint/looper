@@ -643,7 +643,8 @@ void loopMachine::update(void)
 		double bpm = linkGetBPM();
 		if (bpm > 0)
 		{
-			u32 blocks = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0 * 4.0) / bpm + 0.5);
+			u32 raw = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0 * 16.0) / bpm + 0.5);
+			u32 blocks = ((raw + 4) / 8) * 8;
 			if (blocks != m_masterLoopBlocks)
 			{
 				m_masterLoopBlocks = blocks;
