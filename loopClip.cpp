@@ -1,4 +1,5 @@
 #include "Looper.h"
+#include "abletonLink.h"
 #include <circle/logger.h>
 
 #define log_name "lclip"
@@ -51,7 +52,7 @@ void loopClip::doubleLength()
     m_origNumBlocks = doubled;
     m_num_blocks = doubled;
     m_max_blocks = needed;
-    if (m_clip_num == 0 && m_num_blocks > pTheLoopMachine->m_masterLoopBlocks)
+    if (!linkIsSynced() && m_clip_num == 0 && m_num_blocks > pTheLoopMachine->m_masterLoopBlocks)
     {
         pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
         pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
@@ -116,17 +117,7 @@ void loopClip::_startRecording()
     m_recordStartPhaseOffset = 0;
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
     if (masterLen > 0)
-    {
-        for (int t = 0; t < LOOPER_NUM_TRACKS; t++)
-        {
-            loopClip *pC = pTheLoopMachine->getTrack(t)->getClip(0);
-            if (pC && pC->getClipState() == CS_PLAYING)
-            {
-                m_recordStartPhaseOffset = pC->getPlayBlockNum() % masterLen;
-                break;
-            }
-        }
-    }
+        m_recordStartPhaseOffset = pTheLoopMachine->m_masterPhase % masterLen;
     m_state = CS_RECORDING;
     m_pLoopTrack->incDecNumUsedClips(1);
     m_pLoopTrack->incDecRunning(1);
@@ -135,13 +126,10 @@ void loopClip::_startRecording()
 void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
 {
     LOOPER_LOG("clip(%d,%d)::startEndingRecording(trim=%d,play=%d)", m_track_num, m_clip_num, trimToBlocks, willPlay);
-    if (trimToBlocks > 0 && trimToBlocks < m_record_block)
-        m_num_blocks = trimToBlocks;
-    else
-        m_num_blocks = m_record_block;
-    m_max_blocks = m_record_block + CROSSFADE_BLOCKS;
+    m_num_blocks = (trimToBlocks > 0) ? trimToBlocks : m_record_block;
+    m_max_blocks = m_num_blocks + CROSSFADE_BLOCKS;
     pTheLoopBuffer->commitBlocks(m_max_blocks * LOOPER_NUM_CHANNELS);
-    if (m_clip_num == 0 && m_num_blocks > pTheLoopMachine->m_masterLoopBlocks)
+    if (!linkIsSynced() && m_clip_num == 0 && m_num_blocks > pTheLoopMachine->m_masterLoopBlocks)
     {
         pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
         pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
@@ -163,10 +151,11 @@ void loopClip::_finishRecording()
 void loopClip::_startPlaying()
 {
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
-    m_play_block = (masterLen > 0 && m_num_blocks > 0)
-        ? (pTheLoopMachine->m_masterPhase + 1) % m_num_blocks
-        : 0;
-    LOOPER_LOG("clip(%d,%d)::startPlaying(play_block=%d)", m_track_num, m_clip_num, m_play_block);
+    if (masterLen > 0 && m_num_blocks > 0)
+        m_play_block = m_recordStartPhaseOffset % m_num_blocks;
+    else
+        m_play_block = 0;
+    LOOPER_LOG("clip(%d,%d)::startPlaying(play_block=%d offset=%d)", m_track_num, m_clip_num, m_play_block, m_recordStartPhaseOffset);
     m_crossfade_start = 0;
     m_crossfade_offset = 0;
     m_state = CS_PLAYING;
