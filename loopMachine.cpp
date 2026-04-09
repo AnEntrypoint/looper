@@ -654,8 +654,7 @@ void loopMachine::update(void)
 	updateState();
 	if (m_running)
 	{
-		if (m_masterLoopBlocks > 0)
-			m_masterPhase = (m_masterPhase + 1) % m_masterLoopBlocks;
+		m_masterPhase++;
 		for (int i=0; i<LOOPER_NUM_TRACKS; i++)
 		{
 			loopTrack *pTrack = getTrack(i);
