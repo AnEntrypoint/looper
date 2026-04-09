@@ -124,12 +124,12 @@ void loopClip::update(s32 *ip, s32 *op)
     if (pp_main)
     {
         u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
-        if (masterLen > 0 && m_state != CS_LOOPING)
+        if (masterLen > 0)
         {
             u32 next = (pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset + 2 * m_num_blocks) % m_num_blocks;
             bool wrapped = (next == 0) && (m_play_block > 0);
             m_play_block = next;
-            if (wrapped) _startCrossFade();
+            if (wrapped && m_state == CS_PLAYING) _startCrossFade();
         }
         else
         {

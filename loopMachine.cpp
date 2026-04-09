@@ -803,7 +803,8 @@ void loopMachine::updateState(void)
 	// u16 sel_clip0_state = pSelClip0 ? pSelClip0->getClipState() : 0;
 
 		// the current base clip, and it's state, if any
-	bool at_loop_point = (cur_clip0_state == CS_PLAYING || cur_clip0_state == CS_LOOPING) && !pCurClip0->getPlayBlockNum();
+	bool at_loop_point = (cur_clip0_state == CS_PLAYING || cur_clip0_state == CS_LOOPING) &&
+		(m_masterLoopBlocks > 0 ? (m_masterPhase % m_masterLoopBlocks == 0) : !pCurClip0->getPlayBlockNum());
 
 	if (at_loop_point)
 	{
@@ -844,7 +845,7 @@ void loopMachine::updateState(void)
         loopClip  *pClip0 = pTrack->getClip(0);
         ClipState clip0_state = pClip0 ? pClip0->getClipState() : CS_IDLE;
 
-        bool at_phrase_start = (m_masterLoopBlocks > 0) && (m_masterPhase == 0);
+        bool at_phrase_start = (m_masterLoopBlocks > 0) && (m_masterPhase % m_masterLoopBlocks == 0);
         bool track_latch;
         if (m_track_pending[i] == LOOP_COMMAND_RECORD && m_masterLoopBlocks > 0)
             track_latch = at_phrase_start;
