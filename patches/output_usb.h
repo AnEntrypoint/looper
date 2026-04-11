@@ -10,10 +10,10 @@ public:
 
     virtual const char *getName (void) { return "AudioOutputUSB"; }
     virtual u16 getType (void)         { return AUDIO_DEVICE_OUTPUT; }
+    virtual void start  (void);
 
 protected:
     virtual void update (void);
-    virtual void start  (void);
 
 private:
     static void outHandler (s16 *pLeft, s16 *pRight, unsigned nSamples);
