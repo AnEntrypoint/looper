@@ -50,6 +50,7 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/std_kernel_stub.h circle/_prh/system/std_kernel.h
           cp circle/_prh/_apps/Looper/patches/kernel.h circle/_prh/_apps/Looper/kernel.h
           cp circle/_prh/_apps/Looper/patches/kernel.cpp circle/_prh/_apps/Looper/kernel.cpp
+          cp circle/_prh/_apps/Looper/patches/kernel_run.cpp circle/_prh/_apps/Looper/kernel_run.cpp
           cp circle/_prh/_apps/Looper/patches/main.cpp circle/_prh/_apps/Looper/main.cpp
           cp circle/_prh/_apps/Looper/patches/p9chan.h circle/addon/wlan/p9chan.h
           cp circle/_prh/_apps/Looper/patches/p9chan.cpp circle/addon/wlan/p9chan.cpp

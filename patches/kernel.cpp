@@ -2,8 +2,6 @@
 #include "abletonLink.h"
 #include "wlanDHCP.h"
 #include <circle/util.h>
-#include <circle/string.h>
-#include <circle/devicenameservice.h>
 #include <circle/net/in.h>
 #include <circle/net/socket.h>
 #include "p9chan.h"
@@ -19,7 +17,6 @@ extern const unsigned long wlan_clm_size;
 
 #define SERIAL_BAUD_RATE	115200
 #define DRIVE			"SD:"
-#define CDC_DEVICE_NAME		"utty1"
 #define WLAN_FIRMWARE_PATH	"SD:/firmware/"
 #define WLAN_SSID		"ticker"
 
@@ -35,6 +32,7 @@ static CActLED *s_pActLED = nullptr;
 extern "C" void debug_blink(int n) { if (s_pActLED) s_pActLED->Blink(n); }
 static bool s_wlanOK = false;
 static bool s_wlanJoined = false;
+static bool s_wlanIsAP = false;
 
 extern void setup(void);
 extern void loop(void);
@@ -105,6 +103,17 @@ boolean CKernel::Initialize(void)
 	if (s_wlanOK)
 	{
 		s_wlanJoined = m_WLAN.JoinOpenNet(WLAN_SSID);
+		if (!s_wlanJoined)
+		{
+			boolean bAP = m_WLAN.CreateOpenNet(WLAN_SSID, 6, false);
+			m_Logger.Write(log_name, LogNotice, "WLAN AP start: %s", bAP ? "OK" : "FAILED");
+			if (bAP)
+			{
+				s_wlanIsAP = true;
+				s_wlanJoined = true;
+				wlanApInit(&m_WLAN);
+			}
+		}
 		static const u8 mcastGroups[][6] = {
 			{0x01, 0x00, 0x5e, 0x4c, 0x4e, 0x4b},
 			{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
@@ -127,9 +136,10 @@ TShutdownMode CKernel::Run(void)
 	CIPAddress logHost(logHostIP);
 	m_pSysLog = new CSysLogDaemon(&m_Net, logHost);
 
-	m_Logger.Write(log_name, LogNotice, "WLAN init=%s join=%s",
+	m_Logger.Write(log_name, LogNotice, "WLAN init=%s join=%s ap=%s",
 		s_wlanOK ? "OK" : "FAILED",
-		s_wlanOK ? (s_wlanJoined ? "OK" : "FAILED") : "N/A");
+		s_wlanOK ? (s_wlanJoined ? "OK" : "FAILED") : "N/A",
+		s_wlanIsAP ? "yes" : "no");
 
 	linkInit(&m_WLAN);
 
@@ -148,8 +158,8 @@ TShutdownMode CKernel::Run(void)
 
 	bool bPlugAndPlayUpdated = FALSE;
 	unsigned nLastHeartbeat = m_Timer.GetClockTicks();
-	bool bDhcpDone = !s_wlanJoined;
-	if (s_wlanJoined) {
+	bool bDhcpDone = !s_wlanJoined || s_wlanIsAP;
+	if (s_wlanJoined && !s_wlanIsAP) {
 		u8 mac[6];
 		m_WLAN.GetMACAddress()->CopyTo(mac);
 		wlanDhcpSendDiscover(&m_WLAN, mac);
@@ -162,65 +172,19 @@ TShutdownMode CKernel::Run(void)
 		usbMidiProcess(bPlugAndPlayUpdated);
 		loop();
 		if (!bDhcpDone) bDhcpDone = wlanDhcpPoll(&m_WLAN);
+		if (s_wlanIsAP) wlanDhcpServe();
 		linkProcess();
 		m_Scheduler.Yield();
 
 		unsigned nNow = m_Timer.GetClockTicks();
 		if (nNow - nLastHeartbeat >= 10 * CLOCKHZ)
 		{
-			m_Logger.Write(log_name, LogNotice, "heartbeat wlan=%s", s_wlanJoined ? "joined" : "no");
+			m_Logger.Write(log_name, LogNotice, "heartbeat wlan=%s", s_wlanIsAP ? "ap" : (s_wlanJoined ? "joined" : "no"));
 			nLastHeartbeat = nNow;
 		}
 
-		if (pRebootSocket)
-		{
-			u8 buf[16];
-			CIPAddress sender;
-			u16 senderPort;
-			int n = pRebootSocket->ReceiveFrom(buf, sizeof buf - 1, MSG_DONTWAIT, &sender, &senderPort);
-			if (n >= 6 && memcmp(buf, "REBOOT", 6) == 0)
-			{
-				m_Logger.Write(log_name, LogNotice, "Reboot command received via UDP");
-				return ShutdownReboot;
-			}
-		}
-
-		if (pDebugSocket)
-		{
-			u8 buf[32];
-			CIPAddress sender;
-			u16 senderPort;
-			int n = pDebugSocket->ReceiveFrom(buf, sizeof buf - 1, MSG_DONTWAIT, &sender, &senderPort);
-			if (n > 0)
-			{
-				buf[n] = 0;
-				CString reply;
-				reply.Format("wlan=%s link=%s bpm=%d uptime=%u",
-					s_wlanJoined ? "joined" : "no",
-					linkIsSynced() ? "synced" : "no",
-					(int)linkGetBPM(),
-					m_Timer.GetClockTicks() / CLOCKHZ);
-				pDebugSocket->SendTo((u8 *)(const char *)reply, reply.GetLength(), MSG_DONTWAIT, sender, senderPort);
-			}
-		}
-
-		if (pMidiSocket)
-		{
-			u8 buf[16];
-			CIPAddress sender;
-			u16 senderPort;
-			int n = pMidiSocket->ReceiveFrom(buf, sizeof buf, MSG_DONTWAIT, &sender, &senderPort);
-			if (n >= 3)
-				usbMidiInjectMidi(buf[0], buf[1], buf[2]);
-		}
-
-		CDevice *pCDCSerial = CDeviceNameService::Get()->GetDevice(CDC_DEVICE_NAME, FALSE);
-		if (pCDCSerial != nullptr)
-		{
-			u8 buf;
-			if (pCDCSerial->Read(&buf, 1) == 1 && buf == 'R')
-				return ShutdownReboot;
-		}
+		TShutdownMode mode = pollSockets(pRebootSocket, pDebugSocket, pMidiSocket);
+		if (mode != ShutdownNone) return mode;
 	}
 
 	return ShutdownHalt;

@@ -147,3 +147,4 @@ bool wlanDhcpPoll(CBcm4343Device *pWLAN) {
 
 bool wlanDhcpOK(void) { return s_got; }
 const u8 *wlanDhcpIP(void) { return s_ip; }
+void wlanApSetIP(const u8 *ip) { memcpy(s_ip, ip, 4); s_got = true; }

@@ -45,6 +45,7 @@ public:
 	TShutdownMode Run(void);
 
 private:
+	TShutdownMode pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *pMidi);
 	CMemorySystem		m_Memory;
 	CActLED			m_ActLED;
 	CKernelOptions		m_Options;

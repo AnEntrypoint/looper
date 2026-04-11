@@ -2,6 +2,9 @@
 ## [Unreleased]
 
 ### Added
+- feat: WiFi AP hotspot fallback — if JoinOpenNet('ticker') fails, Pi starts 'ticker' AP via CreateOpenNet(); wlanDHCPServer.cpp serves DHCP pool 192.168.4.2-9 to connecting clients; Pi uses static IP 192.168.4.1; Ableton Link multicast works over AP interface; heartbeat log shows 'ap' mode
+
+### Added (previous)
 - test: expand simulation coverage — split looper-sim.js into looper-sim.js (helpers+ClipSim), looper-machine.js (MachineSim), looper-run.js (runTests); add 30 new scenarios: sub-phrase (M/2), multi-phrase (2M), stop-quantize (willPlay=false→CS_RECORDED), deferred quantize (auto-fires at record_block>=target), per-track latch (recording starts exactly at phrase boundary); add 2 new source integrity checks for candidates[] in loopClipState.cpp and canonical modulo pattern in loopClipUpdate.cpp; total 48 scenarios, all pass
 
 ### Refactored
