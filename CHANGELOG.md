@@ -7,6 +7,12 @@
 - audio.cpp: removed #error mutual-exclusion guard. LOOPER_USB_AUDIO + LOOPER_OTG_AUDIO can now be defined simultaneously. USB audio drives the AudioSystem chain; OTG gadget runs as side-channel tap/inject via otgIn.start()/otgOut.start().
 - build.yml: audio and looper build steps now use LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 for combined mode.
 - Removed unused InRing fields from CUSBAudioGadgetEndpoint.
+- fix: dwusbgadgetendpoint.cpp include changed to quoted "dwusbgadgetendpoint.h" so patched header (TypeIsochronous) is resolved instead of original Circle header.
+- fix: synced dwusbgadgetendpoint.h to match .cpp: FinishTransfer(void), OnControlMessage virtual, HandleUSBReset non-static, plain u32 m_DummyBuffer (no DMA_BUFFER macro).
+- fix: AudioInputUSB::start() and AudioOutputUSB::start() moved to public section so setup() can call them.
+- fix: added usbaudiogadget.o and usbaudiogadgetendpoint.o to audio_Makefile OBJS so CUSBAudioGadget links.
+- fix: LOOPER_OTG_AUDIO define added to Looper Makefile.
+- fix: ACHeader array size corrected to 10 bytes (UAC1 bInCollection=2 adds 2 baInterfaceNr bytes).
 
 ## 2026-04-11
 
