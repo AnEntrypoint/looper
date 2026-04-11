@@ -22,7 +22,7 @@ const CUSBAudioGadget::TUSBAudioGadgetConfigurationDescriptor CUSBAudioGadget::s
 	  0x80, 250 },
 	{ sizeof (TUSBInterfaceDescriptor), DESCRIPTOR_INTERFACE,
 	  0, 0, 0, 0x01, 0x01, 0x00, 0 },
-	{ 9, 0x24, 0x01, 0x00, 0x01, 9+8+8, 0x00, 2, 1, 2 },
+	{ 10, 0x24, 0x01, 0x00, 0x01, 9+8+8, 0x00, 2, 1, 2 },
 	{ sizeof (TUSBInterfaceDescriptor), DESCRIPTOR_INTERFACE,
 	  1, 0, 0, 0x01, 0x02, 0x00, 0 },
 	{ sizeof (TUSBInterfaceDescriptor), DESCRIPTOR_INTERFACE,
