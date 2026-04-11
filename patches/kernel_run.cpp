@@ -1,5 +1,6 @@
 #include "kernel.h"
 #include "abletonLink.h"
+#include <circle/util.h>
 #include <circle/string.h>
 #include <circle/devicenameservice.h>
 #include <circle/net/in.h>
