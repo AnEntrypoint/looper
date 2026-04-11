@@ -1,5 +1,4 @@
 #include "Looper.h"
-#include <circle/logger.h>
 
 #define log_name "lclip"
 
@@ -27,13 +26,10 @@ u32 loopClip::_calcQuantizeTarget()
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
     if (masterLen == 0) return m_record_block;
 
-    // find nearest power-of-2 multiple or division of masterLen
-    // valid lengths: masterLen/8, /4, /2, *1, *2, *4, *8 ...
     u32 best = masterLen;
     u32 bestDist = (m_record_block > masterLen) ?
         m_record_block - masterLen : masterLen - m_record_block;
 
-    // divisions: M/2, M/4, M/8
     for (u32 d = 2; d <= 8; d *= 2)
     {
         u32 c = masterLen / d;
@@ -42,7 +38,6 @@ u32 loopClip::_calcQuantizeTarget()
         if (dist < bestDist) { best = c; bestDist = dist; }
     }
 
-    // multiples: 2M, 4M, 8M ...
     for (u32 m = 2; m <= 64; m *= 2)
     {
         u32 c = masterLen * m;
