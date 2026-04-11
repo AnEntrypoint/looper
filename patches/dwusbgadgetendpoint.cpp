@@ -153,7 +153,7 @@ void CDWUSBGadgetEndpoint::BeginTransfer (TTransferMode Mode, void *pBuffer, siz
 		CleanAndInvalidateDataCacheRange ((uintptr) pBuffer, nLength);
 	}
 	else
-		pBuffer = m_DummyBuffer;
+		pBuffer = &m_DummyBuffer;
 
 	if (Mode == TransferDataIn)
 	{

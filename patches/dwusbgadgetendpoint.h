@@ -10,7 +10,6 @@
 #define _circle_usb_gadget_dwusbgadgetendpoint_h
 
 #include <circle/usb/usb.h>
-#include <circle/macros.h>
 #include <circle/types.h>
 
 class CDWUSBGadget;
@@ -82,7 +81,7 @@ private:
 	void         *m_pTransferBuffer;
 	size_t        m_nTransferLength;
 
-	DMA_BUFFER (u32, m_DummyBuffer, 1);
+	u32 m_DummyBuffer;
 
 	static u8  s_NextEPSeq[];
 	static u8  s_uchFirstInNextEPSeq;
