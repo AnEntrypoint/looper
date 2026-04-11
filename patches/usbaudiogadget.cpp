@@ -51,7 +51,7 @@ const char *const CUSBAudioGadget::s_StringDescriptor[] =
 
 CUSBAudioGadget::CUSBAudioGadget (CInterruptSystem *pInterruptSystem,
 				  u16 usVendorID, u16 usProductID)
-:	CDWUSBGadget (pInterruptSystem, HighSpeed),
+:	CDWUSBGadget (pInterruptSystem, FullSpeed),
 	m_pEPOut (nullptr),
 	m_pEPIn (nullptr)
 {
