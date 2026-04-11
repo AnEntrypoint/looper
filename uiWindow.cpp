@@ -254,8 +254,8 @@ void uiWindow::updateFrame()
 {
 	usbMidiProcess(true);
 
-	logString_t *msg = pTheLooper->getNextLogString();
-	if (msg)
+	logString_t *msg;
+	while ((msg = pTheLooper->getNextLogString()) != nullptr)
 	{
 		CLogger::Get()->Write(msg->lname,LogNotice,*msg->string);
 		delete msg->string;

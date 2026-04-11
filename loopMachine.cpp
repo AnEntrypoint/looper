@@ -648,7 +648,7 @@ void loopMachine::update(void)
 			if (blocks != m_masterLoopBlocks)
 			{
 				m_masterLoopBlocks = blocks;
-				CLogger::Get()->Write("lmachine", LogNotice, "link quantum: bpm=%.1f masterLoopBlocks=%u", bpm, blocks);
+				LOOPER_LOG("link quantum: bpm=%.1f masterLoopBlocks=%u", bpm, blocks);
 			}
 		}
 	}
@@ -861,7 +861,7 @@ void loopMachine::updateState(void)
             u16 cmd = m_track_pending[i];
             m_track_pending[i] = LOOP_COMMAND_NONE;
             LOOPER_LOG("TRACK(%d) latching %s", i, getLoopCommandName(cmd));
-            CLogger::Get()->Write(log_name, LogNotice, "TRACK(%d) latching cmd=%d", i, cmd);
+            LOOPER_LOG("TRACK(%d) latching cmd=%d", i, cmd);
             pTrack->updateState(cmd);
         }
     }
