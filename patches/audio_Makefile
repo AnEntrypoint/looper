@@ -31,6 +31,8 @@ OBJS = \
 	input_teensy_quad.o \
 	input_usb.o \
 	mixer.o \
+	usbaudiogadget.o \
+	usbaudiogadgetendpoint.o \
 	output_otg.o \
 	output_teensy_quad.o \
 	output_i2s.o \
