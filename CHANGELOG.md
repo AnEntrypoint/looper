@@ -1,6 +1,9 @@
 
 ## [Unreleased]
 
+### Added
+- test: expand simulation coverage — split looper-sim.js into looper-sim.js (helpers+ClipSim), looper-machine.js (MachineSim), looper-run.js (runTests); add 30 new scenarios: sub-phrase (M/2), multi-phrase (2M), stop-quantize (willPlay=false→CS_RECORDED), deferred quantize (auto-fires at record_block>=target), per-track latch (recording starts exactly at phrase boundary); add 2 new source integrity checks for candidates[] in loopClipState.cpp and canonical modulo pattern in loopClipUpdate.cpp; total 48 scenarios, all pass
+
 ### Refactored
 - Remove dead code from loopMachine.cpp: duplicate LOOPER_LOG latch event, dead #if 0 block in LogUpdate, WITH_INT_VOLUMES=0 dead branches and applyGain function; strip all comments from loopMachine.cpp and loopTrack.cpp
 
