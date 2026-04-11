@@ -34,7 +34,7 @@
 - **`ClipState` enum** (9 mutually-exclusive values) replaces the former 7 `CLIP_STATE_*` bitmask defines. Impossible combinations (e.g. `RECORD_IN|PLAY_MAIN`) are no longer representable.
 - **`CS_RECORDING_TAIL` vs `CS_FINISHING`** encode whether the clip will auto-play after recording ends — eliminating the former `m_pendingPlay` boolean flag.
 - **`CS_LOOPING`** encodes the former `PLAY_MAIN|PLAY_END` bitmask combination. `update()` reads both the main block pointer and fade block pointer in this state.
-- **Phase alignment**: `_startPlaying()` hard-locks `m_play_block = (masterPhase - recordStartPhaseOffset + 2*numBlocks) % numBlocks`. `recordStartPhaseOffset` is set to `masterPhase` at recording start (always a phrase boundary due to pending latch). This guarantees `play_block=0` at every phrase boundary regardless of drift, since `numBlocks` is always a power-of-2 multiple or division of `masterLoopBlocks`.
+- **Phase alignment**: `_startPlaying()` hard-locks `m_play_block = ((masterPhase - recordStartPhaseOffset) % numBlocks + numBlocks) % numBlocks`. `recordStartPhaseOffset` is set to `masterPhase` at recording start (always a phrase boundary due to pending latch). This guarantees `play_block=0` at every phrase boundary regardless of drift, since `numBlocks` is always a power-of-2 multiple or division of `masterLoopBlocks`.
 - **`loopClip.cpp` is split into three files** at the 200-line limit: `loopClip.cpp` (init/transitions), `loopClipUpdate.cpp` (per-buffer audio processing), `loopClipState.cpp` (state name/quantize/updateState).
 
 ## WiFi and Ableton Link
