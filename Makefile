@@ -26,6 +26,10 @@ ifdef LOOPER_USB_AUDIO
 DEFINE += -DLOOPER_USB_AUDIO
 endif
 
+ifdef LOOPER_OTG_AUDIO
+DEFINE += -DLOOPER_OTG_AUDIO
+endif
+
 include $(CIRCLEHOME)/Rules.mk
 
 -include $(DEPS)
