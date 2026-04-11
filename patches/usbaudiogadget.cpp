@@ -85,6 +85,7 @@ void CUSBAudioGadget::RegisterOutHandler (TAudioOutHandler *pHandler)
 const void *CUSBAudioGadget::GetDescriptor (u16 wValue, u16 wIndex, size_t *pLength)
 {
 	assert (pLength);
+	CLogger::Get ()->Write (FromAudioGadget, LogNotice, "GetDescriptor type=%u idx=%u", wValue >> 8, wValue & 0xFF);
 	switch (wValue >> 8)
 	{
 	case DESCRIPTOR_DEVICE:
@@ -131,7 +132,7 @@ void CUSBAudioGadget::AddEndpoints (void)
 	descIn.bInterval        = 1;
 	m_pEPIn = new CUSBAudioGadgetEndpoint (&descIn, this);
 
-	CLogger::Get ()->Write (FromAudioGadget, LogNotice, "iso ep configured 48kHz stereo");
+	CLogger::Get ()->Write (FromAudioGadget, LogNotice, "iso ep configured 48kHz stereo - ready for enum");
 }
 
 void CUSBAudioGadget::CreateDevice (void)
