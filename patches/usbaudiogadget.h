@@ -71,7 +71,7 @@ private:
 		u8                                  ASInEPCSDesc[7];
 	} PACKED;
 
-	static const TUSBAudioGadgetDeviceDescriptor s_DeviceDescriptor;
+	static TUSBAudioGadgetDeviceDescriptor s_DeviceDescriptor;
 	static const TUSBAudioGadgetConfigurationDescriptor s_ConfigDescriptor;
 	static const char *const s_StringDescriptor[];
 };

@@ -9,7 +9,7 @@ static const char FromAudioGadget[] = "uac gadget";
 
 CUSBAudioGadget *CUSBAudioGadget::s_pThis = nullptr;
 
-const CUSBAudioGadget::TUSBAudioGadgetDeviceDescriptor CUSBAudioGadget::s_DeviceDescriptor =
+CUSBAudioGadget::TUSBAudioGadgetDeviceDescriptor CUSBAudioGadget::s_DeviceDescriptor =
 {
 	{ sizeof (TUSBDeviceDescriptor), DESCRIPTOR_DEVICE,
 	  0x0200, 0x00, 0x00, 0x00, 64, 0, 0, 0x0100, 1, 2, 0, 1 }
@@ -59,10 +59,8 @@ CUSBAudioGadget::CUSBAudioGadget (CInterruptSystem *pInterruptSystem,
 	m_pEPOut (nullptr),
 	m_pEPIn (nullptr)
 {
-	const_cast<TUSBAudioGadgetDeviceDescriptor &>(s_DeviceDescriptor)
-		.Device.idVendor  = usVendorID;
-	const_cast<TUSBAudioGadgetDeviceDescriptor &>(s_DeviceDescriptor)
-		.Device.idProduct = usProductID;
+	s_DeviceDescriptor.Device.idVendor  = usVendorID;
+	s_DeviceDescriptor.Device.idProduct = usProductID;
 	assert (!s_pThis);
 	s_pThis = this;
 }

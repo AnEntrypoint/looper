@@ -1,7 +1,7 @@
-## 2026-04-12 — OTG USB gadget enumeration debug
+## 2026-04-12 — OTG USB gadget enumeration fix
 
-- debug: GetDescriptor now logs device descriptor fields (bLength, bDeviceClass, idVendor, idProduct) to diagnose VID_0000&PID_0002 / DEVICE_DESCRIPTOR_FAILURE on Windows
-- debug: GetDescriptor also logs configuration descriptor total size
+- fix: s_DeviceDescriptor changed from static const to static (non-const) so VID/PID can be written at runtime without const_cast; const_cast into .rodata was silently ignored by MMU on rPi4, causing vid=0000/pid=0000 in device descriptor
+- debug: GetDescriptor logs device descriptor fields (len/cls/vid/pid) and config descriptor size
 
 ## 2026-04-11 — OTG+USB combined audio mode
 
