@@ -85,14 +85,21 @@ void CUSBAudioGadget::RegisterOutHandler (TAudioOutHandler *pHandler)
 const void *CUSBAudioGadget::GetDescriptor (u16 wValue, u16 wIndex, size_t *pLength)
 {
 	assert (pLength);
-	CLogger::Get ()->Write (FromAudioGadget, LogNotice, "GetDescriptor type=%u idx=%u", wValue >> 8, wValue & 0xFF);
 	switch (wValue >> 8)
 	{
 	case DESCRIPTOR_DEVICE:
-		*pLength = sizeof s_DeviceDescriptor;
-		return &s_DeviceDescriptor;
+		{
+			*pLength = sizeof s_DeviceDescriptor;
+			const TUSBDeviceDescriptor *d = &s_DeviceDescriptor.Device;
+			CLogger::Get ()->Write (FromAudioGadget, LogNotice,
+				"GetDescriptor DEV len=%u cls=%u vid=%04x pid=%04x",
+				d->bLength, d->bDeviceClass, d->idVendor, d->idProduct);
+			return &s_DeviceDescriptor;
+		}
 	case DESCRIPTOR_CONFIGURATION:
 		*pLength = sizeof s_ConfigDescriptor;
+		CLogger::Get ()->Write (FromAudioGadget, LogNotice,
+			"GetDescriptor CFG len=%u", (unsigned)*pLength);
 		return &s_ConfigDescriptor;
 	case DESCRIPTOR_STRING:
 		{

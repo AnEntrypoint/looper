@@ -1,3 +1,8 @@
+## 2026-04-12 — OTG USB gadget enumeration debug
+
+- debug: GetDescriptor now logs device descriptor fields (bLength, bDeviceClass, idVendor, idProduct) to diagnose VID_0000&PID_0002 / DEVICE_DESCRIPTOR_FAILURE on Windows
+- debug: GetDescriptor also logs configuration descriptor total size
+
 ## 2026-04-11 — OTG+USB combined audio mode
 
 - Fixed usbaudiogadgetendpoint: IN path now calls TAudioInHandler to fill samples before transmitting to host; OUT path unpacks DMA buffer and delivers to TAudioOutHandler. Previously both paths were inverted (IN sent silence always, OUT called handler with uninitialized data).
