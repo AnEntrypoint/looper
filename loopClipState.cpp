@@ -23,29 +23,19 @@ CString *getClipStateName(ClipState s)
 
 u32 loopClip::_calcQuantizeTarget()
 {
-    u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
-    if (masterLen == 0) return m_record_block;
+    u32 M = pTheLoopMachine->m_masterLoopBlocks;
+    if (M == 0) return m_record_block;
 
-    u32 best = masterLen;
-    u32 bestDist = (m_record_block > masterLen) ?
-        m_record_block - masterLen : masterLen - m_record_block;
-
-    for (u32 d = 2; d <= 8; d *= 2)
+    u32 candidates[] = { M/8, M/4, M/2, M, M*2, M*4, M*8 };
+    u32 best = M;
+    u32 bestDist = (m_record_block > M) ? m_record_block - M : M - m_record_block;
+    for (u32 i = 0; i < 7; i++)
     {
-        u32 c = masterLen / d;
-        if (c < CROSSFADE_BLOCKS * 2) break;
+        u32 c = candidates[i];
+        if (c < (u32)(CROSSFADE_BLOCKS * 2)) continue;
         u32 dist = (m_record_block > c) ? m_record_block - c : c - m_record_block;
         if (dist < bestDist) { best = c; bestDist = dist; }
     }
-
-    for (u32 m = 2; m <= 64; m *= 2)
-    {
-        u32 c = masterLen * m;
-        u32 dist = (m_record_block > c) ? m_record_block - c : c - m_record_block;
-        if (dist < bestDist) { best = c; bestDist = dist; }
-        if (c > m_record_block * 2) break;
-    }
-
     return best;
 }
 

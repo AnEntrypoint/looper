@@ -192,9 +192,17 @@ class MachineSim {
   _calcQuantizeTarget() {
     const M = this.masterLoopBlocks;
     if (M === 0) return this.clip.record_block;
-    let n = Math.floor((this.clip.record_block + Math.floor(M / 2)) / M);
-    if (n === 0) n = 1;
-    return n * M;
+    const CB2 = this.C.CROSSFADE_BLOCKS * 2;
+    const rb = this.clip.record_block;
+    const candidates = [M>>3, M>>2, M>>1, M, M*2, M*4, M*8];
+    let best = M;
+    let bestDist = rb > M ? rb - M : M - rb;
+    for (const c of candidates) {
+      if (c < CB2) continue;
+      const dist = rb > c ? rb - c : c - rb;
+      if (dist < bestDist) { best = c; bestDist = dist; }
+    }
+    return best;
   }
 
   _startRecording() {
@@ -335,11 +343,11 @@ function runTests() {
       for (let t = 0; t < 50; t++) { m.tick = t; m.update(); }
       m.pressPlay();
       for (let t = 50; t < M * 3; t++) { m.tick = t; m.update(); if (m.clip.state === CS.PLAYING) break; }
-      // Find next phrase boundary
-      while (m.masterPhase % M !== 0) { m.tick++; m.update(); }
-      const pb = (((m.masterPhase - m.clip.recordStartPhaseOffset) % m.clip.num_blocks) + m.clip.num_blocks * 2) % m.clip.num_blocks;
+      const nb = m.clip.num_blocks;
+      while ((m.masterPhase - m.clip.recordStartPhaseOffset) % nb !== 0) { m.tick++; m.update(); }
+      const pb = m.clip.play_block;
       const ok = pb === 0;
-      scenarios.push({ name: `${bpm}BPM short`, ok, pb, M, nb: m.clip.num_blocks });
+      scenarios.push({ name: `${bpm}BPM short`, ok, pb, M, nb });
     }
 
     // Test 2: overshoot recording (user presses play after boundary)
@@ -364,10 +372,11 @@ function runTests() {
       m.pressPlay();
       for (let t = 50; t < M * 3; t++) { m.tick = t; m.update(); if (m.clip.state === CS.PLAYING) break; }
       for (let t = 0; t < 1000 * m.clip.num_blocks; t++) { m.tick++; m.update(); }
-      while (m.masterPhase % M !== 0) { m.tick++; m.update(); }
-      const pb = (((m.masterPhase - m.clip.recordStartPhaseOffset) % m.clip.num_blocks) + m.clip.num_blocks * 2) % m.clip.num_blocks;
+      const nb = m.clip.num_blocks;
+      while ((m.masterPhase - m.clip.recordStartPhaseOffset) % nb !== 0) { m.tick++; m.update(); }
+      const pb = m.clip.play_block;
       const ok = pb === 0;
-      scenarios.push({ name: `${bpm}BPM drift-1000`, ok, pb, M, nb: m.clip.num_blocks });
+      scenarios.push({ name: `${bpm}BPM drift-1000`, ok, pb, M, nb });
     }
   }
 
