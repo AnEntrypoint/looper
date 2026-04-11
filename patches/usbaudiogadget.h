@@ -52,7 +52,7 @@ private:
 	{
 		TUSBConfigurationDescriptor         Config;
 		TUSBInterfaceDescriptor             AudioControl;
-		u8                                  ACHeader[9];
+		u8                                  ACHeader[10];
 		TUSBInterfaceDescriptor             StreamingOutAlt0;
 		TUSBInterfaceDescriptor             StreamingOutAlt1;
 		u8                                  ASOutHeader[7];
