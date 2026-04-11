@@ -59,6 +59,19 @@
 
 - **Simulation scenarios** in `test/looper-sim.js`: 48 total scenarios covering sub-phrase (M/2), multi-phrase (2M), stop-quantize, deferred quantize, per-track latch quantize, and edge cases. Validates phase alignment, block selection, and state transitions without hardware.
 
+## OTG gadget audio build caveats
+
+When patching Circle's `lib/usb/gadget/` to add `CUSBAudioGadget` for combined OTG+USB audio:
+
+- **Include path for patched headers**: Use `#include "dwusbgadgetendpoint.h"` (quotes, not angle brackets) when compiling from `lib/usb/gadget/`. Angle brackets resolve to the original Circle header even when a patched version exists in the same directory.
+- **DMA_BUFFER macro unavailable**: The cloned Circle version may not define `DMA_BUFFER` in `<circle/macros.h>` within the gadget subdirectory context. Replace `DMA_BUFFER(u32, m_DummyBuffer, 1)` with plain `u32 m_DummyBuffer` and use `&m_DummyBuffer` when assigning to `void*` pointer targets.
+- **dwusbgadgetendpoint API version**: Older Circle versions implement `FinishTransfer(void)` (no args), `OnControlMessage(void)` as virtual non-static member, and `HandleUSBReset(void)` as non-static member. Patched `.h` must declare these exactly — any signature mismatch causes "no declaration matches" linker errors.
+- **AudioInputUSB/AudioOutputUSB start() visibility**: These classes declare `start()` as `protected` in circle-prh. Patched headers must also declare it `protected`, but `audio.cpp::setup()` calls `input.start()` and `output.start()` directly — requires `start()` to be `public` in the patch headers.
+- **Audio Makefile object list**: `usbaudiogadget.o` and `usbaudiogadgetendpoint.o` must be explicitly added to `patches/audio_Makefile` OBJS list. Missing objects cause linker "undefined reference to CUSBAudioGadget" even though the `.cpp` files are copied to the patch directory.
+- **Looper Makefile define**: `LOOPER_OTG_AUDIO` must be added via `ifdef LOOPER_OTG_AUDIO / DEFINE += -DLOOPER_OTG_AUDIO / endif` in the main `Makefile`. Without this, the preprocessor flag is not passed even when `make LOOPER_OTG_AUDIO=1` is invoked.
+- **UAC1 AC Header descriptor size**: UAC1 Class-Specific AC Interface Header Descriptor with `bInCollection=2` is 10 bytes (8 fixed + 2 baInterfaceNr[] array). Array declaration must be `u8 ACHeader[10]`, not `[9]`. Using `[9]` causes "too many initializers" compile error.
+- **CI failure layer progression**: Each CI run reveals one new build layer: (1) include path → (2) header/cpp API mismatch → (3) missing OBJS in Makefile → (4) access control (visibility) → (5) descriptor size errors. Fix each layer and push a new commit. Expect 5-8 iterations to resolve the full stack.
+
 ## Planned architecture (not yet implemented)
 
 - **3-minute rolling recording buffer**: Audio input continuously fills a circular buffer. "Record" marks a start point, second press marks end and deep-copies the segment into a clip. Eliminates recording start/stop clicks.
