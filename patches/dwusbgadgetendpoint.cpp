@@ -6,7 +6,7 @@
 //
 // Patched: add TypeIsochronous support (DWHCI_DEV_EP_CTRL_EP_TYPE_ISOCH)
 //
-#include <circle/usb/gadget/dwusbgadgetendpoint.h>
+#include "dwusbgadgetendpoint.h"
 #include <circle/usb/gadget/dwusbgadget.h>
 #include <circle/usb/dwhciregister.h>
 #include <circle/logger.h>
