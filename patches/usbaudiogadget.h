@@ -16,7 +16,7 @@ class CUSBAudioGadget : public CDWUSBGadget
 public:
 	CUSBAudioGadget (CInterruptSystem *pInterruptSystem,
 			 u16 usVendorID  = 0x2E8A,
-			 u16 usProductID = 0x000B);
+			 u16 usProductID = 0x0010);
 	~CUSBAudioGadget (void);
 
 	static CUSBAudioGadget *Get (void) { return s_pThis; }
