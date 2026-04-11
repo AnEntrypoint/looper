@@ -155,6 +155,10 @@ void setup()
 	LOG("aLooper::audio.cpp setup() finished",0);
 }
 
+#define AUDIO_UPDATE_TICKS ((unsigned)(AUDIO_BLOCK_SAMPLES * 1000000u / AUDIO_SAMPLE_RATE))
+
+static unsigned s_lastAudioTick = 0;
+
 void loop()
 {
 	if (pTheLooper) {
@@ -165,5 +169,12 @@ void loop()
 			delete msg;
 		}
 	}
+#if USE_USB_AUDIO
+	unsigned now = CTimer::GetClockTicks();
+	if (now - s_lastAudioTick >= AUDIO_UPDATE_TICKS) {
+		s_lastAudioTick = now;
+		AudioSystem::startUpdate();
+	}
+#endif
 	if (pTheAPC) pTheAPC->update();
 }
