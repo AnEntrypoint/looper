@@ -157,5 +157,13 @@ void setup()
 
 void loop()
 {
+	if (pTheLooper) {
+		logString_t *msg;
+		while ((msg = pTheLooper->getNextLogString()) != nullptr) {
+			CLogger::Get()->Write(msg->lname, LogNotice, *msg->string);
+			delete msg->string;
+			delete msg;
+		}
+	}
 	if (pTheAPC) pTheAPC->update();
 }
