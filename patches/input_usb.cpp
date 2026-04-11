@@ -16,6 +16,23 @@ static s16 s_in_ring_right[IN_RING_SIZE];
 static volatile unsigned s_in_ring_wr = 0;
 static volatile unsigned s_in_ring_rd = 0;
 
+static s16 s_otg_ring_left [IN_RING_SIZE];
+static s16 s_otg_ring_right[IN_RING_SIZE];
+static volatile unsigned s_otg_ring_wr = 0;
+static volatile unsigned s_otg_ring_rd = 0;
+
+void AudioInputUSB_injectOTG (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
+{
+    unsigned wr = s_otg_ring_wr;
+    for (unsigned i = 0; i < nSamples; i++)
+    {
+        s_otg_ring_left [wr & (IN_RING_SIZE - 1)] = pLeft[i];
+        s_otg_ring_right[wr & (IN_RING_SIZE - 1)] = pRight[i];
+        wr++;
+    }
+    s_otg_ring_wr = wr;
+}
+
 AudioInputUSB::AudioInputUSB (void) : AudioStream (0, 2, 0)
 {
     memset (s_in_ring_left,  0, sizeof s_in_ring_left);
@@ -70,21 +87,27 @@ void AudioInputUSB::update (void)
     if (new_left && new_right)
     {
         unsigned rd = s_in_ring_rd;
+        unsigned otg_rd = s_otg_ring_rd;
         for (unsigned i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
         {
+            s32 l = 0, r = 0;
             if (rd != s_in_ring_wr)
             {
-                new_left->data[i]  = s_in_ring_left [rd & (IN_RING_SIZE - 1)];
-                new_right->data[i] = s_in_ring_right[rd & (IN_RING_SIZE - 1)];
+                l = s_in_ring_left [rd & (IN_RING_SIZE - 1)];
+                r = s_in_ring_right[rd & (IN_RING_SIZE - 1)];
                 rd++;
             }
-            else
+            if (otg_rd != s_otg_ring_wr)
             {
-                new_left->data[i]  = 0;
-                new_right->data[i] = 0;
+                l += s_otg_ring_left [otg_rd & (IN_RING_SIZE - 1)];
+                r += s_otg_ring_right[otg_rd & (IN_RING_SIZE - 1)];
+                otg_rd++;
             }
+            new_left->data[i]  = l > 32767 ? 32767 : (l < -32768 ? -32768 : (s16)l);
+            new_right->data[i] = r > 32767 ? 32767 : (r < -32768 ? -32768 : (s16)r);
         }
         s_in_ring_rd = rd;
+        s_otg_ring_rd = otg_rd;
     }
 
     transmit (new_left,  0);

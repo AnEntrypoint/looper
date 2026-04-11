@@ -54,6 +54,16 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/main.cpp circle/_prh/_apps/Looper/main.cpp
           cp circle/_prh/_apps/Looper/patches/p9chan.h circle/addon/wlan/p9chan.h
           cp circle/_prh/_apps/Looper/patches/p9chan.cpp circle/addon/wlan/p9chan.cpp
+          cp circle/_prh/_apps/Looper/patches/dwusbgadgetendpoint.h circle/lib/usb/gadget/dwusbgadgetendpoint.h
+          cp circle/_prh/_apps/Looper/patches/dwusbgadgetendpoint.cpp circle/lib/usb/gadget/dwusbgadgetendpoint.cpp
+          cp circle/_prh/_apps/Looper/patches/usbaudiogadget.h circle/_prh/audio/usbaudiogadget.h
+          cp circle/_prh/_apps/Looper/patches/usbaudiogadget.cpp circle/_prh/audio/usbaudiogadget.cpp
+          cp circle/_prh/_apps/Looper/patches/usbaudiogadgetendpoint.h circle/_prh/audio/usbaudiogadgetendpoint.h
+          cp circle/_prh/_apps/Looper/patches/usbaudiogadgetendpoint.cpp circle/_prh/audio/usbaudiogadgetendpoint.cpp
+          cp circle/_prh/_apps/Looper/patches/input_otg.h circle/_prh/audio/input_otg.h
+          cp circle/_prh/_apps/Looper/patches/input_otg.cpp circle/_prh/audio/input_otg.cpp
+          cp circle/_prh/_apps/Looper/patches/output_otg.h circle/_prh/audio/output_otg.h
+          cp circle/_prh/_apps/Looper/patches/output_otg.cpp circle/_prh/audio/output_otg.cpp
 
       - name: Build circle libraries
         run: |
@@ -89,10 +99,10 @@ jobs:
       - name: Build circle-prh libraries
         run: |
           make -C circle/_prh/utils RASPPI=4 AARCH=32
-          make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1
+          make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1
 
       - name: Build Looper
-        run: make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1
+        run: make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1
 
       - name: Collect boot files
         run: |

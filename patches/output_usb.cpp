@@ -11,6 +11,27 @@ static s16 s_ring_left [OUT_RING_SIZE];
 static s16 s_ring_right[OUT_RING_SIZE];
 static volatile unsigned s_ring_wr = 0;
 static volatile unsigned s_ring_rd = 0;
+static volatile unsigned s_ring_otg_rd = 0;
+
+void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
+{
+    unsigned rd = s_ring_otg_rd;
+    for (unsigned i = 0; i < nSamples; i++)
+    {
+        if (rd != s_ring_wr)
+        {
+            pLeft[i]  = s_ring_left [rd & (OUT_RING_SIZE - 1)];
+            pRight[i] = s_ring_right[rd & (OUT_RING_SIZE - 1)];
+            rd++;
+        }
+        else
+        {
+            pLeft[i]  = 0;
+            pRight[i] = 0;
+        }
+    }
+    s_ring_otg_rd = rd;
+}
 
 AudioOutputUSB::AudioOutputUSB (void) : AudioStream (2, 0, m_input_queue)
 {

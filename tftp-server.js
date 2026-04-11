@@ -176,11 +176,14 @@ dhcp.on('message',(msg,rinfo)=>{
 dhcp.on('error',err=>{if(err.code==='EACCES'){console.error('[DHCP] need admin: port 67');process.exit(1);}console.error('[DHCP]',err.message);});
 dhcp.bind(67,'0.0.0.0',()=>{dhcp.setBroadcast(true);console.log('[DHCP] listening :67 tftp='+SERVER_IP);});
 
+const OTG_PATTERNS=[['uac gadget','[OTG-AUDIO] gadget'],['iso ep','[OTG-AUDIO] iso-ep'],['alt=1','[OTG-AUDIO] streaming-start'],['alt=0','[OTG-AUDIO] streaming-stop']];
 const syslog=dgram.createSocket('udp4');
 syslog.on('message',(msg,rinfo)=>{
   const text=parseSyslog(msg.toString());
   if(!text||text.startsWith('icmp:'))return;
-  const line='['+new Date().toISOString().substring(11,23)+'] '+text+'\n';
+  const ts='['+new Date().toISOString().substring(11,23)+'] ';
+  for(const[pat,tag]of OTG_PATTERNS){if(text.toLowerCase().includes(pat)){process.stdout.write(ts+tag+': '+text+'\n');}}
+  const line=ts+text+'\n';
   process.stdout.write(line);fs.appendFileSync(LOG_FILE,line);
 });
 syslog.on('error',err=>{if(err.code==='EACCES'){console.error('[syslog] need admin: port 514');process.exit(1);}console.error('[syslog]',err.message);});

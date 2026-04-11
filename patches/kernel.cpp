@@ -45,7 +45,7 @@ CKernel::CKernel(void) :
 	m_Serial(&m_Interrupt, FALSE),
 	m_Screen(1920, 1080),
 	m_USBHCI(&m_Interrupt, &m_Timer, TRUE),
-	m_CDCGadget(&m_Interrupt, 0x2E8A, 0x000A),
+	m_AudioGadget(&m_Interrupt),
 	m_EMMC(&m_Interrupt, &m_Timer, &m_ActLED),
 	m_WLAN(WLAN_FIRMWARE_PATH),
 	m_Net(s_OwnIP, s_Mask, s_GW, s_DNS, "looper"),
@@ -76,14 +76,14 @@ boolean CKernel::Initialize(void)
 	m_Serial.Initialize(SERIAL_BAUD_RATE);
 	m_ActLED.Blink(1);
 
-	if (bOK) { boolean bCDC = m_CDCGadget.Initialize(); m_Logger.Write(log_name, LogNotice, "CDC gadget init: %s", bCDC ? "OK" : "FAILED"); }
+	if (bOK) { boolean bAudio = m_AudioGadget.Initialize(); m_Logger.Write(log_name, LogNotice, "uac gadget init: %s", bAudio ? "OK" : "FAILED"); }
 	m_ActLED.Blink(1);
 
 	if (bOK) bOK = m_USBHCI.Initialize();
 	m_ActLED.Blink(1);
 
 	m_Timer.MsDelay(500);
-	m_CDCGadget.UpdatePlugAndPlay();
+	m_AudioGadget.UpdatePlugAndPlay();
 	m_ActLED.Blink(1);
 
 	m_EMMC.Initialize();
@@ -167,7 +167,7 @@ TShutdownMode CKernel::Run(void)
 	while (TRUE)
 	{
 		bPlugAndPlayUpdated = m_USBHCI.UpdatePlugAndPlay();
-		m_CDCGadget.UpdatePlugAndPlay();
+		m_AudioGadget.UpdatePlugAndPlay();
 		m_Net.Process();
 		usbMidiProcess(bPlugAndPlayUpdated);
 		loop();

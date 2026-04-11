@@ -13,7 +13,7 @@
 #include <circle/logger.h>
 #include <circle/sched/scheduler.h>
 #include <circle/usb/usbhcidevice.h>
-#include <circle/usb/gadget/usbcdcgadget.h>
+#include "usbaudiogadget.h"
 #include <circle/net/netsubsystem.h>
 #include <circle/net/syslogdaemon.h>
 #include <circle/net/ipaddress.h>
@@ -58,7 +58,7 @@ private:
 	CLogger			m_Logger;
 	CScheduler		m_Scheduler;
 	CUSBHCIDevice		m_USBHCI;
-	CUSBCDCGadget		m_CDCGadget;
+	CUSBAudioGadget		m_AudioGadget;
 	CEMMCDevice		m_EMMC;
 	FATFS			m_FileSystem;
 	CBcm4343Device		m_WLAN;

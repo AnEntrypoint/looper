@@ -1,3 +1,13 @@
+## 2026-04-11 — OTG+USB combined audio mode
+
+- Fixed usbaudiogadgetendpoint: IN path now calls TAudioInHandler to fill samples before transmitting to host; OUT path unpacks DMA buffer and delivers to TAudioOutHandler. Previously both paths were inverted (IN sent silence always, OUT called handler with uninitialized data).
+- Corrected TAudioInHandler typedef to non-const (handler writes samples) and TAudioOutHandler to const (handler receives samples). Matching fixes in usbaudiogadget.h, output_otg.h, input_otg.h.
+- output_otg.cpp::tapHandler now fills provided pLeft/pRight buffers directly via AudioOutputUSB_tapOTG, completing the Pi→host audio tap path.
+- input_otg.cpp::injectHandler now receives const data and injects into AudioInputUSB ring via AudioInputUSB_injectOTG.
+- audio.cpp: removed #error mutual-exclusion guard. LOOPER_USB_AUDIO + LOOPER_OTG_AUDIO can now be defined simultaneously. USB audio drives the AudioSystem chain; OTG gadget runs as side-channel tap/inject via otgIn.start()/otgOut.start().
+- build.yml: audio and looper build steps now use LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 for combined mode.
+- Removed unused InRing fields from CUSBAudioGadgetEndpoint.
+
 ## 2026-04-11
 
 ### Added

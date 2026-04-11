@@ -26,10 +26,12 @@ OBJS = \
 	effect_freeverb.o \
 	effect_reverb.o \
 	input_i2s.o \
+	input_otg.o \
 	input_tdm.o \
 	input_teensy_quad.o \
 	input_usb.o \
 	mixer.o \
+	output_otg.o \
 	output_teensy_quad.o \
 	output_i2s.o \
 	output_tdm.o \
