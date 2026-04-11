@@ -6,58 +6,23 @@
 #define log_name "lmachine"
 
 #define WITH_VOLUMES       1
-#define WITH_INT_VOLUMES   0
 
-#if WITH_VOLUMES
-    #if WITH_INT_VOLUMES
-
-        #include <audio/utility/dspinst.h>
-
-        #define MULTI_UNITYGAIN 65536
-
-        static void applyGain(int16_t *data, int32_t mult)
-        {
-            // uint32_t tmp32 = *data; // read 2 samples from *data
-            int32_t val1 = signed_multiply_32x16b(mult, *data);
-            val1 = signed_saturate_rshift(val1, 16, 0);
-            *data = val1;
-        }
-    #endif
-#endif
-
-// The default input gain for the cs42448 of 0db
-// 0.723 = (128.0 / (128.0 + 1.0 + 48.0))
-// 91.84 =  0.723 * 127
-//
-// My volumes are 100 based to allow for gain
-// The output gain is limited to 1.0
-//
-// These values are emulated (owned) by the TeensyExpression pedal
-// as it assumes initial values for the rotaries .... and zero
-// for the loop volume pedal ...
 
 u16 control_default[LOOPER_NUM_CONTROLS] = {
-    94,     // codec input
-    63,     // thru
-    63,     // loop
-    63,     // mix
-    127};    // codec output defaults to 1.0
+    94,
+    63,
+    63,
+    63,
+    127};
 
-
-// 32 bit buffers for processing
 
 s32 loopMachine::m_input_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];
 s32 loopMachine::m_output_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];
 
 
-//-------------------------------------------
-// static externs
-//-------------------------------------------
-
-
 const char *getLoopCommandName(u16 cmd)
 {
-    if (cmd == LOOP_COMMAND_NONE)                 return "";                // function is disabled
+    if (cmd == LOOP_COMMAND_NONE)                 return "";
     if (cmd == LOOP_COMMAND_CLEAR_ALL)            return "CLEAR";
     if (cmd == LOOP_COMMAND_STOP_IMMEDIATE)       return "STOP!";
     if (cmd == LOOP_COMMAND_STOP)                 return "STOP";
@@ -80,10 +45,6 @@ const char *getLoopCommandName(u16 cmd)
 }
 
 
-//-------------------------------------------
-// publicLoopMachine
-//-------------------------------------------
-
 publicLoopMachine::publicLoopMachine() :
    AudioStream(LOOPER_NUM_CHANNELS,LOOPER_NUM_CHANNELS,inputQueueArray)
 {
@@ -92,7 +53,6 @@ publicLoopMachine::publicLoopMachine() :
 
 	if (!pCodec)
 		LOG_WARNING("No audio system codec!",0);
-    // assert(pCodec);
 
     m_pFirstLogString = 0;
     m_pLastLogString = 0;
@@ -119,24 +79,20 @@ publicLoopMachine::publicLoopMachine() :
 }
 
 
-
 publicLoopMachine::~publicLoopMachine()
 {
     pCodec = 0;
 }
 
 
-
-
 logString_t *publicLoopMachine::getNextLogString()
-    // hand out the head of the list
 {
-	DisableIRQs();	// in synchronize.h
+	DisableIRQs();
     logString_t *retval =  m_pFirstLogString;
     if (retval)
     {
         m_pFirstLogString = retval->next;
-        retval->next = 0;   // for safety
+        retval->next = 0;
     }
     if (!m_pFirstLogString)
         m_pLastLogString = 0;
@@ -147,10 +103,8 @@ logString_t *publicLoopMachine::getNextLogString()
 
 float publicLoopMachine::getMeter(u16 meter, u16 channel)
 {
-    // technically, interrupts should be turned off for this
-    // and possible volatile declared here or there.
     meter_t *pm = &m_meter[meter];
-	DisableIRQs();	// in synchronize.h
+	DisableIRQs();
     int min = - pm->min_sample[channel];
     int max = pm->max_sample[channel];
     pm->max_sample[channel] = 0;
@@ -174,9 +128,6 @@ u8 publicLoopMachine::getControlDefault(u16 control)
 
 void publicLoopMachine::setControl(u16 control, u8 value)
 {
-	// TE3 doesn't have a codec, but for sanity
-	// I plug the INPUT and OUTPUT gains into the
-	// m_control.values
 
     float scale = ((float)value)/127.00;
     if (control == LOOPER_CONTROL_INPUT_GAIN)
@@ -197,23 +148,12 @@ void publicLoopMachine::setControl(u16 control, u8 value)
     }
     else
     {
-        #if WITH_INT_VOLUMES
-            //if (n > 32767.0f) n = 32767.0f;
-            //else if (n < -32767.0f) n = -32767.0f;
-            m_control[control].multiplier = scale * 65536.0f;
-        #else
             scale = ((float)value)/63;
-        #endif
     }
     m_control[control].value = value;
     m_control[control].scale = scale;
 }
 
-
-
-//--------------------------------------------------
-// loopMachine
-//--------------------------------------------------
 
 loopMachine::loopMachine() : publicLoopMachine()
 {
@@ -232,7 +172,6 @@ loopMachine::loopMachine() : publicLoopMachine()
 }
 
 
-
 loopMachine::~loopMachine()
 {
     if (pTheLoopBuffer)
@@ -248,7 +187,6 @@ loopMachine::~loopMachine()
 
 
 void loopMachine::init()
-    // initializes base class members too
 {
     publicLoopMachine::init();
 
@@ -268,19 +206,11 @@ void loopMachine::init()
 }
 
 
-
-
 void loopMachine::LogUpdate(const char *lname, const char *format, ...)
 {
 	va_list vars;
 	va_start(vars, format);
 
-    #if 0
-        CString *msg;
-        msg.FormatV(format,vars);
-        va_end (vars);
-        CLogger::Get()->Write(lname,LogDebug,msg);
-    #else
 
         logString_t *pMem = new logString_t;
         pMem->next = 0;
@@ -296,33 +226,16 @@ void loopMachine::LogUpdate(const char *lname, const char *format, ...)
 
         m_pLastLogString = pMem;
 
-    #endif
 }
 
 
-
-//-------------------------------------------------
-// command processor
-//-------------------------------------------------
-// Note that the DUB button must be pressed BEFORE
-// the given TRACK button, AND that it is cleared
-// also on any accepting of a pending command
-
-
-// virtual
 void loopMachine::command(u16 command)
-    // it is important to use LOOPER_LOG instead of LOG here
-    // as this *may* be called from a serial interrupt, and
-    // you don't want to serial output in the middle of a
-    // serial input interrupt ... it causes "noise" in the
-    // bcm_pcm machine.
 {
     if (command == LOOP_COMMAND_NONE)
         return;
 
     LOOPER_LOG("loopMachine::command(%s)",getLoopCommandName(command));
 
-    // immediate commands ...
 
     if (command == LOOP_COMMAND_STOP_IMMEDIATE)
     {
@@ -365,7 +278,6 @@ void loopMachine::command(u16 command)
         m_dub_mode = !m_dub_mode;
     }
 
-	// recent addtions
 
     else if (command == LOOP_COMMAND_LOOP_IMMEDIATE)
     {
@@ -380,7 +292,7 @@ void loopMachine::command(u16 command)
 			if (m_tracks[m_cur_track_num]->getTrackState() & TRACK_STATE_PLAYING)
 			{
 				m_tracks[m_cur_track_num]->setMarkPoint();
-				m_mark_point_state = 1;		// not in effect yet
+				m_mark_point_state = 1;
 			}
 			else
 			{
@@ -401,7 +313,6 @@ void loopMachine::command(u16 command)
 			m_tracks[m_cur_track_num]->clearMarkPoint();
     }
 
-	// ERASE_TRACKS
 
     else if (command >= LOOP_COMMAND_ERASE_TRACK_BASE &&
              command < LOOP_COMMAND_ERASE_TRACK_BASE + LOOPER_NUM_TRACKS)
@@ -411,7 +322,6 @@ void loopMachine::command(u16 command)
         loopTrack *pTrack = getTrack(track_num);
         int num_running = pTrack->getNumRunningClips();
 
-        // if the track has running clips, this is essentially a stop immediate
 
         if (num_running)
         {
@@ -423,9 +333,6 @@ void loopMachine::command(u16 command)
             m_pending_command = 0;
         }
 
-		// otherwise, if the track is the selected track this has the
-		// effect cancelling any pending command and reverting to the
-		// current running track, if any
 
         else if (track_num == m_selected_track_num)
         {
@@ -453,7 +360,6 @@ void loopMachine::command(u16 command)
         }
     }
 
-    // STOP is a "pending" command
 
     else if (command == LOOP_COMMAND_STOP)
     {
@@ -461,8 +367,6 @@ void loopMachine::command(u16 command)
         m_pending_command = command;
     }
 
-    // RC-505 style per-track independent button: each press cycles the track state.
-    // No track selection — each track acts independently.
 
     else if (command >= LOOP_COMMAND_TRACK_BASE &&
              command < LOOP_COMMAND_TRACK_BASE + LOOPER_NUM_TRACKS)
@@ -493,7 +397,7 @@ void loopMachine::command(u16 command)
                 pTrack->updateState(next_cmd);
         }
 
-    }   // TRACK COMMAND
+    }
 
 
     else if (command >= LOOP_COMMAND_STOP_TRACK_BASE &&
@@ -560,14 +464,8 @@ void loopMachine::command(u16 command)
         getTrack(track_num)->doubleLength();
     }
 
-}   // loopMachine::command()
+}
 
-
-
-
-//----------------------------------------------
-// Update()
-//----------------------------------------------
 
 inline s16 simple_clip(s32 val32)
 {
@@ -579,31 +477,15 @@ inline s16 simple_clip(s32 val32)
 }
 
 
-// virtual
 void loopMachine::update(void)
 {
     m_cur_command = 0;
-        // the current command is a short-lived member variable,
-        // only valid for the duration of update.  It is "latched"
-        // from the pending command at "loopPoints".
 
-    //--------------------------------------------------------------
-    // receive the input audio blocks and create the output blocks
-    //--------------------------------------------------------------
-    // loop through the samples setting the InputMeter min max,
-    // applying the ThruControl, set the ThruMeter min and max,
-    // and put the result in the output block.
 
     #if WITH_VOLUMES
-        #if WITH_INT_VOLUMES
-            int32_t thru_mult = m_control[LOOPER_CONTROL_THRU_VOLUME].multiplier;
-            int32_t loop_mult = m_control[LOOPER_CONTROL_LOOP_VOLUME].multiplier;
-            int32_t mix_mult = m_control[LOOPER_CONTROL_MIX_VOLUME].multiplier;
-        #else
             float thru_level = m_control[LOOPER_CONTROL_THRU_VOLUME].scale;
             float loop_level = m_control[LOOPER_CONTROL_LOOP_VOLUME].scale;
             float mix_level =  m_control[LOOPER_CONTROL_MIX_VOLUME].scale;
-        #endif
     #endif
 
 	s32 *poi = m_input_buffer;
@@ -629,14 +511,14 @@ void loopMachine::update(void)
 						*in_min = val;
 			#endif
 
-			*poi++ = val;		// copy to 32 bit input buffer
+			*poi++ = val;
 
-		}	// for each sample
+		}
 
 		if (in)
 			AudioSystem::release(in);
 
-	}   // for each s32 channel
+	}
 
 	if (linkIsSynced())
 	{
@@ -664,7 +546,7 @@ void loopMachine::update(void)
 				pTrack->update(m_input_buffer,m_output_buffer);
 			}
 		}
-	}   // m_running
+	}
 
 	u32 outPeak = 0;
 	for (int i = 0; i < LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES; i++)
@@ -695,39 +577,24 @@ void loopMachine::update(void)
 			s32 ival32 = *iip++;
 			s32 oval32 = *iop++;
 
-			// apply Thru and Loop Control volume level
-			// note use of doubles for USE_32BIT_MIX
 
 			#if WITH_VOLUMES
-				#if WITH_INT_VOLUMES
-					applyGain(&ival,thru_mult);			// will not compile
-					applyGain(&oval,loop_mult);
-				#else
 					ival32 = ((double)ival32) * thru_level;
 					oval32 = ((double)oval32) * loop_level;
-				#endif
 			#endif
 
-			// add them to create the Mix value
-			// and apply it's volume if'defd
 
 			s32 mval32 = ival32 + oval32;
 
 			#if WITH_VOLUMES
-				#if WITH_INT_VOLUMES
-					applyGain(&mval,mix_mult);		// will not compile
-			   #else
 					mval32 = ((double)mval32) * mix_level;
-				#endif
 			#endif
 
-			// apply simple clipping
 
 			s16 ival = simple_clip(ival32);
 			s16 oval = simple_clip(oval32);
 			s16 mval = simple_clip(mval32);
 
-			// update the meters in 16 bit-land
 
 			#if WITH_METERS
 				if (ival > *thru_max)
@@ -744,29 +611,19 @@ void loopMachine::update(void)
 					*mix_min = mval;
 			#endif
 
-			// place the 16 bit sample in the output buffer
 
 			*op++ = mval;
 
-		}   // for each input sample
+		}
 
-		// transmit the output blocks
-		// and release all blocks
 
 		transmit(out[channel], channel);
 		AudioSystem::release(out[channel]);
 	}
 
     m_cur_command = 0;
-        // end of short lived command variable
 
-}   // loopMachine::update()
-
-
-
-//--------------------------------------------------------------------------------
-// updateState()
-//--------------------------------------------------------------------------------
+}
 
 
 void loopMachine::incDecRunning(int inc)
@@ -782,28 +639,16 @@ void loopMachine::incDecRunning(int inc)
 }
 
 
-
 void loopMachine::updateState(void)
 {
-    // handle STOP_IMMEDIATE
-    // bring everything to a screeching halt
 
-    //----------------------------------------
-    // updateState() COMMAND processor.
-    //----------------------------------------
-    // Determine if we are at a "loop point" or a point
-    // at which we should latch the pending command into
-    // the current command ...
 
 	loopTrack *pCurTrack = m_cur_track_num >= 0 ?  getTrack(m_cur_track_num) : 0;
 	loopClip  *pCurClip0 = pCurTrack ? pCurTrack->getClip(0) : 0;
 	ClipState cur_clip0_state = pCurClip0 ? pCurClip0->getClipState() : CS_IDLE;
 
 	loopTrack *pSelTrack = m_selected_track_num >=0 ? getTrack(m_selected_track_num) : 0;
-	// loopClip  *pSelClip0 = pSelTrack ? pSelTrack->getClip(0) : 0;
-	// u16 sel_clip0_state = pSelClip0 ? pSelClip0->getClipState() : 0;
 
-		// the current base clip, and it's state, if any
 	bool at_loop_point = (cur_clip0_state == CS_PLAYING || cur_clip0_state == CS_LOOPING) &&
 		(m_masterLoopBlocks > 0 ? (m_masterPhase % m_masterLoopBlocks == 0) : !pCurClip0->getPlayBlockNum());
 
@@ -835,9 +680,8 @@ void loopMachine::updateState(void)
             m_dub_mode = false;
         }
 
-    }   // if m_pending_command
+    }
 
-    // RC-505: process per-track pending commands independently
     for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
     {
         if (!m_track_pending[i]) continue;
@@ -861,9 +705,8 @@ void loopMachine::updateState(void)
             u16 cmd = m_track_pending[i];
             m_track_pending[i] = LOOP_COMMAND_NONE;
             LOOPER_LOG("TRACK(%d) latching %s", i, getLoopCommandName(cmd));
-            LOOPER_LOG("TRACK(%d) latching cmd=%d", i, cmd);
             pTrack->updateState(cmd);
         }
     }
 
-}   // loopMachine::updateState()
+}

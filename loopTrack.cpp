@@ -5,7 +5,6 @@
 #define log_name "ltrack"
 
 
-// static
 CString *getTrackStateName(u16 track_state)
 {
 	CString *msg = new CString();
@@ -27,10 +26,6 @@ CString *getTrackStateName(u16 track_state)
     return msg;
 }
 
-
-
-
-// virtual
 
 int loopTrack::getTrackState()
 {
@@ -88,15 +83,12 @@ loopTrack::~loopTrack()
 }
 
 
-
 void loopTrack::init()
 {
     publicTrack::init();
     for (int i=0; i<LOOPER_NUM_LAYERS; i++)
         m_clips[i]->init();
 }
-
-
 
 
 void loopTrack::clearMarkPoint()
@@ -110,12 +102,11 @@ void loopTrack::clearMarkPoint()
 void loopTrack::setMarkPoint()
 {
 	LOOPER_LOG("setMarkPoint()",0);
-	DisableIRQs();	// in synchronize.h
+	DisableIRQs();
 	for (int i=0; i<m_num_used_clips; i++)
 		m_clips[i]->setMarkPoint();
-	EnableIRQs();	// in synchronize.h
+	EnableIRQs();
 }
-
 
 
 void loopTrack::update(s32 *in, s32 *out)
@@ -137,7 +128,6 @@ void loopTrack::update(s32 *in, s32 *out)
 }
 
 
-
 void loopTrack::incDecNumUsedClips(int inc)
 {
     m_num_used_clips += inc;
@@ -155,7 +145,6 @@ void loopTrack::incDecRunning(int inc)
     pTheLoopMachine->incDecRunning(inc);
 
 }
-
 
 
 void loopTrack::stopImmediate()
@@ -219,9 +208,6 @@ void loopTrack::updateState(u16 cur_command)
         for (int i=0; i<m_num_used_clips; i++)
         {
             m_clips[i]->updateState(LOOP_COMMAND_PLAY);
-                // the command play on the recording clip
-                // *may* cause it to stop recording, and
-                // increment m_num_recorded_clips
         }
         if (m_num_recorded_clips < LOOPER_NUM_LAYERS)
         {
