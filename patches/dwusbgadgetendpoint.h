@@ -49,6 +49,7 @@ public:
 	virtual void OnActivate (void) = 0;
 	virtual void OnDeactivate (void) = 0;
 	virtual void OnTransferComplete (boolean bIn, size_t nLength) = 0;
+	virtual void OnControlMessage (void);
 	virtual void OnSuspend (void) {}
 
 	TDirection GetDirection (void) const { return m_Direction; }
@@ -61,12 +62,12 @@ protected:
 
 private:
 	void InitTransfer (void);
-	size_t FinishTransfer (boolean bIn);
+	size_t FinishTransfer (void);
 
 	void HandleOutInterrupt (void);
 	void HandleInInterrupt (void);
 
-	static void HandleUSBReset (CDWUSBGadgetEndpoint *pThis);
+	void HandleUSBReset (void);
 
 	friend class CDWUSBGadget;
 
