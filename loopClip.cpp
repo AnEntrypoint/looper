@@ -150,7 +150,7 @@ void loopClip::_startPlaying()
 {
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
     if (masterLen > 0 && m_num_blocks > 0)
-        m_play_block = (pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset + 2 * m_num_blocks) % m_num_blocks;
+        m_play_block = ((pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset) % m_num_blocks + m_num_blocks) % m_num_blocks;
     else
         m_play_block = 0;
     LOOPER_LOG("startPlaying: play_block=%u startPhase=%u masterPhase=%u numBlocks=%u", m_play_block, m_recordStartPhaseOffset, pTheLoopMachine->m_masterPhase, m_num_blocks);
