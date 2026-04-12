@@ -267,6 +267,7 @@ void CDWUSBGadgetEndpoint::Stall (boolean bIn)
 
 void CDWUSBGadgetEndpoint::OnControlMessage (void)
 {
+	LOGWARN ("EP%u base OnControlMessage called - vtable dispatch failed", m_nEP);
 	assert (0);
 }
 
@@ -285,8 +286,10 @@ void CDWUSBGadgetEndpoint::HandleOutInterrupt (void)
 		CDWHCIRegister OutEPIntAck (DWHCI_DEV_OUT_EP_INT (m_nEP));
 		OutEPIntAck.Set (DWHCI_DEV_OUT_EP_INT_SETUP_DONE);
 		OutEPIntAck.Write ();
+		LOGWARN ("EP0 SETUP_DONE: calling OnControlMessage");
 		InitTransfer ();
 		OnControlMessage ();
+		LOGWARN ("EP0 SETUP_DONE: OnControlMessage returned");
 		OutEPInt.And (~DWHCI_DEV_OUT_EP_INT_XFER_COMPLETE);
 	}
 	if (OutEPInt.Get () & DWHCI_DEV_OUT_EP_INT_XFER_COMPLETE)
