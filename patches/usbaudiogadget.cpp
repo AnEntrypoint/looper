@@ -82,6 +82,8 @@ void CUSBAudioGadget::RegisterOutHandler (TAudioOutHandler *pHandler)
 
 const void *CUSBAudioGadget::GetDescriptor (u16 wValue, u16 wIndex, size_t *pLength)
 {
+	CLogger::Get ()->Write (FromAudioGadget, LogNotice,
+		"GetDescriptor wValue=0x%04x wIndex=0x%04x", (unsigned)wValue, (unsigned)wIndex);
 	assert (pLength);
 	switch (wValue >> 8)
 	{
