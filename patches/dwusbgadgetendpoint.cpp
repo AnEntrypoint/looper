@@ -281,11 +281,8 @@ void CDWUSBGadgetEndpoint::HandleOutInterrupt (void)
 		CDWHCIRegister OutEPIntAck (DWHCI_DEV_OUT_EP_INT (m_nEP));
 		OutEPIntAck.Set (DWHCI_DEV_OUT_EP_INT_SETUP_DONE);
 		OutEPIntAck.Write ();
-		size_t nLength = FinishTransfer ();
-		if (nLength != sizeof (TSetupData))
-			LOGWARN ("EP0 SETUP: bad length %u", (unsigned) nLength);
-		else
-			OnControlMessage ();
+		InitTransfer ();
+		OnControlMessage ();
 		OutEPInt.And (~DWHCI_DEV_OUT_EP_INT_XFER_COMPLETE);
 	}
 	if (OutEPInt.Get () & DWHCI_DEV_OUT_EP_INT_XFER_COMPLETE)

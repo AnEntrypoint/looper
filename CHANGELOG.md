@@ -1,5 +1,6 @@
 ## 2026-04-12 — OTG USB gadget enumeration fix
 
+- fix: dwusbgadgetendpoint.cpp HandleOutInterrupt SETUP_DONE — skip FinishTransfer; after SETUP_DONE DWC re-arms EP0 OUT XFER_SIZ register for 3 back-to-back SETUP slots (3×40=120), making FinishTransfer see remaining=120 > programmed=8 and return 0; SETUP data is always exactly sizeof(TSetupData), just call InitTransfer+OnControlMessage directly
 - fix: dwusbgadgetendpoint.cpp OnUSBReset — remove assert(!(ACTIVE_EP)) for non-EP0 endpoints; on multi-RESET boot sequence each RESET calls OnUSBReset which sets ACTIVE_EP, causing subsequent RESET to assert; iso EP must tolerate being re-initialized while active
 
 ## 2026-04-12 — OTG USB gadget enumeration fix (continued)
