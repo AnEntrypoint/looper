@@ -1,6 +1,7 @@
 #include "output_usb.h"
 #include "usbaudiodevice.h"
 #include "AudioSystem.h"
+#include <circle/synchronize.h>
 #include <circle/util.h>
 
 audio_block_t *AudioOutputUSB::s_block_left  = 0;
@@ -77,6 +78,7 @@ void AudioOutputUSB::start (void)
 
 void AudioOutputUSB::outHandler (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
+    DataMemBarrier ();
     unsigned rd = s_ring_rd;
     for (unsigned i = 0; i < nSamples; i++)
     {
@@ -107,6 +109,7 @@ void AudioOutputUSB::update (void)
         s_ring_right[wr & (OUT_RING_SIZE - 1)] = new_right ? new_right->data[i] : 0;
         wr++;
     }
+    DataMemBarrier ();
     s_ring_wr = wr;
 
     if (new_left)  AudioSystem::release (new_left);

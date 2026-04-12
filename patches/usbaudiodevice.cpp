@@ -6,6 +6,7 @@
 #include <circle/timer.h>
 #include <circle/util.h>
 #include <circle/string.h>
+#include <circle/synchronize.h>
 #include <assert.h>
 
 static const char FromAudio[] = "uaudio";
@@ -20,15 +21,23 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_pEndpointOut (0),
     m_pInHandler   (0),
     m_pOutHandler  (0),
-    m_pInURB       (0),
-    m_pOutURB      (0),
     m_nPeakIn      (0),
     m_nLastMonitorTick (0)
 {
+    for (unsigned i = 0; i < USB_AUDIO_NUM_BUFS; i++)
+    {
+        m_pInURB[i]  = 0;
+        m_pOutURB[i] = 0;
+    }
 }
 
 CUSBAudioDevice::~CUSBAudioDevice (void)
 {
+    for (unsigned i = 0; i < USB_AUDIO_NUM_BUFS; i++)
+    {
+        delete m_pInURB[i];
+        delete m_pOutURB[i];
+    }
     delete m_pEndpointIn;
     delete m_pEndpointOut;
     if (s_pThis == this) s_pThis = 0;
@@ -38,8 +47,6 @@ CUSBAudioDevice::~CUSBAudioDevice (void)
 boolean CUSBAudioDevice::Configure (void)
 {
     CLogger::Get ()->Write (FromAudio, LogNotice, "Configure() called");
-    // PCM2902/UCA222: try alt-settings 1..4 to find isochronous endpoints.
-    // Alt-setting 0 is zero-bandwidth (no endpoints) per USB Audio Class 1.0 spec.
     boolean bSelected = FALSE;
     for (unsigned nAlt = 1; nAlt <= 4 && !bSelected; nAlt++)
     {
@@ -61,9 +68,6 @@ boolean CUSBAudioDevice::Configure (void)
     {
         boolean bIsIn   = (pDesc->bEndpointAddress & 0x80) == 0x80;
         boolean bIsIso  = (pDesc->bmAttributes & 0x03) == 0x01;
-        CLogger::Get ()->Write (FromAudio, LogDebug,
-            "EP addr=0x%02X attr=0x%02X isIn=%d isIso=%d",
-            pDesc->bEndpointAddress, pDesc->bmAttributes, bIsIn, bIsIso);
         if (!bIsIso) continue;
 
         if (bIsIn && !m_pEndpointIn)
@@ -75,7 +79,7 @@ boolean CUSBAudioDevice::Configure (void)
     if (!m_pEndpointIn && !m_pEndpointOut)
     {
         CLogger::Get ()->Write (FromAudio, LogError,
-            "No isochronous endpoints found on UCA222 — giving up");
+            "No isochronous endpoints found");
         ConfigurationError (FromAudio);
         return FALSE;
     }
@@ -95,13 +99,15 @@ boolean CUSBAudioDevice::Configure (void)
     if (m_pEndpointOut && !s_pOut)
         s_pOut = this;
 
-    CLogger::Get ()->Write (FromAudio, LogNotice, "USB audio device configured (in=%s out=%s)",
+    CLogger::Get ()->Write (FromAudio, LogNotice, "USB audio configured (in=%s out=%s)",
         m_pEndpointIn ? "yes" : "no", m_pEndpointOut ? "yes" : "no");
 
     if (m_pEndpointIn)
-        StartInRequest ();
+        for (unsigned i = 0; i < USB_AUDIO_NUM_BUFS; i++)
+            StartInRequest (i);
     if (m_pEndpointOut)
-        StartOutRequest ();
+        for (unsigned i = 0; i < USB_AUDIO_NUM_BUFS; i++)
+            StartOutRequest (i);
 
     return TRUE;
 }
@@ -116,47 +122,48 @@ void CUSBAudioDevice::RegisterOutHandler (TAudioOutHandler *pHandler)
     m_pOutHandler = pHandler;
 }
 
-boolean CUSBAudioDevice::StartInRequest (void)
+boolean CUSBAudioDevice::StartInRequest (unsigned nBuf)
 {
     assert (m_pEndpointIn != 0);
-    assert (m_pInURB == 0);
+    assert (nBuf < USB_AUDIO_NUM_BUFS);
 
     u16 usPacketSize = (u16) m_pEndpointIn->GetMaxPacketSize ();
-    if (usPacketSize > sizeof m_InBuf) usPacketSize = sizeof m_InBuf;
+    if (usPacketSize > USB_AUDIO_BLOCK_BYTES) usPacketSize = USB_AUDIO_BLOCK_BYTES;
 
-    m_pInURB = new CUSBRequest (m_pEndpointIn, m_InBuf, usPacketSize);
-    assert (m_pInURB != 0);
-    m_pInURB->AddIsoPacket (usPacketSize);
-    m_pInURB->SetCompletionRoutine (InStub, 0, this);
-    return GetHost ()->SubmitAsyncRequest (m_pInURB);
+    delete m_pInURB[nBuf];
+    m_pInURB[nBuf] = new CUSBRequest (m_pEndpointIn, m_InBuf[nBuf], usPacketSize);
+    assert (m_pInURB[nBuf] != 0);
+    m_pInURB[nBuf]->AddIsoPacket (usPacketSize);
+    m_pInURB[nBuf]->SetCompletionRoutine (InStub, (void *)(uintptr_t)nBuf, this);
+    return GetHost ()->SubmitAsyncRequest (m_pInURB[nBuf]);
 }
 
-boolean CUSBAudioDevice::StartOutRequest (void)
+boolean CUSBAudioDevice::StartOutRequest (unsigned nBuf)
 {
     assert (m_pEndpointOut != 0);
-    assert (m_pOutURB == 0);
+    assert (nBuf < USB_AUDIO_NUM_BUFS);
 
     u16 usPacketSize = (u16) m_pEndpointOut->GetMaxPacketSize ();
-    if (usPacketSize > sizeof m_OutBuf) usPacketSize = sizeof m_OutBuf;
+    if (usPacketSize > USB_AUDIO_BLOCK_BYTES) usPacketSize = USB_AUDIO_BLOCK_BYTES;
 
-    m_pOutURB = new CUSBRequest (m_pEndpointOut, m_OutBuf, usPacketSize);
-    assert (m_pOutURB != 0);
-    m_pOutURB->AddIsoPacket (usPacketSize);
-    m_pOutURB->SetCompletionRoutine (OutStub, 0, this);
-    return GetHost ()->SubmitAsyncRequest (m_pOutURB);
+    delete m_pOutURB[nBuf];
+    m_pOutURB[nBuf] = new CUSBRequest (m_pEndpointOut, m_OutBuf[nBuf], usPacketSize);
+    assert (m_pOutURB[nBuf] != 0);
+    m_pOutURB[nBuf]->AddIsoPacket (usPacketSize);
+    m_pOutURB[nBuf]->SetCompletionRoutine (OutStub, (void *)(uintptr_t)nBuf, this);
+    return GetHost ()->SubmitAsyncRequest (m_pOutURB[nBuf]);
 }
 
-void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
+void CUSBAudioDevice::InCompletion (CUSBRequest *pURB, unsigned nBuf)
 {
     assert (pURB != 0);
-    assert (pURB == m_pInURB);
-
+    assert (nBuf < USB_AUDIO_NUM_BUFS);
 
     if (pURB->GetStatus () && pURB->GetResultLength () >= 4 && m_pInHandler != 0)
     {
         unsigned nSamples = pURB->GetResultLength () / 4;
         if (nSamples > USB_AUDIO_BLOCK_BYTES / 4) nSamples = USB_AUDIO_BLOCK_BYTES / 4;
-        const s16 *pBuf = (const s16 *) m_InBuf;
+        const s16 *pBuf = (const s16 *) m_InBuf[nBuf];
         s16 left_buf[USB_AUDIO_BLOCK_BYTES / 4], right_buf[USB_AUDIO_BLOCK_BYTES / 4];
         for (unsigned i = 0; i < nSamples; i++)
         {
@@ -170,27 +177,22 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         (*m_pInHandler) (left_buf, right_buf, nSamples);
     }
 
-    delete m_pInURB;
-    m_pInURB = 0;
-    StartInRequest ();
+    StartInRequest (nBuf);
 }
 
-void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
+void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB, unsigned nBuf)
 {
     assert (pURB != 0);
-    assert (pURB == m_pOutURB);
-
-    delete m_pOutURB;
-    m_pOutURB = 0;
+    assert (nBuf < USB_AUDIO_NUM_BUFS);
 
     u16 usPacketSize = (u16) m_pEndpointOut->GetMaxPacketSize ();
-    if (usPacketSize > sizeof m_OutBuf) usPacketSize = sizeof m_OutBuf;
+    if (usPacketSize > USB_AUDIO_BLOCK_BYTES) usPacketSize = USB_AUDIO_BLOCK_BYTES;
     unsigned nSamples = usPacketSize / 4;
     if (m_pOutHandler)
     {
         s16 left_buf[USB_AUDIO_BLOCK_BYTES / 4], right_buf[USB_AUDIO_BLOCK_BYTES / 4];
         (*m_pOutHandler) (left_buf, right_buf, nSamples);
-        s16 *pBuf = (s16 *) m_OutBuf;
+        s16 *pBuf = (s16 *) m_OutBuf[nBuf];
         for (unsigned i = 0; i < nSamples; i++)
         {
             pBuf[i*2]   = left_buf[i];
@@ -199,21 +201,21 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
     }
     else
     {
-        memset (m_OutBuf, 0, usPacketSize);
+        memset (m_OutBuf[nBuf], 0, usPacketSize);
     }
-    StartOutRequest ();
+    StartOutRequest (nBuf);
 }
 
 void CUSBAudioDevice::InStub (CUSBRequest *pURB, void *pParam, void *pContext)
 {
     CUSBAudioDevice *pThis = (CUSBAudioDevice *) pContext;
     assert (pThis != 0);
-    pThis->InCompletion (pURB);
+    pThis->InCompletion (pURB, (unsigned)(uintptr_t) pParam);
 }
 
 void CUSBAudioDevice::OutStub (CUSBRequest *pURB, void *pParam, void *pContext)
 {
     CUSBAudioDevice *pThis = (CUSBAudioDevice *) pContext;
     assert (pThis != 0);
-    pThis->OutCompletion (pURB);
+    pThis->OutCompletion (pURB, (unsigned)(uintptr_t) pParam);
 }

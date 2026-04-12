@@ -7,7 +7,7 @@
 #include <circle/types.h>
 
 #define USB_AUDIO_BLOCK_BYTES   256
-#define USB_AUDIO_NUM_BUFS      4
+#define USB_AUDIO_NUM_BUFS      2
 
 typedef void TAudioInHandler  (const s16 *pLeft, const s16 *pRight, unsigned nSamples);
 typedef void TAudioOutHandler (s16 *pLeft, s16 *pRight, unsigned nSamples);
@@ -27,11 +27,11 @@ public:
     static CUSBAudioDevice *GetOut (void) { return s_pOut; }
 
 private:
-    boolean StartInRequest  (void);
-    boolean StartOutRequest (void);
+    boolean StartInRequest  (unsigned nBuf);
+    boolean StartOutRequest (unsigned nBuf);
 
-    void InCompletion  (CUSBRequest *pURB);
-    void OutCompletion (CUSBRequest *pURB);
+    void InCompletion  (CUSBRequest *pURB, unsigned nBuf);
+    void OutCompletion (CUSBRequest *pURB, unsigned nBuf);
 
     static void InStub  (CUSBRequest *pURB, void *pParam, void *pContext);
     static void OutStub (CUSBRequest *pURB, void *pParam, void *pContext);
@@ -42,11 +42,11 @@ private:
     TAudioInHandler  *m_pInHandler;
     TAudioOutHandler *m_pOutHandler;
 
-    CUSBRequest *m_pInURB;
-    CUSBRequest *m_pOutURB;
+    CUSBRequest *m_pInURB[USB_AUDIO_NUM_BUFS];
+    CUSBRequest *m_pOutURB[USB_AUDIO_NUM_BUFS];
 
-    u8 m_InBuf [USB_AUDIO_BLOCK_BYTES];
-    u8 m_OutBuf[USB_AUDIO_BLOCK_BYTES];
+    u8 m_InBuf [USB_AUDIO_NUM_BUFS][USB_AUDIO_BLOCK_BYTES];
+    u8 m_OutBuf[USB_AUDIO_NUM_BUFS][USB_AUDIO_BLOCK_BYTES];
 
     u32 m_nPeakIn;
     u32 m_nLastMonitorTick;

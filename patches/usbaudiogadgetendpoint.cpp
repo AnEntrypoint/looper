@@ -14,12 +14,33 @@ CUSBAudioGadgetEndpoint::CUSBAudioGadgetEndpoint (const TUSBEndpointDescriptor *
 {
 	memset (m_OutRingLeft,  0, sizeof m_OutRingLeft);
 	memset (m_OutRingRight, 0, sizeof m_OutRingRight);
-	memset (m_InBuf,  0, sizeof m_InBuf);
-	memset (m_OutBuf, 0, sizeof m_OutBuf);
+	memset (m_InBuf,     0, sizeof m_InBuf);
+	memset (m_InBufNext, 0, sizeof m_InBufNext);
+	memset (m_OutBuf,    0, sizeof m_OutBuf);
 }
 
 CUSBAudioGadgetEndpoint::~CUSBAudioGadgetEndpoint (void)
 {
+}
+
+static void fillInBuffer (u8 *pBuf, TAudioInHandler *pHandler)
+{
+	unsigned nSamples = AUDIO_GADGET_PKT_SIZE / 4;
+	s16 left[AUDIO_GADGET_PKT_SIZE / 4];
+	s16 right[AUDIO_GADGET_PKT_SIZE / 4];
+	if (pHandler)
+		(*pHandler) (left, right, nSamples);
+	else
+	{
+		memset (left,  0, nSamples * sizeof (s16));
+		memset (right, 0, nSamples * sizeof (s16));
+	}
+	s16 *p = (s16 *) pBuf;
+	for (unsigned i = 0; i < nSamples; i++)
+	{
+		p[i * 2]     = left[i];
+		p[i * 2 + 1] = right[i];
+	}
 }
 
 void CUSBAudioGadgetEndpoint::OnActivate (void)
@@ -28,7 +49,8 @@ void CUSBAudioGadgetEndpoint::OnActivate (void)
 		BeginTransfer (TransferDataOut, m_OutBuf, AUDIO_GADGET_PKT_SIZE);
 	else
 	{
-		memset (m_InBuf, 0, AUDIO_GADGET_PKT_SIZE);
+		fillInBuffer (m_InBuf, m_pInHandler);
+		fillInBuffer (m_InBufNext, m_pInHandler);
 		BeginTransfer (TransferDataIn, m_InBuf, AUDIO_GADGET_PKT_SIZE);
 	}
 }
@@ -47,23 +69,9 @@ void CUSBAudioGadgetEndpoint::OnTransferComplete (boolean bIn, size_t nLength)
 {
 	if (bIn)
 	{
-		unsigned nSamples = AUDIO_GADGET_PKT_SIZE / 4;
-		s16 left[AUDIO_GADGET_PKT_SIZE / 4];
-		s16 right[AUDIO_GADGET_PKT_SIZE / 4];
-		if (m_pInHandler)
-			(*m_pInHandler) (left, right, nSamples);
-		else
-		{
-			memset (left,  0, nSamples * sizeof (s16));
-			memset (right, 0, nSamples * sizeof (s16));
-		}
-		s16 *p = (s16 *) m_InBuf;
-		for (unsigned i = 0; i < nSamples; i++)
-		{
-			p[i * 2]     = left[i];
-			p[i * 2 + 1] = right[i];
-		}
+		memcpy (m_InBuf, m_InBufNext, AUDIO_GADGET_PKT_SIZE);
 		BeginTransfer (TransferDataIn, m_InBuf, AUDIO_GADGET_PKT_SIZE);
+		fillInBuffer (m_InBufNext, m_pInHandler);
 	}
 	else
 	{

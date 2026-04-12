@@ -3,6 +3,7 @@
 #include "usbaudiodevice.h"
 #include "AudioSystem.h"
 #include <circle/logger.h>
+#include <circle/synchronize.h>
 #include <circle/util.h>
 
 audio_block_t *AudioInputUSB::s_block_left  = 0;
@@ -64,6 +65,7 @@ void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSa
         if (absR > peak) peak = absR;
         wr++;
     }
+    DataMemBarrier ();
     s_in_ring_wr = wr;
     if (peak > s_peakLevel) s_peakLevel = peak;
 
@@ -88,6 +90,7 @@ void AudioInputUSB::update (void)
 
     if (new_left && new_right)
     {
+        DataMemBarrier ();
         unsigned rd = s_in_ring_rd;
         unsigned otg_rd = s_otg_ring_rd;
         for (unsigned i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
