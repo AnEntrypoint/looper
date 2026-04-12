@@ -17,6 +17,11 @@ static volatile unsigned s_ring_wr = 0;
 static volatile unsigned s_ring_rd = 0;
 static volatile unsigned s_ring_otg_rd = (unsigned)(0 - OTG_TARGET_LAG);
 
+static volatile unsigned s_otg_sample_count = 0;
+static volatile unsigned s_usb_in_wr_prev = 0;
+
+extern volatile unsigned AudioInputUSB_inRingWr (void);
+
 void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
     unsigned rd = s_ring_otg_rd;
@@ -40,6 +45,19 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
         }
     }
     s_ring_otg_rd = rd;
+
+    unsigned usb_wr = AudioInputUSB_inRingWr ();
+    bool usb_alive = (usb_wr != s_usb_in_wr_prev);
+    s_usb_in_wr_prev = usb_wr;
+
+    if (!usb_alive)
+    {
+        unsigned prev = s_otg_sample_count;
+        unsigned next = prev + nSamples;
+        s_otg_sample_count = next;
+        if ((prev / AUDIO_BLOCK_SAMPLES) != (next / AUDIO_BLOCK_SAMPLES))
+            AudioSystem::startUpdate ();
+    }
 }
 
 AudioOutputUSB::AudioOutputUSB (void) : AudioStream (2, 0, m_input_queue)

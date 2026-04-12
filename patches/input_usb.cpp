@@ -21,6 +21,8 @@ static s16 s_otg_ring_right[IN_RING_SIZE];
 static volatile unsigned s_otg_ring_wr = 0;
 static volatile unsigned s_otg_ring_rd = 0;
 
+volatile unsigned AudioInputUSB_inRingWr (void) { return s_in_ring_wr; }
+
 void AudioInputUSB_injectOTG (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
 {
     unsigned wr = s_otg_ring_wr;
