@@ -664,7 +664,9 @@ void CDWUSBGadget::HandleEnumerationDone (void)
 		USBConfig.Write ();
 
 		assert (m_pEP[0]);
+		LOGWARN ("ENUM_DONE: calling OnActivate");
 		m_pEP[0]->OnActivate ();
+		LOGWARN ("ENUM_DONE: OnActivate done");
 
 		m_State = StateEnumDone;
 	}
@@ -701,17 +703,17 @@ void CDWUSBGadget::HandleInEPInterrupt (void)
 
 void CDWUSBGadget::HandleOutEPInterrupt (void)
 {
-#ifdef USB_GADGET_DEBUG
-	LOGDBG ("Out EP interrupt");
-#endif
-
 	assert (   m_State == StateSuspended
 		|| m_State == StateEnumDone
 		|| m_State == StateConfigured);
 
 	CDWHCIRegister AllEPsIntStat (DWHCI_DEV_ALL_EPS_INT_STAT);
 	CDWHCIRegister AllEPsIntMask (DWHCI_DEV_ALL_EPS_INT_MASK);
-	u32 nOutEPStat = (AllEPsIntStat.Read () & AllEPsIntMask.Read ()) >> 16;
+	u32 nRawStat = AllEPsIntStat.Read ();
+	u32 nRawMask = AllEPsIntMask.Read ();
+	u32 nOutEPStat = (nRawStat & nRawMask) >> 16;
+	if (nOutEPStat & 1)
+		LOGWARN ("OutEPIRQ EP0 stat=0x%x mask=0x%x state=%u", nRawStat, nRawMask, (unsigned)m_State);
 
 	for (unsigned nEP = 0; nOutEPStat; nOutEPStat >>= 1, nEP++)
 	{

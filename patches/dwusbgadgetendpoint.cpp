@@ -135,6 +135,8 @@ void CDWUSBGadgetEndpoint::OnUSBReset (void)
 
 void CDWUSBGadgetEndpoint::BeginTransfer (TTransferMode Mode, void *pBuffer, size_t nLength)
 {
+	if (!m_nEP)
+		LOGWARN ("EP0 BeginTransfer mode=%u buf=%p len=%u", (unsigned)Mode, pBuffer, (unsigned)nLength);
 	assert (Mode < TransferUnknown);
 	assert (m_TransferMode == TransferUnknown);
 	m_TransferMode = Mode;
@@ -274,6 +276,8 @@ void CDWUSBGadgetEndpoint::HandleOutInterrupt (void)
 	CDWHCIRegister OutEPInt (DWHCI_DEV_OUT_EP_INT (m_nEP));
 	OutEPCommonIntMask.Read ();
 	OutEPInt.Read ();
+	if (!m_nEP)
+		LOGWARN ("EP0 OutInt raw=0x%x mask=0x%x", (unsigned)OutEPInt.Get (), (unsigned)OutEPCommonIntMask.Get ());
 	OutEPInt.And (OutEPCommonIntMask.Get ());
 	if (OutEPInt.Get () & DWHCI_DEV_OUT_EP_INT_SETUP_DONE)
 	{
