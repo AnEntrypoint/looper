@@ -4,6 +4,7 @@
 #include <circle/usb/usbfunction.h>
 #include <circle/usb/usbendpoint.h>
 #include <circle/usb/usbrequest.h>
+#include <circle/synchronize.h>
 #include <circle/types.h>
 
 #define USB_AUDIO_BLOCK_BYTES   256
@@ -44,8 +45,8 @@ private:
     CUSBRequest *m_pInURB;
     CUSBRequest *m_pOutURB;
 
-    u8 m_InBuf [USB_AUDIO_BLOCK_BYTES];
-    u8 m_OutBuf[USB_AUDIO_BLOCK_BYTES];
+    DMA_BUFFER (u8, m_InBuf,  USB_AUDIO_BLOCK_BYTES);
+    DMA_BUFFER (u8, m_OutBuf, USB_AUDIO_BLOCK_BYTES);
 
     u32 m_nPeakIn;
     u32 m_nLastMonitorTick;
