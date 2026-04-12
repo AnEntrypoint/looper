@@ -24,28 +24,20 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
     unsigned lag = (wr - rd) & OUT_RING_MASK;
     if (lag < OTG_LAG_MIN || lag > OTG_LAG_MAX)
         rd = wr - OTG_TARGET_LAG;
-    static const s16 sine48[48] = {
-        0,4277,8481,12539,16383,19947,23169,25995,28377,30272,
-        31650,32487,32767,32487,31650,30272,28377,25995,23169,19947,
-        16383,12539,8481,4277,0,-4277,-8481,-12539,-16383,-19947,
-        -23169,-25995,-28377,-30272,-31650,-32487,-32767,-32487,-31650,-30272,
-        -28377,-25995,-23169,-19947,-16383,-12539,-8481,-4277
-    };
-    static unsigned s_phase = 0;
     for (unsigned i = 0; i < nSamples; i++)
     {
         lag = (wr - rd) & OUT_RING_MASK;
-        s16 l = 0, r = 0;
         if (lag > 0)
         {
-            l = s_ring_left [rd & OUT_RING_MASK];
-            r = s_ring_right[rd & OUT_RING_MASK];
+            pLeft[i]  = s_ring_left [rd & OUT_RING_MASK];
+            pRight[i] = s_ring_right[rd & OUT_RING_MASK];
             rd++;
         }
-        s16 tone = sine48[s_phase++ % 48] >> 2;
-        s32 ml = (s32)l + tone, mr = (s32)r + tone;
-        pLeft[i]  = ml > 32767 ? 32767 : (ml < -32768 ? -32768 : (s16)ml);
-        pRight[i] = mr > 32767 ? 32767 : (mr < -32768 ? -32768 : (s16)mr);
+        else
+        {
+            pLeft[i]  = 0;
+            pRight[i] = 0;
+        }
     }
     s_ring_otg_rd = rd;
 }
