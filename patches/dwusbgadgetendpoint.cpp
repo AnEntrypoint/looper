@@ -321,6 +321,8 @@ void CDWUSBGadgetEndpoint::HandleInInterrupt (void)
 	CDWHCIRegister InEPInt (DWHCI_DEV_IN_EP_INT (m_nEP));
 	InEPCommonIntMask.Read ();
 	InEPInt.Read ();
+	if (!m_nEP)
+		LOGWARN ("EP0 InInt raw=0x%x mask=0x%x", (unsigned)InEPInt.Get (), (unsigned)InEPCommonIntMask.Get ());
 	InEPInt.And (InEPCommonIntMask.Get ());
 	if (InEPInt.Get () & DWHCI_DEV_IN_EP_INT_XFER_COMPLETE)
 	{
