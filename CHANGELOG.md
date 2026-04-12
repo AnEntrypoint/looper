@@ -1,3 +1,8 @@
+## 2026-04-12 — Fix multicore: call CMultiCoreSupport::Initialize() to start secondary cores
+
+- fix: patches/kernel.cpp — add `m_CoreTask.Initialize()` call in `CKernel::Initialize()` after timer init, under ARM_ALLOW_MULTI_CORE guard; without this call, secondary cores never start, IPIHandler never registers, and SendIPI hangs core 0
+- fix: tftp-server.js — add serial-subfolder fallback in handleRRQ: if `tftproot/<serial>/<file>` not found, try `tftproot/<file>` (standard Pi netboot behavior)
+
 ## 2026-04-12 — Fix CORE_FOR_AUDIO_SYSTEM=0: include sysconfig.h in std_kernel_stub.h
 
 - fix: patches/std_kernel_stub.h — add `#include <circle/sysconfig.h>` before ARM_ALLOW_MULTI_CORE guard; sysconfig.h has ARM_ALLOW_MULTI_CORE defined (uncommented by sed patch in build.yml), so CORE_FOR_AUDIO_SYSTEM=1 now activates correctly when building AudioSystem.cpp; previously CORE_FOR_AUDIO_SYSTEM remained 0 because ARM_ALLOW_MULTI_CORE was only a make variable not a preprocessor define in the circle-prh build context

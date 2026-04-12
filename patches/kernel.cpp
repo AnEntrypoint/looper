@@ -72,6 +72,11 @@ boolean CKernel::Initialize(void)
 	if (bOK) bOK = m_Timer.Initialize();
 	m_ActLED.Blink(1);
 
+#ifdef ARM_ALLOW_MULTI_CORE
+	if (bOK) bOK = m_CoreTask.Initialize();
+	m_ActLED.Blink(1);
+#endif
+
 	if (m_Screen.Initialize())
 		m_Logger.Initialize(&m_Screen);
 	m_ActLED.Blink(1);

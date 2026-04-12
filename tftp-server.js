@@ -93,8 +93,9 @@ function buildOACK(opts){const p=[Buffer.from([0,OP_OACK])];for(const[k,v]of Obj
 
 function handleRRQ(filename,rinfo,options){
   const safe=path.normalize(filename).replace(/^(\.\.[/\\])+/,'');
-  const full=path.join(TFTPROOT,safe);
+  let full=path.join(TFTPROOT,safe);
   if(!full.startsWith(TFTPROOT))return;
+  if(!fs.existsSync(full)){const parts=safe.split(/[/\\]/);if(parts.length>1){const fallback=path.join(TFTPROOT,...parts.slice(1));if(fallback.startsWith(TFTPROOT)&&fs.existsSync(fallback)){full=fallback;console.log('[TFTP] fallback',safe,'->',parts.slice(1).join('/'));}}}
   const xfer=dgram.createSocket('udp4');
   xfer.bind(0,()=>{
     if(!fs.existsSync(full)){
