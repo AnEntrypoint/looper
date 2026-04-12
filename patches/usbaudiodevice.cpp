@@ -6,7 +6,6 @@
 #include <circle/timer.h>
 #include <circle/util.h>
 #include <circle/string.h>
-#include <circle/synchronize.h>
 #include <assert.h>
 
 static const char FromAudio[] = "uaudio";
@@ -21,23 +20,15 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_pEndpointOut (0),
     m_pInHandler   (0),
     m_pOutHandler  (0),
+    m_pInURB       (0),
+    m_pOutURB      (0),
     m_nPeakIn      (0),
     m_nLastMonitorTick (0)
 {
-    for (unsigned i = 0; i < USB_AUDIO_NUM_BUFS; i++)
-    {
-        m_pInURB[i]  = 0;
-        m_pOutURB[i] = 0;
-    }
 }
 
 CUSBAudioDevice::~CUSBAudioDevice (void)
 {
-    for (unsigned i = 0; i < USB_AUDIO_NUM_BUFS; i++)
-    {
-        delete m_pInURB[i];
-        delete m_pOutURB[i];
-    }
     delete m_pEndpointIn;
     delete m_pEndpointOut;
     if (s_pThis == this) s_pThis = 0;
@@ -103,11 +94,9 @@ boolean CUSBAudioDevice::Configure (void)
         m_pEndpointIn ? "yes" : "no", m_pEndpointOut ? "yes" : "no");
 
     if (m_pEndpointIn)
-        for (unsigned i = 0; i < USB_AUDIO_NUM_BUFS; i++)
-            StartInRequest (i);
+        StartInRequest ();
     if (m_pEndpointOut)
-        for (unsigned i = 0; i < USB_AUDIO_NUM_BUFS; i++)
-            StartOutRequest (i);
+        StartOutRequest ();
 
     return TRUE;
 }
@@ -122,48 +111,46 @@ void CUSBAudioDevice::RegisterOutHandler (TAudioOutHandler *pHandler)
     m_pOutHandler = pHandler;
 }
 
-boolean CUSBAudioDevice::StartInRequest (unsigned nBuf)
+boolean CUSBAudioDevice::StartInRequest (void)
 {
     assert (m_pEndpointIn != 0);
-    assert (nBuf < USB_AUDIO_NUM_BUFS);
+    assert (m_pInURB == 0);
 
     u16 usPacketSize = (u16) m_pEndpointIn->GetMaxPacketSize ();
-    if (usPacketSize > USB_AUDIO_BLOCK_BYTES) usPacketSize = USB_AUDIO_BLOCK_BYTES;
+    if (usPacketSize > sizeof m_InBuf) usPacketSize = sizeof m_InBuf;
 
-    delete m_pInURB[nBuf];
-    m_pInURB[nBuf] = new CUSBRequest (m_pEndpointIn, m_InBuf[nBuf], usPacketSize);
-    assert (m_pInURB[nBuf] != 0);
-    m_pInURB[nBuf]->AddIsoPacket (usPacketSize);
-    m_pInURB[nBuf]->SetCompletionRoutine (InStub, (void *)(unsigned long)nBuf, this);
-    return GetHost ()->SubmitAsyncRequest (m_pInURB[nBuf]);
+    m_pInURB = new CUSBRequest (m_pEndpointIn, m_InBuf, usPacketSize);
+    assert (m_pInURB != 0);
+    m_pInURB->AddIsoPacket (usPacketSize);
+    m_pInURB->SetCompletionRoutine (InStub, 0, this);
+    return GetHost ()->SubmitAsyncRequest (m_pInURB);
 }
 
-boolean CUSBAudioDevice::StartOutRequest (unsigned nBuf)
+boolean CUSBAudioDevice::StartOutRequest (void)
 {
     assert (m_pEndpointOut != 0);
-    assert (nBuf < USB_AUDIO_NUM_BUFS);
+    assert (m_pOutURB == 0);
 
     u16 usPacketSize = (u16) m_pEndpointOut->GetMaxPacketSize ();
-    if (usPacketSize > USB_AUDIO_BLOCK_BYTES) usPacketSize = USB_AUDIO_BLOCK_BYTES;
+    if (usPacketSize > sizeof m_OutBuf) usPacketSize = sizeof m_OutBuf;
 
-    delete m_pOutURB[nBuf];
-    m_pOutURB[nBuf] = new CUSBRequest (m_pEndpointOut, m_OutBuf[nBuf], usPacketSize);
-    assert (m_pOutURB[nBuf] != 0);
-    m_pOutURB[nBuf]->AddIsoPacket (usPacketSize);
-    m_pOutURB[nBuf]->SetCompletionRoutine (OutStub, (void *)(unsigned long)nBuf, this);
-    return GetHost ()->SubmitAsyncRequest (m_pOutURB[nBuf]);
+    m_pOutURB = new CUSBRequest (m_pEndpointOut, m_OutBuf, usPacketSize);
+    assert (m_pOutURB != 0);
+    m_pOutURB->AddIsoPacket (usPacketSize);
+    m_pOutURB->SetCompletionRoutine (OutStub, 0, this);
+    return GetHost ()->SubmitAsyncRequest (m_pOutURB);
 }
 
-void CUSBAudioDevice::InCompletion (CUSBRequest *pURB, unsigned nBuf)
+void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
 {
     assert (pURB != 0);
-    assert (nBuf < USB_AUDIO_NUM_BUFS);
+    assert (pURB == m_pInURB);
 
     if (pURB->GetStatus () && pURB->GetResultLength () >= 4 && m_pInHandler != 0)
     {
         unsigned nSamples = pURB->GetResultLength () / 4;
         if (nSamples > USB_AUDIO_BLOCK_BYTES / 4) nSamples = USB_AUDIO_BLOCK_BYTES / 4;
-        const s16 *pBuf = (const s16 *) m_InBuf[nBuf];
+        const s16 *pBuf = (const s16 *) m_InBuf;
         s16 left_buf[USB_AUDIO_BLOCK_BYTES / 4], right_buf[USB_AUDIO_BLOCK_BYTES / 4];
         for (unsigned i = 0; i < nSamples; i++)
         {
@@ -177,22 +164,27 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB, unsigned nBuf)
         (*m_pInHandler) (left_buf, right_buf, nSamples);
     }
 
-    StartInRequest (nBuf);
+    delete m_pInURB;
+    m_pInURB = 0;
+    StartInRequest ();
 }
 
-void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB, unsigned nBuf)
+void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
 {
     assert (pURB != 0);
-    assert (nBuf < USB_AUDIO_NUM_BUFS);
+    assert (pURB == m_pOutURB);
+
+    delete m_pOutURB;
+    m_pOutURB = 0;
 
     u16 usPacketSize = (u16) m_pEndpointOut->GetMaxPacketSize ();
-    if (usPacketSize > USB_AUDIO_BLOCK_BYTES) usPacketSize = USB_AUDIO_BLOCK_BYTES;
+    if (usPacketSize > sizeof m_OutBuf) usPacketSize = sizeof m_OutBuf;
     unsigned nSamples = usPacketSize / 4;
     if (m_pOutHandler)
     {
         s16 left_buf[USB_AUDIO_BLOCK_BYTES / 4], right_buf[USB_AUDIO_BLOCK_BYTES / 4];
         (*m_pOutHandler) (left_buf, right_buf, nSamples);
-        s16 *pBuf = (s16 *) m_OutBuf[nBuf];
+        s16 *pBuf = (s16 *) m_OutBuf;
         for (unsigned i = 0; i < nSamples; i++)
         {
             pBuf[i*2]   = left_buf[i];
@@ -201,21 +193,21 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB, unsigned nBuf)
     }
     else
     {
-        memset (m_OutBuf[nBuf], 0, usPacketSize);
+        memset (m_OutBuf, 0, usPacketSize);
     }
-    StartOutRequest (nBuf);
+    StartOutRequest ();
 }
 
 void CUSBAudioDevice::InStub (CUSBRequest *pURB, void *pParam, void *pContext)
 {
     CUSBAudioDevice *pThis = (CUSBAudioDevice *) pContext;
     assert (pThis != 0);
-    pThis->InCompletion (pURB, (unsigned)(unsigned long) pParam);
+    pThis->InCompletion (pURB);
 }
 
 void CUSBAudioDevice::OutStub (CUSBRequest *pURB, void *pParam, void *pContext)
 {
     CUSBAudioDevice *pThis = (CUSBAudioDevice *) pContext;
     assert (pThis != 0);
-    pThis->OutCompletion (pURB, (unsigned)(unsigned long) pParam);
+    pThis->OutCompletion (pURB);
 }
