@@ -51,6 +51,7 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/kernel.h circle/_prh/_apps/Looper/kernel.h
           cp circle/_prh/_apps/Looper/patches/kernel.cpp circle/_prh/_apps/Looper/kernel.cpp
           cp circle/_prh/_apps/Looper/patches/kernel_run.cpp circle/_prh/_apps/Looper/kernel_run.cpp
+          cp circle/_prh/_apps/Looper/patches/multicore.cpp circle/_prh/_apps/Looper/multicore.cpp
           cp circle/_prh/_apps/Looper/patches/main.cpp circle/_prh/_apps/Looper/main.cpp
           cp circle/_prh/_apps/Looper/patches/p9chan.h circle/addon/wlan/p9chan.h
           cp circle/_prh/_apps/Looper/patches/p9chan.cpp circle/addon/wlan/p9chan.cpp
@@ -70,16 +71,16 @@ jobs:
 
       - name: Build circle libraries
         run: |
-          make -C circle/lib RASPPI=4 AARCH=32
-          make -C circle/lib/fs RASPPI=4 AARCH=32
-          make -C circle/lib/input RASPPI=4 AARCH=32
-          make -C circle/lib/sched RASPPI=4 AARCH=32
-          make -C circle/lib/usb RASPPI=4 AARCH=32
-          make -C circle/lib/usb/gadget RASPPI=4 AARCH=32
-          make -C circle/lib/net RASPPI=4 AARCH=32
-          make -C circle/addon/fatfs RASPPI=4 AARCH=32
-          make -C circle/addon/SDCard RASPPI=4 AARCH=32
-          make -C circle/addon/wlan RASPPI=4 AARCH=32
+          make -C circle/lib RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/lib/fs RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/lib/input RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/lib/sched RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/lib/usb RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/lib/usb/gadget RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/lib/net RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/addon/fatfs RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/addon/SDCard RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/addon/wlan RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
 
       - name: Download WiFi firmware
         run: |
@@ -101,11 +102,11 @@ jobs:
 
       - name: Build circle-prh libraries
         run: |
-          make -C circle/_prh/utils RASPPI=4 AARCH=32
-          make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1
+          make -C circle/_prh/utils RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1
 
       - name: Build Looper
-        run: make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1
+        run: make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1
 
       - name: Collect boot files
         run: |

@@ -50,6 +50,9 @@ CKernel::CKernel(void) :
 	m_WLAN(WLAN_FIRMWARE_PATH),
 	m_Net(s_OwnIP, s_Mask, s_GW, s_DNS, "looper"),
 	m_pSysLog(nullptr)
+#ifdef ARM_ALLOW_MULTI_CORE
+	,m_CoreTask(this)
+#endif
 {
 	m_ActLED.On();
 	s_pActLED = &m_ActLED;

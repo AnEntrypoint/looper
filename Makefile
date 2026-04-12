@@ -1,7 +1,7 @@
 CIRCLEHOME = ../../..
 PRH_HOME = ../..
 
-OBJS = main.o kernel.o kernel_run.o audio.o app.o apcKey25.o usbMidi.o \
+OBJS = main.o kernel.o kernel_run.o multicore.o audio.o app.o apcKey25.o usbMidi.o \
        loopBuffer.o loopClip.o loopClipUpdate.o loopClipState.o loopTrack.o loopMachine.o dprobe.o \
        abletonLink.o wlanDHCP.o wlanDHCPServer.o wlan_firmware.o
 
@@ -28,6 +28,10 @@ endif
 
 ifdef LOOPER_OTG_AUDIO
 DEFINE += -DLOOPER_OTG_AUDIO
+endif
+
+ifdef ARM_ALLOW_MULTI_CORE
+DEFINE += -DARM_ALLOW_MULTI_CORE
 endif
 
 include $(CIRCLEHOME)/Rules.mk

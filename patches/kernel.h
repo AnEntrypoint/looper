@@ -21,6 +21,9 @@
 #include <fatfs/ff.h>
 #include <wlan/bcm4343.h>
 #include <circle/types.h>
+#ifdef ARM_ALLOW_MULTI_CORE
+#include <circle/multicore.h>
+#endif
 
 enum TShutdownMode
 {
@@ -34,6 +37,21 @@ enum TShutdownMode
 #define NET_GATEWAY		192, 168, 137, 1
 #define NET_DNS			192, 168, 137, 1
 #define NET_LOG_HOST		192, 168, 137, 1
+
+#ifdef ARM_ALLOW_MULTI_CORE
+class CKernel;
+class CCoreTask : public CMultiCoreSupport
+{
+public:
+	CCoreTask(CKernel *pKernel);
+	void Run(unsigned nCore);
+	void IPIHandler(unsigned nCore, unsigned nIPI);
+	static CCoreTask *Get() { return s_pThis; }
+	void SendIPI(unsigned nCore, unsigned nIPI) { CMultiCoreSupport::SendIPI(nCore, nIPI); }
+private:
+	static CCoreTask *s_pThis;
+};
+#endif
 
 class CKernel
 {
@@ -64,6 +82,9 @@ private:
 	CBcm4343Device		m_WLAN;
 	CNetSubSystem		m_Net;
 	CSysLogDaemon		*m_pSysLog;
+#ifdef ARM_ALLOW_MULTI_CORE
+	CCoreTask		m_CoreTask;
+#endif
 };
 
 #endif

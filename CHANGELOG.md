@@ -1,3 +1,14 @@
+## 2026-04-12 — Audio on dedicated core 1 via ARM_ALLOW_MULTI_CORE
+
+- feat: patches/multicore.cpp — CCoreTask extends CMultiCoreSupport; Run() halts non-audio cores; IPIHandler() on core 1 calls AudioSystem::doUpdate() on IPI_AUDIO_UPDATE=11
+- feat: patches/kernel.h — CCoreTask class declared under ARM_ALLOW_MULTI_CORE guard; CKernel gains m_CoreTask member; includes circle/multicore.h
+- feat: patches/kernel.cpp — m_CoreTask(this) added to CKernel constructor initializer list under ARM_ALLOW_MULTI_CORE guard
+- feat: patches/std_kernel_stub.h — ARM_ALLOW_MULTI_CORE sets CORE_FOR_AUDIO_SYSTEM=1, IPI_AUDIO_UPDATE=11, and forward-declares CCoreTask::Get()/SendIPI() for AudioSystem.cpp linkage
+- feat: Makefile — ARM_ALLOW_MULTI_CORE define added; multicore.o added to OBJS
+- feat: build.yml — ARM_ALLOW_MULTI_CORE=1 added to all make commands; multicore.cpp copied in patches step
+- refactor: loopMachine.cpp — removed update#N diagnostic counter (was causing LOOPER_LOG→syslog UDP on audio thread)
+- refactor: loopClipUpdate.cpp — removed record_block diagnostic log
+
 ## 2026-04-12 — Fix audio update loop dying after 5 iterations
 
 - fix: audio.cpp removed duplicate input.start()/output.start() calls after AudioSystem::initialize(); initialize() already calls start() on all AudioStream objects in the graph; the double-call set s_update_responsibility=false (takeUpdateResponsibility returned false on second call), causing inHandler to never call startUpdate() after the initial 5 completions
