@@ -222,7 +222,11 @@ void CDWUSBGadgetEndpoint::CancelTransfer (void)
 
 size_t CDWUSBGadgetEndpoint::FinishTransfer (void)
 {
-	assert (m_TransferMode < TransferUnknown);
+	if (m_TransferMode >= TransferUnknown)
+	{
+		LOGWARN ("EP%u FinishTransfer: spurious (mode=unknown)", m_nEP);
+		return 0;
+	}
 	CDWHCIRegister EPXferSize (  m_TransferMode == TransferDataIn
 				   ? DWHCI_DEV_IN_EP_XFER_SIZ (m_nEP)
 				   : DWHCI_DEV_OUT_EP_XFER_SIZ (m_nEP));
@@ -278,12 +282,11 @@ void CDWUSBGadgetEndpoint::HandleOutInterrupt (void)
 		CDWHCIRegister OutEPIntAck (DWHCI_DEV_OUT_EP_INT (m_nEP));
 		OutEPIntAck.Set (DWHCI_DEV_OUT_EP_INT_SETUP_DONE);
 		OutEPIntAck.Write ();
-#ifndef NDEBUG
-		size_t nLength =
-#endif
-			FinishTransfer ();
-		assert (nLength == sizeof (TSetupData));
-		OnControlMessage ();
+		size_t nLength = FinishTransfer ();
+		if (nLength != sizeof (TSetupData))
+			LOGWARN ("EP0 SETUP: bad length %u", (unsigned) nLength);
+		else
+			OnControlMessage ();
 		OutEPInt.And (~DWHCI_DEV_OUT_EP_INT_XFER_COMPLETE);
 	}
 	if (OutEPInt.Get () & DWHCI_DEV_OUT_EP_INT_XFER_COMPLETE)
@@ -316,7 +319,12 @@ void CDWUSBGadgetEndpoint::HandleInInterrupt (void)
 		OnTransferComplete (TRUE, nLength);
 	}
 	if (InEPInt.Get () & DWHCI_DEV_IN_EP_INT_TIMEOUT)
-		LOGPANIC ("Timeout (EP %u)", m_nEP);
+	{
+		if (m_Type == TypeIsochronous)
+			LOGWARN ("Timeout iso EP%u", m_nEP);
+		else
+			LOGPANIC ("Timeout (EP %u)", m_nEP);
+	}
 	if (InEPInt.Get () & DWHCI_DEV_IN_EP_INT_AHB_ERROR)
 		LOGPANIC ("AHB error");
 	if (InEPInt.Get () & DWHCI_DEV_IN_EP_INT_EP_DISABLED)
