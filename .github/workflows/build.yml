@@ -55,6 +55,7 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/p9chan.h circle/addon/wlan/p9chan.h
           cp circle/_prh/_apps/Looper/patches/p9chan.cpp circle/addon/wlan/p9chan.cpp
           cp circle/_prh/_apps/Looper/patches/dwusbgadgetendpoint.h circle/lib/usb/gadget/dwusbgadgetendpoint.h
+          cp circle/_prh/_apps/Looper/patches/dwusbgadgetendpoint.h circle/include/circle/usb/gadget/dwusbgadgetendpoint.h
           cp circle/_prh/_apps/Looper/patches/dwusbgadgetendpoint.cpp circle/lib/usb/gadget/dwusbgadgetendpoint.cpp
           cp circle/_prh/_apps/Looper/patches/dwusbgadgetendpoint0.cpp circle/lib/usb/gadget/dwusbgadgetendpoint0.cpp
           cp circle/_prh/_apps/Looper/patches/dwusbgadget.cpp circle/lib/usb/gadget/dwusbgadget.cpp
