@@ -88,10 +88,10 @@ const void *CUSBAudioGadget::GetDescriptor (u16 wValue, u16 wIndex, size_t *pLen
 	case DESCRIPTOR_DEVICE:
 		{
 			*pLength = sizeof s_DeviceDescriptor;
-			const TUSBDeviceDescriptor *d = &s_DeviceDescriptor.Device;
+			const u8 *b = (const u8 *) &s_DeviceDescriptor;
 			CLogger::Get ()->Write (FromAudioGadget, LogNotice,
-				"GetDescriptor DEV len=%u cls=%u vid=%04x pid=%04x",
-				d->bLength, d->bDeviceClass, d->idVendor, d->idProduct);
+				"DEV bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+				b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7],b[8],b[9],b[10],b[11]);
 			return &s_DeviceDescriptor;
 		}
 	case DESCRIPTOR_CONFIGURATION:
