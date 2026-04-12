@@ -57,7 +57,9 @@ CUSBAudioGadget::CUSBAudioGadget (CInterruptSystem *pInterruptSystem,
 				  u16 usVendorID, u16 usProductID)
 :	CDWUSBGadget (pInterruptSystem, FullSpeed),
 	m_pEPOut (nullptr),
-	m_pEPIn (nullptr)
+	m_pEPIn (nullptr),
+	m_pInHandler (nullptr),
+	m_pOutHandler (nullptr)
 {
 	s_DeviceDescriptor.Device.idVendor  = usVendorID;
 	s_DeviceDescriptor.Device.idProduct = usProductID;
@@ -72,11 +74,13 @@ CUSBAudioGadget::~CUSBAudioGadget (void)
 
 void CUSBAudioGadget::RegisterInHandler (TAudioInHandler *pHandler)
 {
+	m_pInHandler = pHandler;
 	if (m_pEPIn) m_pEPIn->RegisterInHandler (pHandler);
 }
 
 void CUSBAudioGadget::RegisterOutHandler (TAudioOutHandler *pHandler)
 {
+	m_pOutHandler = pHandler;
 	if (m_pEPOut) m_pEPOut->RegisterOutHandler (pHandler);
 }
 
@@ -157,8 +161,8 @@ void CUSBAudioGadget::AddEndpoints (void)
 void CUSBAudioGadget::CreateDevice (void)
 {
 	CLogger::Get ()->Write (FromAudioGadget, LogNotice, "alt=1 streaming started");
-	if (m_pEPOut) m_pEPOut->OnActivate ();
-	if (m_pEPIn)  m_pEPIn->OnActivate ();
+	if (m_pEPOut) { if (m_pOutHandler) m_pEPOut->RegisterOutHandler (m_pOutHandler); m_pEPOut->OnActivate (); }
+	if (m_pEPIn)  { if (m_pInHandler)  m_pEPIn->RegisterInHandler  (m_pInHandler);  m_pEPIn->OnActivate ();  }
 }
 
 void CUSBAudioGadget::OnSuspend (void)

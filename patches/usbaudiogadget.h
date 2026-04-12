@@ -38,6 +38,8 @@ private:
 
 	CUSBAudioGadgetEndpoint *m_pEPOut;
 	CUSBAudioGadgetEndpoint *m_pEPIn;
+	TAudioInHandler  *m_pInHandler;
+	TAudioOutHandler *m_pOutHandler;
 
 	u8 m_StringDescBuf[80];
 
