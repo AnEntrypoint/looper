@@ -479,6 +479,11 @@ inline s16 simple_clip(s32 val32)
 
 void loopMachine::update(void)
 {
+    static unsigned s_updateCount = 0;
+    if (s_updateCount < 5 || s_updateCount % 750 == 0)
+        LOOPER_LOG("update#%u", s_updateCount);
+    s_updateCount++;
+
     m_cur_command = 0;
 
 
