@@ -1,11 +1,7 @@
 #include "usbaudiogadget.h"
 #include "usbaudiogadgetendpoint.h"
-#include <circle/logger.h>
-#include <circle/string.h>
 #include <circle/util.h>
 #include <assert.h>
-
-static const char FromAudioGadget[] = "uac gadget";
 
 CUSBAudioGadget *CUSBAudioGadget::s_pThis = nullptr;
 
@@ -86,49 +82,28 @@ void CUSBAudioGadget::RegisterOutHandler (TAudioOutHandler *pHandler)
 
 const void *CUSBAudioGadget::GetDescriptor (u16 wValue, u16 wIndex, size_t *pLength)
 {
-	CLogger::Get ()->Write (FromAudioGadget, LogWarning,
-		"GetDescriptor wValue=0x%04x wIndex=0x%04x", (unsigned)wValue, (unsigned)wIndex);
 	assert (pLength);
 	switch (wValue >> 8)
 	{
 	case DESCRIPTOR_DEVICE:
-		{
-			*pLength = sizeof s_DeviceDescriptor;
-			static unsigned s_nDevCallCount = 0;
-			s_nDevCallCount++;
-			const u8 *b = (const u8 *) &s_DeviceDescriptor;
-			CLogger::Get ()->Write (FromAudioGadget, LogNotice,
-				"DEV#%u: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
-				s_nDevCallCount,
-				b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7],b[8],b[9],b[10],b[11],b[12],b[13],b[14],b[15],b[16],b[17]);
-			return &s_DeviceDescriptor;
-		}
+		*pLength = sizeof s_DeviceDescriptor;
+		return &s_DeviceDescriptor;
 	case DESCRIPTOR_CONFIGURATION:
 		*pLength = sizeof s_ConfigDescriptor;
-		CLogger::Get ()->Write (FromAudioGadget, LogNotice,
-			"GetDescriptor CFG len=%u", (unsigned)*pLength);
 		return &s_ConfigDescriptor;
 	case DESCRIPTOR_STRING:
 		{
 			unsigned nIndex = wValue & 0xFF;
 			if (!s_StringDescriptor[nIndex])
-			{
-				CLogger::Get ()->Write (FromAudioGadget, LogNotice,
-					"GetDescriptor STR idx=%u NONE", nIndex);
 				return nullptr;
-			}
 			if (nIndex == 0)
 			{
 				*pLength = 4;
 				return "\x04\x03\x09\x04";
 			}
-			CLogger::Get ()->Write (FromAudioGadget, LogNotice,
-				"GetDescriptor STR idx=%u", nIndex);
 			return ToStringDescriptor (s_StringDescriptor[nIndex], pLength);
 		}
 	}
-	CLogger::Get ()->Write (FromAudioGadget, LogNotice,
-		"GetDescriptor UNKNOWN wValue=0x%04x", (unsigned)wValue);
 	return nullptr;
 }
 
@@ -153,13 +128,10 @@ void CUSBAudioGadget::AddEndpoints (void)
 	descIn.wMaxPacketSize   = 192;
 	descIn.bInterval        = 1;
 	m_pEPIn = new CUSBAudioGadgetEndpoint (&descIn, this);
-
-	CLogger::Get ()->Write (FromAudioGadget, LogNotice, "iso ep configured 48kHz stereo - ready for enum");
 }
 
 void CUSBAudioGadget::CreateDevice (void)
 {
-	CLogger::Get ()->Write (FromAudioGadget, LogNotice, "alt=1 streaming started");
 	if (!m_pEPOut && !m_pEPIn)
 		AddEndpoints ();
 	if (m_pEPOut) { if (m_pOutHandler) m_pEPOut->RegisterOutHandler (m_pOutHandler); m_pEPOut->OnActivate (); }
@@ -168,7 +140,6 @@ void CUSBAudioGadget::CreateDevice (void)
 
 void CUSBAudioGadget::OnSuspend (void)
 {
-	CLogger::Get ()->Write (FromAudioGadget, LogNotice, "alt=0 streaming stopped");
 	if (m_pEPOut) { m_pEPOut->OnSuspend (); delete m_pEPOut; m_pEPOut = nullptr; }
 	if (m_pEPIn)  { m_pEPIn->OnSuspend ();  delete m_pEPIn;  m_pEPIn  = nullptr; }
 }

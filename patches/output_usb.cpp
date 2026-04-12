@@ -50,6 +50,7 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
     s_ring_otg_rd = rd;
     s_usb_in_wr_prev = usb_wr_now;
 
+#ifndef LOOPER_USB_AUDIO
     if (!usb_alive)
     {
         unsigned prev = s_otg_sample_count;
@@ -58,6 +59,7 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
         if ((prev / AUDIO_BLOCK_SAMPLES) != (next / AUDIO_BLOCK_SAMPLES))
             AudioSystem::startUpdate ();
     }
+#endif
 }
 
 AudioOutputUSB::AudioOutputUSB (void) : AudioStream (2, 0, m_input_queue)

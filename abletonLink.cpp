@@ -1,7 +1,6 @@
 #include "abletonLink.h"
 #include "wlanDHCP.h"
 #include <circle/timer.h>
-#include <circle/logger.h>
 #include <circle/util.h>
 
 #define LINK_PORT		20808
@@ -59,8 +58,6 @@ static void parsePkt(const u8 *buf, int len)
 			if (mpb > 0)
 			{
 				double newBpm = 60000000.0 / (double)mpb;
-				if (!s_synced)
-					CLogger::Get()->Write("link", LogNotice, "Link peer synced: bpm=%.2f", newBpm);
 				s_bpm    = newBpm;
 				s_synced = true;
 			}
@@ -142,7 +139,6 @@ static void sendIgmpJoin(void)
 	memcpy(igmp + 4, MCAST, 4);
 	u16 ics = swap16(csum16(igmp, 8)); memcpy(igmp + 2, &ics, 2);
 	s_pWLAN->SendFrame(f, 14 + 32);
-	CLogger::Get()->Write("link", LogNotice, "IGMP join 224.76.78.75");
 }
 
 void linkInit(CBcm4343Device *pWLAN)

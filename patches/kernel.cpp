@@ -163,7 +163,6 @@ TShutdownMode CKernel::Run(void)
 	m_Logger.Write(log_name, LogNotice, "entering main loop");
 
 	bool bPlugAndPlayUpdated = FALSE;
-	unsigned nLastHeartbeat = m_Timer.GetClockTicks();
 	bool bDhcpDone = !s_wlanJoined || s_wlanIsAP;
 	if (s_wlanJoined && !s_wlanIsAP) {
 		u8 mac[6];
@@ -181,13 +180,6 @@ TShutdownMode CKernel::Run(void)
 		if (s_wlanIsAP) wlanDhcpServe();
 		linkProcess();
 		m_Scheduler.Yield();
-
-		unsigned nNow = m_Timer.GetClockTicks();
-		if (nNow - nLastHeartbeat >= 10 * CLOCKHZ)
-		{
-			m_Logger.Write(log_name, LogNotice, "heartbeat wlan=%s", s_wlanIsAP ? "ap" : (s_wlanJoined ? "joined" : "no"));
-			nLastHeartbeat = nNow;
-		}
 
 		TShutdownMode mode = pollSockets(pRebootSocket, pDebugSocket, pMidiSocket);
 		if (mode != ShutdownNone) return mode;
