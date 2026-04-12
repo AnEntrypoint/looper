@@ -151,6 +151,16 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
     assert (pURB != 0);
     assert (pURB == m_pInURB);
 
+    static unsigned s_nInCount = 0;
+    if (s_nInCount < 5)
+    {
+        CLogger::Get ()->Write (FromAudio, LogNotice,
+            "InCompletion#%u status=%d len=%u handler=%s",
+            s_nInCount, (int)pURB->GetStatus (), (unsigned)pURB->GetResultLength (),
+            m_pInHandler ? "yes" : "no");
+        s_nInCount++;
+    }
+
     if (pURB->GetStatus () && pURB->GetResultLength () >= 4 && m_pInHandler != 0)
     {
         unsigned nSamples = pURB->GetResultLength () / 4;
