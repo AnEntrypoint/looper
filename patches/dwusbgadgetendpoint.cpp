@@ -230,8 +230,15 @@ size_t CDWUSBGadgetEndpoint::FinishTransfer (void)
 	nXferSize &= !m_nEP ? DWHCI_DEV_EP0_XFER_SIZ_XFER_SIZ__MASK
 			    : DWHCI_DEV_EP_XFER_SIZ_XFER_SIZ__MASK;
 	nXferSize >>= DWHCI_DEV_EP_XFER_SIZ_XFER_SIZ__SHIFT;
-	assert (nXferSize <= m_nTransferLength);
-	nXferSize = m_nTransferLength - nXferSize;
+	if (nXferSize > m_nTransferLength)
+	{
+		LOGWARN ("EP%u FinishTransfer: remaining=%u > programmed=%u mode=%u",
+			 m_nEP, (unsigned)nXferSize, (unsigned)m_nTransferLength,
+			 (unsigned)m_TransferMode);
+		nXferSize = 0;
+	}
+	else
+		nXferSize = m_nTransferLength - nXferSize;
 	InitTransfer ();
 	return nXferSize;
 }
