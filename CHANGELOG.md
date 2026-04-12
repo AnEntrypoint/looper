@@ -1,5 +1,9 @@
 ## 2026-04-12 — OTG USB gadget enumeration fix
 
+- fix: dwusbgadgetendpoint.cpp OnUSBReset — remove assert(!(ACTIVE_EP)) for non-EP0 endpoints; on multi-RESET boot sequence each RESET calls OnUSBReset which sets ACTIVE_EP, causing subsequent RESET to assert; iso EP must tolerate being re-initialized while active
+
+## 2026-04-12 — OTG USB gadget enumeration fix (continued)
+
 - fix: dwusbgadget.cpp — pulse soft-disconnect from UpdatePlugAndPlay main loop when SUSPEND fires at StateEnumDone; sets s_bNeedReconnect flag (max 3 attempts) to force Windows re-enumerate after boot SUSPEND absorption
 - debug: dwusbgadgetendpoint.cpp FinishTransfer assert replaced with LOGWARN+continue to diagnose nXferSize>nTransferLength without halting kernel
 - fix: usbaudiogadgetendpoint.h — remove empty OnUSBReset override; base CDWUSBGadgetEndpoint::OnUSBReset now called on USB reset, clearing stale transfer state via InitTransfer()

@@ -82,7 +82,6 @@ void CDWUSBGadgetEndpoint::OnUSBReset (void)
 		CDWHCIRegister EPCtrl (m_Direction == DirectionIn ? DWHCI_DEV_IN_EP_CTRL (m_nEP)
 								  : DWHCI_DEV_OUT_EP_CTRL (m_nEP));
 		EPCtrl.Read ();
-		assert (!(EPCtrl.Get () & DWHCI_DEV_EP_CTRL_ACTIVE_EP));
 		EPCtrl.And (~DWHCI_DEV_EP_CTRL_MAX_PACKET_SIZ__MASK);
 		EPCtrl.Or (m_nMaxPacketSize << DWHCI_DEV_EP_CTRL_MAX_PACKET_SIZ__SHIFT);
 		EPCtrl.And (~DWHCI_DEV_EP_CTRL_EP_TYPE__MASK);
