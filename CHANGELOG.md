@@ -1,3 +1,8 @@
+## 2026-04-12 — Fix CORE_FOR_AUDIO_SYSTEM=0: include sysconfig.h in std_kernel_stub.h
+
+- fix: patches/std_kernel_stub.h — add `#include <circle/sysconfig.h>` before ARM_ALLOW_MULTI_CORE guard; sysconfig.h has ARM_ALLOW_MULTI_CORE defined (uncommented by sed patch in build.yml), so CORE_FOR_AUDIO_SYSTEM=1 now activates correctly when building AudioSystem.cpp; previously CORE_FOR_AUDIO_SYSTEM remained 0 because ARM_ALLOW_MULTI_CORE was only a make variable not a preprocessor define in the circle-prh build context
+- refactor: build.yml — remove temporary "Inspect circle multicore support" and "Check multicore symbols" diagnostic steps
+
 ## 2026-04-12 — Audio on dedicated core 1 via ARM_ALLOW_MULTI_CORE
 
 - feat: patches/multicore.cpp — CCoreTask extends CMultiCoreSupport; Run() halts non-audio cores; IPIHandler() on core 1 calls AudioSystem::doUpdate() on IPI_AUDIO_UPDATE=11

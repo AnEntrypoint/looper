@@ -1,6 +1,8 @@
 #ifndef _std_kernel_h
 #define _std_kernel_h
 
+#include <circle/sysconfig.h>
+
 #define USE_UI_SYSTEM		0
 #define USE_AUDIO_SYSTEM	1
 #define USE_MIDI_SYSTEM		0
