@@ -39,6 +39,9 @@
 
 LOGMODULE ("dwgadget");
 
+static volatile boolean s_bNeedReconnect = FALSE;
+static volatile unsigned s_nReconnectCount = 0;
+
 CDWUSBGadget::CDWUSBGadget (CInterruptSystem *pInterruptSystem, TDeviceSpeed DeviceSpeed)
 :	m_pInterruptSystem (pInterruptSystem),
 	m_DeviceSpeed (DeviceSpeed),
@@ -146,7 +149,23 @@ boolean CDWUSBGadget::UpdatePlugAndPlay (void)
 {
 	boolean bResult = FALSE;
 
-	if (m_bPnPEvent[PnPEventSuspend])
+	if (s_bNeedReconnect)
+	{
+		s_bNeedReconnect = FALSE;
+		bResult = TRUE;
+
+		s_nReconnectCount++;
+		LOGWARN ("reconnect pulse #%u", s_nReconnectCount);
+		CDWHCIRegister DevCtrl (DWHCI_DEV_CTRL);
+		DevCtrl.Read ();
+		DevCtrl.Or (DWHCI_DEV_CTRL_SOFT_DISCONNECT);
+		DevCtrl.Write ();
+		CTimer::Get ()->MsDelay (100);
+		DevCtrl.Read ();
+		DevCtrl.And (~DWHCI_DEV_CTRL_SOFT_DISCONNECT);
+		DevCtrl.Write ();
+	}
+	else if (m_bPnPEvent[PnPEventSuspend])
 	{
 		m_bPnPEvent[PnPEventSuspend] = FALSE;
 		bResult = TRUE;
@@ -514,10 +533,14 @@ void CDWUSBGadget::HandleUSBSuspend (void)
 {
 	LOGWARN ("SUSPEND state=%u", (unsigned)m_State);
 
-	if (   m_State != StatePowered
-	    && m_State != StateSuspended
-	    && m_State != StateResetDone
-	    && m_State != StateEnumDone)
+	if (m_State == StateEnumDone && s_nReconnectCount < 3)
+	{
+		LOGWARN ("SUSPEND at EnumDone->reconnect #%u", s_nReconnectCount + 1);
+		s_bNeedReconnect = TRUE;
+	}
+	else if (   m_State != StatePowered
+	         && m_State != StateSuspended
+	         && m_State != StateResetDone)
 	{
 		LOGWARN ("SUSPEND->PnP set");
 		m_bPnPEvent[PnPEventSuspend] = TRUE;
