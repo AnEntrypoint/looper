@@ -88,10 +88,13 @@ const void *CUSBAudioGadget::GetDescriptor (u16 wValue, u16 wIndex, size_t *pLen
 	case DESCRIPTOR_DEVICE:
 		{
 			*pLength = sizeof s_DeviceDescriptor;
+			static unsigned s_nDevCallCount = 0;
+			s_nDevCallCount++;
 			const u8 *b = (const u8 *) &s_DeviceDescriptor;
 			CLogger::Get ()->Write (FromAudioGadget, LogNotice,
-				"DEV bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
-				b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7],b[8],b[9],b[10],b[11]);
+				"DEV#%u: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+				s_nDevCallCount,
+				b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7],b[8],b[9],b[10],b[11],b[12],b[13],b[14],b[15],b[16],b[17]);
 			return &s_DeviceDescriptor;
 		}
 	case DESCRIPTOR_CONFIGURATION:
@@ -102,15 +105,24 @@ const void *CUSBAudioGadget::GetDescriptor (u16 wValue, u16 wIndex, size_t *pLen
 	case DESCRIPTOR_STRING:
 		{
 			unsigned nIndex = wValue & 0xFF;
-			if (!s_StringDescriptor[nIndex]) return nullptr;
+			if (!s_StringDescriptor[nIndex])
+			{
+				CLogger::Get ()->Write (FromAudioGadget, LogNotice,
+					"GetDescriptor STR idx=%u NONE", nIndex);
+				return nullptr;
+			}
 			if (nIndex == 0)
 			{
 				*pLength = 4;
 				return "\x04\x03\x09\x04";
 			}
+			CLogger::Get ()->Write (FromAudioGadget, LogNotice,
+				"GetDescriptor STR idx=%u", nIndex);
 			return ToStringDescriptor (s_StringDescriptor[nIndex], pLength);
 		}
 	}
+	CLogger::Get ()->Write (FromAudioGadget, LogNotice,
+		"GetDescriptor UNKNOWN wValue=0x%04x", (unsigned)wValue);
 	return nullptr;
 }
 
