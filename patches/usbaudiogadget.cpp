@@ -134,7 +134,6 @@ const void *CUSBAudioGadget::GetDescriptor (u16 wValue, u16 wIndex, size_t *pLen
 
 void CUSBAudioGadget::AddEndpoints (void)
 {
-	assert (!m_pEPOut && !m_pEPIn);
 	TUSBEndpointDescriptor descOut;
 	memset (&descOut, 0, sizeof descOut);
 	descOut.bLength          = sizeof descOut;
@@ -161,6 +160,8 @@ void CUSBAudioGadget::AddEndpoints (void)
 void CUSBAudioGadget::CreateDevice (void)
 {
 	CLogger::Get ()->Write (FromAudioGadget, LogNotice, "alt=1 streaming started");
+	if (!m_pEPOut && !m_pEPIn)
+		AddEndpoints ();
 	if (m_pEPOut) { if (m_pOutHandler) m_pEPOut->RegisterOutHandler (m_pOutHandler); m_pEPOut->OnActivate (); }
 	if (m_pEPIn)  { if (m_pInHandler)  m_pEPIn->RegisterInHandler  (m_pInHandler);  m_pEPIn->OnActivate ();  }
 }
