@@ -82,7 +82,6 @@ boolean CKernel::Initialize(void)
 	if (bOK) bOK = m_USBHCI.Initialize();
 	m_ActLED.Blink(1);
 
-	for (unsigned i = 0; i < 2000; i++) { m_AudioGadget.UpdatePlugAndPlay(); m_Timer.MsDelay(1); }
 	m_ActLED.Blink(1);
 
 	m_EMMC.Initialize();
