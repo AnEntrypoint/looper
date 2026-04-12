@@ -23,36 +23,25 @@ extern volatile unsigned AudioInputUSB_inRingWr (void);
 
 void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
+    DataMemBarrier ();
     unsigned rd = s_ring_otg_rd;
     unsigned wr = s_ring_wr;
-    unsigned usb_wr_now = AudioInputUSB_inRingWr ();
-    bool usb_alive = (usb_wr_now != s_usb_in_wr_prev);
-    if (!usb_alive)
-    {
-        unsigned lag = (wr - rd) & OUT_RING_MASK;
-        if (lag > OUT_RING_SIZE / 2)
-            rd = wr;
-    }
+    unsigned lag = (wr - rd) & OUT_RING_MASK;
+    if (lag > OTG_TARGET_LAG + nSamples)
+        rd = wr - OTG_TARGET_LAG;
+    else if (lag < nSamples)
+        rd = wr - nSamples;
     for (unsigned i = 0; i < nSamples; i++)
     {
-        unsigned lag = (wr - rd) & OUT_RING_MASK;
-        if (lag > 0)
-        {
-            pLeft[i]  = s_ring_left [rd & OUT_RING_MASK];
-            pRight[i] = s_ring_right[rd & OUT_RING_MASK];
-            rd++;
-        }
-        else
-        {
-            pLeft[i]  = 0;
-            pRight[i] = 0;
-        }
+        pLeft[i]  = s_ring_left [rd & OUT_RING_MASK];
+        pRight[i] = s_ring_right[rd & OUT_RING_MASK];
+        rd++;
     }
     s_ring_otg_rd = rd;
-    s_usb_in_wr_prev = usb_wr_now;
 
 #ifndef LOOPER_USB_AUDIO
-    if (!usb_alive)
+    unsigned usb_wr_now = AudioInputUSB_inRingWr ();
+    if (usb_wr_now == s_usb_in_wr_prev)
     {
         unsigned prev = s_otg_sample_count;
         unsigned next = prev + nSamples;
@@ -60,6 +49,7 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
         if ((prev / AUDIO_BLOCK_SAMPLES) != (next / AUDIO_BLOCK_SAMPLES))
             AudioSystem::startUpdate ();
     }
+    s_usb_in_wr_prev = usb_wr_now;
 #endif
 }
 
