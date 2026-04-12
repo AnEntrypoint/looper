@@ -16,6 +16,13 @@
 
 LOGMODULE ("dwgadgetep");
 
+#ifndef DWHCI_DEV_EP_CTRL_SETDPID_D1
+#define DWHCI_DEV_EP_CTRL_SETDPID_D1	(1 << 29)
+#endif
+#ifndef DWHCI_DEV_STATUS
+#define DWHCI_DEV_STATUS		0x808
+#endif
+
 u8 CDWUSBGadgetEndpoint::s_NextEPSeq[DWHCI_MAX_EPS_CHANNELS];
 u8 CDWUSBGadgetEndpoint::s_uchFirstInNextEPSeq;
 
@@ -173,6 +180,15 @@ void CDWUSBGadgetEndpoint::BeginTransfer (TTransferMode Mode, void *pBuffer, siz
 		InEPCtrl.Read ();
 		InEPCtrl.And (~DWHCI_DEV_IN_EP_CTRL_NEXT_EP__MASK);
 		InEPCtrl.Or (s_NextEPSeq[m_nEP] << DWHCI_DEV_IN_EP_CTRL_NEXT_EP__SHIFT);
+		if (m_Type == TypeIsochronous)
+		{
+			CDWHCIRegister DevStatus (DWHCI_DEV_STATUS);
+			u32 nFrameNum = (DevStatus.Read () >> 8) & 0x3FFF;
+			if (nFrameNum & 1)
+				InEPCtrl.Or (DWHCI_DEV_EP_CTRL_SETDPID_D0);
+			else
+				InEPCtrl.Or (DWHCI_DEV_EP_CTRL_SETDPID_D1);
+		}
 		InEPCtrl.Or (DWHCI_DEV_EP_CTRL_EP_ENABLE);
 		InEPCtrl.Or (DWHCI_DEV_EP_CTRL_CLEAR_NAK);
 		InEPCtrl.Write ();
@@ -194,6 +210,15 @@ void CDWUSBGadgetEndpoint::BeginTransfer (TTransferMode Mode, void *pBuffer, siz
 		OutEPDMAAddress.Write ();
 		CDWHCIRegister OutEPCtrl (DWHCI_DEV_OUT_EP_CTRL (m_nEP));
 		OutEPCtrl.Read ();
+		if (m_Type == TypeIsochronous)
+		{
+			CDWHCIRegister DevStatus (DWHCI_DEV_STATUS);
+			u32 nFrameNum = (DevStatus.Read () >> 8) & 0x3FFF;
+			if (nFrameNum & 1)
+				OutEPCtrl.Or (DWHCI_DEV_EP_CTRL_SETDPID_D0);
+			else
+				OutEPCtrl.Or (DWHCI_DEV_EP_CTRL_SETDPID_D1);
+		}
 		OutEPCtrl.Or (DWHCI_DEV_EP_CTRL_EP_ENABLE);
 		OutEPCtrl.Or (DWHCI_DEV_EP_CTRL_CLEAR_NAK);
 		OutEPCtrl.Write ();
