@@ -134,7 +134,7 @@ boolean CUSBAudioDevice::StartInRequest (unsigned nBuf)
     m_pInURB[nBuf] = new CUSBRequest (m_pEndpointIn, m_InBuf[nBuf], usPacketSize);
     assert (m_pInURB[nBuf] != 0);
     m_pInURB[nBuf]->AddIsoPacket (usPacketSize);
-    m_pInURB[nBuf]->SetCompletionRoutine (InStub, (void *)(uintptr_t)nBuf, this);
+    m_pInURB[nBuf]->SetCompletionRoutine (InStub, (void *)(unsigned long)nBuf, this);
     return GetHost ()->SubmitAsyncRequest (m_pInURB[nBuf]);
 }
 
@@ -150,7 +150,7 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned nBuf)
     m_pOutURB[nBuf] = new CUSBRequest (m_pEndpointOut, m_OutBuf[nBuf], usPacketSize);
     assert (m_pOutURB[nBuf] != 0);
     m_pOutURB[nBuf]->AddIsoPacket (usPacketSize);
-    m_pOutURB[nBuf]->SetCompletionRoutine (OutStub, (void *)(uintptr_t)nBuf, this);
+    m_pOutURB[nBuf]->SetCompletionRoutine (OutStub, (void *)(unsigned long)nBuf, this);
     return GetHost ()->SubmitAsyncRequest (m_pOutURB[nBuf]);
 }
 
@@ -210,12 +210,12 @@ void CUSBAudioDevice::InStub (CUSBRequest *pURB, void *pParam, void *pContext)
 {
     CUSBAudioDevice *pThis = (CUSBAudioDevice *) pContext;
     assert (pThis != 0);
-    pThis->InCompletion (pURB, (unsigned)(uintptr_t) pParam);
+    pThis->InCompletion (pURB, (unsigned)(unsigned long) pParam);
 }
 
 void CUSBAudioDevice::OutStub (CUSBRequest *pURB, void *pParam, void *pContext)
 {
     CUSBAudioDevice *pThis = (CUSBAudioDevice *) pContext;
     assert (pThis != 0);
-    pThis->OutCompletion (pURB, (unsigned)(uintptr_t) pParam);
+    pThis->OutCompletion (pURB, (unsigned)(unsigned long) pParam);
 }
