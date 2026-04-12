@@ -23,7 +23,6 @@ extern volatile unsigned AudioInputUSB_inRingWr (void);
 
 void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
-    DataMemBarrier ();
     unsigned rd = s_ring_otg_rd;
     unsigned wr = s_ring_wr;
     unsigned lag = (wr - rd) & OUT_RING_MASK;
