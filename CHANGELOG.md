@@ -1,3 +1,7 @@
+## 2026-04-12 — Fix audio update loop dying after 5 iterations
+
+- fix: audio.cpp removed duplicate input.start()/output.start() calls after AudioSystem::initialize(); initialize() already calls start() on all AudioStream objects in the graph; the double-call set s_update_responsibility=false (takeUpdateResponsibility returned false on second call), causing inHandler to never call startUpdate() after the initial 5 completions
+
 ## 2026-04-12 — OTG USB gadget enumeration fix
 
 - fix: dwusbgadgetendpoint.cpp HandleOutInterrupt SETUP_DONE — skip FinishTransfer; after SETUP_DONE DWC re-arms EP0 OUT XFER_SIZ register for 3 back-to-back SETUP slots (3×40=120), making FinishTransfer see remaining=120 > programmed=8 and return 0; SETUP data is always exactly sizeof(TSetupData), just call InitTransfer+OnControlMessage directly

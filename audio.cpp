@@ -113,10 +113,6 @@ void setup()
 	AudioSystem::initialize(200);
 	debug_blink(1);
 
-#if USE_USB_AUDIO
-	input.start();
-	output.start();
-#endif
 #if USE_OTG_AUDIO
 	otgIn.start();
 	otgOut.start();
