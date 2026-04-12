@@ -37,12 +37,6 @@ void CDWUSBGadgetEndpoint0::OnControlMessage (void)
 
 	const TSetupData *pSetupData = reinterpret_cast<TSetupData *> (m_OutBuffer);
 
-	LOGWARN ("EP0 OCM: buf=%p data=%02x %02x %02x %02x %02x %02x %02x %02x state=%u",
-		m_OutBuffer,
-		m_OutBuffer[0], m_OutBuffer[1], m_OutBuffer[2], m_OutBuffer[3],
-		m_OutBuffer[4], m_OutBuffer[5], m_OutBuffer[6], m_OutBuffer[7],
-		(unsigned)m_State);
-
 	memcpy (&m_SetupData, pSetupData, sizeof m_SetupData);
 
 	if (pSetupData->bmRequestType & REQUEST_IN)
@@ -50,17 +44,12 @@ void CDWUSBGadgetEndpoint0::OnControlMessage (void)
 		switch (pSetupData->bRequest)
 		{
 		case GET_DESCRIPTOR: {
-			LOGWARN ("EP0 OCM: GET_DESCRIPTOR wValue=0x%04x wIndex=0x%04x wLen=%u",
-				(unsigned)pSetupData->wValue,
-				(unsigned)pSetupData->wIndex,
-				(unsigned)pSetupData->wLength);
 			size_t nLength;
 			const void *pDesc = m_pGadget->GetDescriptor (pSetupData->wValue,
 								      pSetupData->wIndex,
 								      &nLength);
 			if (!pDesc)
 			{
-				LOGWARN ("EP0 OCM: GET_DESCRIPTOR returned NULL -> Stall");
 				Stall (TRUE);
 
 				BeginTransfer (TransferSetupOut, m_OutBuffer, sizeof (TSetupData));
@@ -81,7 +70,6 @@ void CDWUSBGadgetEndpoint0::OnControlMessage (void)
 			m_nBytesLeft = nLength;
 			m_pBufPtr = m_InBuffer;
 
-			LOGWARN ("EP0 OCM: BeginTransfer DataIn len=%u", (unsigned)nLength);
 			BeginTransfer (TransferDataIn, m_pBufPtr,
 				         m_nBytesLeft <= m_nMaxPacketSize
 				       ? m_nBytesLeft : m_nMaxPacketSize);
@@ -138,7 +126,6 @@ void CDWUSBGadgetEndpoint0::OnControlMessage (void)
 		switch (pSetupData->bRequest)
 		{
 		case SET_ADDRESS:
-			LOGWARN ("EP0 OCM: SET_ADDRESS addr=%u", (unsigned)(pSetupData->wValue & 0xFF));
 			m_pGadget->SetDeviceAddress (pSetupData->wValue & 0xFF);
 
 			m_State = StateInStatusPhase;
@@ -147,7 +134,6 @@ void CDWUSBGadgetEndpoint0::OnControlMessage (void)
 			break;
 
 		case SET_CONFIGURATION:
-			LOGWARN ("EP0 OCM: SET_CONFIGURATION cfg=%u", (unsigned)(pSetupData->wValue & 0xFF));
 			if (!m_pGadget->SetConfiguration (pSetupData->wValue & 0xFF))
 			{
 				Stall (TRUE);

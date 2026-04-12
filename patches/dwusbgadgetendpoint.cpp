@@ -141,14 +141,9 @@ void CDWUSBGadgetEndpoint::OnUSBReset (void)
 
 void CDWUSBGadgetEndpoint::BeginTransfer (TTransferMode Mode, void *pBuffer, size_t nLength)
 {
-	if (!m_nEP)
-		LOGWARN ("EP0 BeginTransfer mode=%u buf=%p len=%u prevmode=%u", (unsigned)Mode, pBuffer, (unsigned)nLength, (unsigned)m_TransferMode);
 	assert (Mode < TransferUnknown);
 	if (m_TransferMode != TransferUnknown || m_pTransferBuffer || m_nTransferLength != (size_t) -1)
-	{
-		LOGWARN ("EP%u BeginTransfer: auto-reset stale state (mode=%u)", m_nEP, (unsigned)m_TransferMode);
 		InitTransfer ();
-	}
 	m_TransferMode = Mode;
 	assert (pBuffer || !nLength);
 	m_pTransferBuffer = pBuffer;
@@ -252,10 +247,7 @@ void CDWUSBGadgetEndpoint::CancelTransfer (void)
 size_t CDWUSBGadgetEndpoint::FinishTransfer (void)
 {
 	if (m_TransferMode >= TransferUnknown)
-	{
-		LOGWARN ("EP%u FinishTransfer: spurious (mode=unknown)", m_nEP);
 		return 0;
-	}
 	CDWHCIRegister EPXferSize (  m_TransferMode == TransferDataIn
 				   ? DWHCI_DEV_IN_EP_XFER_SIZ (m_nEP)
 				   : DWHCI_DEV_OUT_EP_XFER_SIZ (m_nEP));
@@ -264,12 +256,7 @@ size_t CDWUSBGadgetEndpoint::FinishTransfer (void)
 			    : DWHCI_DEV_EP_XFER_SIZ_XFER_SIZ__MASK;
 	nXferSize >>= DWHCI_DEV_EP_XFER_SIZ_XFER_SIZ__SHIFT;
 	if (nXferSize > m_nTransferLength)
-	{
-		LOGWARN ("EP%u FinishTransfer: remaining=%u > programmed=%u mode=%u",
-			 m_nEP, (unsigned)nXferSize, (unsigned)m_nTransferLength,
-			 (unsigned)m_TransferMode);
 		nXferSize = 0;
-	}
 	else
 		nXferSize = m_nTransferLength - nXferSize;
 	InitTransfer ();
@@ -295,7 +282,6 @@ void CDWUSBGadgetEndpoint::Stall (boolean bIn)
 
 void CDWUSBGadgetEndpoint::OnControlMessage (void)
 {
-	LOGWARN ("EP%u base OnControlMessage called - vtable dispatch failed", m_nEP);
 	assert (0);
 }
 
@@ -305,8 +291,6 @@ void CDWUSBGadgetEndpoint::HandleOutInterrupt (void)
 	CDWHCIRegister OutEPInt (DWHCI_DEV_OUT_EP_INT (m_nEP));
 	OutEPCommonIntMask.Read ();
 	OutEPInt.Read ();
-	if (!m_nEP)
-		LOGWARN ("EP0 OutInt raw=0x%x mask=0x%x", (unsigned)OutEPInt.Get (), (unsigned)OutEPCommonIntMask.Get ());
 	OutEPInt.And (OutEPCommonIntMask.Get ());
 	if (OutEPInt.Get () & DWHCI_DEV_OUT_EP_INT_SETUP_DONE)
 	{
@@ -314,17 +298,7 @@ void CDWUSBGadgetEndpoint::HandleOutInterrupt (void)
 		CDWHCIRegister OutEPIntAck (DWHCI_DEV_OUT_EP_INT (m_nEP));
 		OutEPIntAck.Set (DWHCI_DEV_OUT_EP_INT_SETUP_DONE);
 		OutEPIntAck.Write ();
-		{
-			const u8 *p = (const u8 *) m_pTransferBuffer;
-			if (p)
-				LOGWARN ("EP0 SETUP data: %02x %02x %02x %02x %02x %02x %02x %02x",
-					p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7]);
-			else
-				LOGWARN ("EP0 SETUP_DONE: m_pTransferBuffer is NULL");
-		}
-		LOGWARN ("EP0 SETUP_DONE: calling OnControlMessage");
 		OnControlMessage ();
-		LOGWARN ("EP0 SETUP_DONE: OnControlMessage returned");
 		OutEPInt.And (~DWHCI_DEV_OUT_EP_INT_XFER_COMPLETE);
 	}
 	if (OutEPInt.Get () & DWHCI_DEV_OUT_EP_INT_XFER_COMPLETE)
@@ -335,10 +309,6 @@ void CDWUSBGadgetEndpoint::HandleOutInterrupt (void)
 		size_t nLength = FinishTransfer ();
 		OnTransferComplete (FALSE, nLength);
 	}
-	if (OutEPInt.Get () & DWHCI_DEV_OUT_EP_INT_AHB_ERROR)
-		LOGPANIC ("AHB error");
-	if (OutEPInt.Get () & DWHCI_DEV_OUT_EP_INT_EP_DISABLED)
-		LOGPANIC ("EP%u disabled", m_nEP);
 }
 
 void CDWUSBGadgetEndpoint::HandleInInterrupt (void)
@@ -347,8 +317,6 @@ void CDWUSBGadgetEndpoint::HandleInInterrupt (void)
 	CDWHCIRegister InEPInt (DWHCI_DEV_IN_EP_INT (m_nEP));
 	InEPCommonIntMask.Read ();
 	InEPInt.Read ();
-	if (!m_nEP)
-		LOGWARN ("EP0 InInt raw=0x%x mask=0x%x", (unsigned)InEPInt.Get (), (unsigned)InEPCommonIntMask.Get ());
 	InEPInt.And (InEPCommonIntMask.Get ());
 	if (InEPInt.Get () & DWHCI_DEV_IN_EP_INT_XFER_COMPLETE)
 	{
@@ -360,15 +328,10 @@ void CDWUSBGadgetEndpoint::HandleInInterrupt (void)
 	}
 	if (InEPInt.Get () & DWHCI_DEV_IN_EP_INT_TIMEOUT)
 	{
-		if (m_Type == TypeIsochronous)
-			LOGWARN ("Timeout iso EP%u", m_nEP);
-		else
-			LOGPANIC ("Timeout (EP %u)", m_nEP);
+		CDWHCIRegister InEPIntAck (DWHCI_DEV_IN_EP_INT (m_nEP));
+		InEPIntAck.Set (DWHCI_DEV_IN_EP_INT_TIMEOUT);
+		InEPIntAck.Write ();
 	}
-	if (InEPInt.Get () & DWHCI_DEV_IN_EP_INT_AHB_ERROR)
-		LOGPANIC ("AHB error");
-	if (InEPInt.Get () & DWHCI_DEV_IN_EP_INT_EP_DISABLED)
-		LOGPANIC ("EP%u disabled", m_nEP);
 }
 
 void CDWUSBGadgetEndpoint::HandleUSBReset (void)
