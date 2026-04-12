@@ -7,18 +7,26 @@ audio_block_t *AudioOutputUSB::s_block_left  = 0;
 audio_block_t *AudioOutputUSB::s_block_right = 0;
 
 #define OUT_RING_SIZE 256
+#define OTG_TARGET_LAG  96
+#define OTG_LAG_MIN     48
+#define OTG_LAG_MAX     192
 static s16 s_ring_left [OUT_RING_SIZE];
 static s16 s_ring_right[OUT_RING_SIZE];
 static volatile unsigned s_ring_wr = 0;
 static volatile unsigned s_ring_rd = 0;
-static volatile unsigned s_ring_otg_rd = OUT_RING_SIZE - 96;
+static volatile unsigned s_ring_otg_rd = OUT_RING_SIZE - OTG_TARGET_LAG;
 
 void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
     unsigned rd = s_ring_otg_rd;
+    unsigned wr = s_ring_wr;
+    unsigned lag = wr - rd;
+    if (lag < OTG_LAG_MIN || lag > OTG_LAG_MAX)
+        rd = wr - OTG_TARGET_LAG;
     for (unsigned i = 0; i < nSamples; i++)
     {
-        if (rd != s_ring_wr)
+        unsigned cur_lag = wr - rd;
+        if (cur_lag > 0)
         {
             pLeft[i]  = s_ring_left [rd & (OUT_RING_SIZE - 1)];
             pRight[i] = s_ring_right[rd & (OUT_RING_SIZE - 1)];
