@@ -11,7 +11,7 @@ class AudioStream;
 
 #define AUDIO_BLOCK_SAMPLES  		64
 #define AUDIO_BLOCK_BYTES  			(AUDIO_BLOCK_SAMPLES * sizeof(s16))
-#define AUDIO_SAMPLE_RATE           44100
+#define AUDIO_SAMPLE_RATE           48000
 
 typedef struct audio_block_struct
 {
