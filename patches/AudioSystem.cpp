@@ -2,6 +2,7 @@
 #include "Audio.h"
 #include <circle/logger.h>
 #include <circle/alloc.h>
+#include <circle/synchronize.h>
 
 #define log_name "audio"
 
@@ -404,18 +405,20 @@ bool AudioSystem::takeUpdateResponsibility()
 
 void AudioSystem::startUpdate()
 {
-	if (s_nInUpdate++)
+	DataMemBarrier();
+	if (s_nInUpdate)
+	{
 		s_numOverflows++;
+		return;
+	}
+	s_nInUpdate = 1;
+	DataMemBarrier();
 
-	// If single core we call do_update() directly from the audio IRQ.
-	// If multi-core, the IRQ is running on core0 and we send an IPI
-	// to the given core which will then call do_update()
-	
 	#if CORE_FOR_AUDIO_SYSTEM == 0
 		doUpdate();
 	#else
 		CCoreTask::Get()->SendIPI(CORE_FOR_AUDIO_SYSTEM,IPI_AUDIO_UPDATE);
-	#endif    
+	#endif
 }
 
 
@@ -459,9 +462,8 @@ void AudioSystem::doUpdate()
 			s_cpuCyclesMax = totalcycles;
 	#endif
 	
-	__disable_irq();
-	s_nInUpdate--;
-	__enable_irq();    
+	DataMemBarrier();
+	s_nInUpdate = 0;
 }
 
 	
