@@ -71,12 +71,14 @@ private:
 
 	friend class CDWUSBGadget;
 
-private:
+protected:
 	CDWUSBGadget *m_pGadget;
+	size_t        m_nMaxPacketSize;
+
+private:
 	TDirection    m_Direction;
 	TType         m_Type;
 	unsigned      m_nEP;
-	size_t        m_nMaxPacketSize;
 
 	TTransferMode m_TransferMode;
 	void         *m_pTransferBuffer;
