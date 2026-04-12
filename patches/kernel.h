@@ -62,6 +62,9 @@ public:
 	boolean Initialize(void);
 	TShutdownMode Run(void);
 
+#ifdef ARM_ALLOW_MULTI_CORE
+	friend class CCoreTask;
+#endif
 private:
 	TShutdownMode pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *pMidi);
 	CMemorySystem		m_Memory;
