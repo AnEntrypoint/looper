@@ -68,6 +68,7 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/input_otg.cpp circle/_prh/audio/input_otg.cpp
           cp circle/_prh/_apps/Looper/patches/output_otg.h circle/_prh/audio/output_otg.h
           cp circle/_prh/_apps/Looper/patches/output_otg.cpp circle/_prh/audio/output_otg.cpp
+          sed -i 's|//#define ARM_ALLOW_MULTI_CORE|#define ARM_ALLOW_MULTI_CORE|' circle/include/circle/sysconfig.h
 
       - name: Inspect circle multicore support
         run: |
