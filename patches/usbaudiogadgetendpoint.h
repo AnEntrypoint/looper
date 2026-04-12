@@ -21,7 +21,6 @@ public:
 	void RegisterInHandler  (TAudioInHandler  *pHandler) { m_pInHandler  = pHandler; }
 	void RegisterOutHandler (TAudioOutHandler *pHandler) { m_pOutHandler = pHandler; }
 
-	void OnUSBReset (void) override {}
 	void OnActivate   (void) override;
 	void OnDeactivate (void) override;
 	void OnSuspend    (void) override;
