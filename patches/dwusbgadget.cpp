@@ -516,7 +516,8 @@ void CDWUSBGadget::HandleUSBSuspend (void)
 
 	if (   m_State != StatePowered
 	    && m_State != StateSuspended
-	    && m_State != StateResetDone)
+	    && m_State != StateResetDone
+	    && m_State != StateEnumDone)
 	{
 		LOGWARN ("SUSPEND->PnP set");
 		m_bPnPEvent[PnPEventSuspend] = TRUE;
