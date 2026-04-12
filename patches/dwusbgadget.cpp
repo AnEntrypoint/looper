@@ -115,6 +115,16 @@ boolean CDWUSBGadget::Initialize (boolean bScanDevices)
 		return FALSE;
 	}
 
+	// Pulse soft-disconnect to force host re-enumeration
+	CDWHCIRegister DevCtrl (DWHCI_DEV_CTRL);
+	DevCtrl.Read ();
+	DevCtrl.Or (DWHCI_DEV_CTRL_SOFT_DISCONNECT);
+	DevCtrl.Write ();
+	CTimer::Get ()->MsDelay (100);
+	DevCtrl.Read ();
+	DevCtrl.And (~DWHCI_DEV_CTRL_SOFT_DISCONNECT);
+	DevCtrl.Write ();
+
 	// Create EPs
 	new CDWUSBGadgetEndpoint0 (pDeviceDesc->bMaxPacketSize0, this);
 
