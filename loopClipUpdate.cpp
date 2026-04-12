@@ -81,6 +81,8 @@ void loopClip::update(s32 *ip, s32 *op)
 
     if (rp)
     {
+        if (m_record_block < 3)
+            LOOPER_LOG("clip(%d,%d) record_block=%u", m_track_num, m_clip_num, m_record_block);
         m_record_block++;
         if (m_state == CS_RECORDING && m_record_block >= CROSSFADE_BLOCKS)
             m_state = CS_RECORDING_MAIN;
