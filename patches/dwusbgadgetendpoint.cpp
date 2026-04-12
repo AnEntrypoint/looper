@@ -286,6 +286,14 @@ void CDWUSBGadgetEndpoint::HandleOutInterrupt (void)
 		CDWHCIRegister OutEPIntAck (DWHCI_DEV_OUT_EP_INT (m_nEP));
 		OutEPIntAck.Set (DWHCI_DEV_OUT_EP_INT_SETUP_DONE);
 		OutEPIntAck.Write ();
+		{
+			const u8 *p = (const u8 *) m_pTransferBuffer;
+			if (p)
+				LOGWARN ("EP0 SETUP data: %02x %02x %02x %02x %02x %02x %02x %02x",
+					p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7]);
+			else
+				LOGWARN ("EP0 SETUP_DONE: m_pTransferBuffer is NULL");
+		}
 		LOGWARN ("EP0 SETUP_DONE: calling OnControlMessage");
 		InitTransfer ();
 		OnControlMessage ();
