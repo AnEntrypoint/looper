@@ -2,7 +2,6 @@
 #include "Audio.h"
 #include <circle/logger.h>
 #include <circle/alloc.h>
-#include <circle/synchronize.h>
 
 #define log_name "audio"
 
@@ -405,32 +404,54 @@ bool AudioSystem::takeUpdateResponsibility()
 
 void AudioSystem::startUpdate()
 {
-	DataMemBarrier();
-	s_nInUpdate++;
-	DataMemBarrier();
+	if (s_nInUpdate++)
+		s_numOverflows++;
 
 	#if CORE_FOR_AUDIO_SYSTEM == 0
 		doUpdate();
 	#else
-		if (s_nInUpdate == 1)
-			CCoreTask::Get()->SendIPI(CORE_FOR_AUDIO_SYSTEM,IPI_AUDIO_UPDATE);
+		CCoreTask::Get()->SendIPI(CORE_FOR_AUDIO_SYSTEM,IPI_AUDIO_UPDATE);
 	#endif
 }
 
 
 void AudioSystem::doUpdate()
 {
-	while (s_nInUpdate > 0)
+	#define WITH_TIMING
+
+	#ifdef WITH_TIMING
+		uint32_t totalcycles = CTimer::GetClockTicks();
+	#endif
+
+	for (AudioStream *p = s_pFirstStream; p; p = p->m_pNextStream)
 	{
-		for (AudioStream *p = s_pFirstStream; p; p = p->m_pNextStream)
+		if (p->m_numConnections)
 		{
-			if (p->m_numConnections)
-				p->update();
+			#ifdef WITH_TIMING
+				uint32_t cycles =  CTimer::GetClockTicks();
+			#endif
+
+			p->update();
+
+			#ifdef WITH_TIMING
+				cycles = (CTimer::GetClockTicks() - cycles);
+				p->m_cpuCycles = cycles;
+				if (cycles > p->m_cpuCyclesMax)
+					p->m_cpuCyclesMax = cycles;
+			#endif
 		}
-		DataMemBarrier();
-		s_nInUpdate--;
-		DataMemBarrier();
 	}
+
+	#ifdef WITH_TIMING
+		totalcycles = (CTimer::GetClockTicks() - totalcycles);
+		s_cpuCycles = totalcycles;
+		if (totalcycles > s_cpuCyclesMax)
+			s_cpuCyclesMax = totalcycles;
+	#endif
+
+	__disable_irq();
+	s_nInUpdate--;
+	__enable_irq();
 }
 
 	

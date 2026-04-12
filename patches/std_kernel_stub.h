@@ -14,16 +14,15 @@
 #define USE_ILI_TFT		0
 #define USE_XPT2046		0
 
+#define CORE_FOR_AUDIO_SYSTEM	0
+
 #ifdef ARM_ALLOW_MULTI_CORE
-#define CORE_FOR_AUDIO_SYSTEM	1
 #define IPI_AUDIO_UPDATE	11
 class CCoreTask {
 public:
 	static CCoreTask *Get();
 	void SendIPI(unsigned nCore, unsigned nIPI);
 };
-#else
-#define CORE_FOR_AUDIO_SYSTEM	0
 #endif
 
 #define CORE_FOR_UI_SYSTEM	2
