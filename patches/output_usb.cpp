@@ -27,8 +27,18 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
     unsigned rd = s_ring_otg_rd;
     unsigned wr = s_ring_wr;
     unsigned lag = (wr - rd) & OUT_RING_MASK;
-    if (lag < OTG_LAG_MIN || lag > OTG_LAG_MAX)
-        rd = wr - OTG_TARGET_LAG;
+    unsigned usb_wr_now = AudioInputUSB_inRingWr ();
+    bool usb_alive = (usb_wr_now != s_usb_in_wr_prev);
+    if (!usb_alive)
+    {
+        if (lag > OUT_RING_SIZE / 2)
+            rd = wr;
+    }
+    else
+    {
+        if (lag < OTG_LAG_MIN || lag > OTG_LAG_MAX)
+            rd = wr - OTG_TARGET_LAG;
+    }
     for (unsigned i = 0; i < nSamples; i++)
     {
         lag = (wr - rd) & OUT_RING_MASK;
@@ -45,10 +55,7 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
         }
     }
     s_ring_otg_rd = rd;
-
-    unsigned usb_wr = AudioInputUSB_inRingWr ();
-    bool usb_alive = (usb_wr != s_usb_in_wr_prev);
-    s_usb_in_wr_prev = usb_wr;
+    s_usb_in_wr_prev = usb_wr_now;
 
     if (!usb_alive)
     {
