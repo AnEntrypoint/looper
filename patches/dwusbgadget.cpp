@@ -512,14 +512,13 @@ boolean CDWUSBGadget::WaitForBit (CDWHCIRegister *pRegister,
 
 void CDWUSBGadget::HandleUSBSuspend (void)
 {
-#ifdef USB_GADGET_DEBUG
-	LOGDBG ("USB suspend");
-#endif
+	LOGWARN ("SUSPEND state=%u", (unsigned)m_State);
 
 	if (   m_State != StatePowered
 	    && m_State != StateSuspended
 	    && m_State != StateResetDone)
 	{
+		LOGWARN ("SUSPEND->PnP set");
 		m_bPnPEvent[PnPEventSuspend] = TRUE;
 
 		for (unsigned i = 0; i <= NumberOfEPs; i++)
@@ -543,9 +542,7 @@ void CDWUSBGadget::HandleUSBSuspend (void)
 
 void CDWUSBGadget::HandleUSBReset (void)
 {
-#ifdef USB_GADGET_DEBUG
-	LOGDBG ("USB reset");
-#endif
+	LOGWARN ("RESET state=%u", (unsigned)m_State);
 
 	switch (m_State)
 	{
@@ -626,12 +623,11 @@ void CDWUSBGadget::HandleUSBReset (void)
 
 void CDWUSBGadget::HandleEnumerationDone (void)
 {
-#ifdef USB_GADGET_DEBUG
-	LOGDBG ("Enumeration done");
-#endif
+	LOGWARN ("ENUM_DONE state=%u", (unsigned)m_State);
 
 	if (m_State == StateSuspended)
 	{
+		LOGWARN ("ENUM_DONE->HandleUSBReset");
 		HandleUSBReset ();
 	}
 
