@@ -8,9 +8,9 @@ audio_block_t *AudioOutputUSB::s_block_right = 0;
 
 #define OUT_RING_SIZE     256
 #define OUT_RING_MASK     (OUT_RING_SIZE - 1)
-#define OTG_TARGET_LAG    96
-#define OTG_LAG_MIN       48
-#define OTG_LAG_MAX       192
+#define OTG_TARGET_LAG    128
+#define OTG_LAG_MIN       80
+#define OTG_LAG_MAX       200
 static s16 s_ring_left [OUT_RING_SIZE];
 static s16 s_ring_right[OUT_RING_SIZE];
 static volatile unsigned s_ring_wr = 0;
