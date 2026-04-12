@@ -152,18 +152,14 @@ boolean CDWUSBGadget::UpdatePlugAndPlay (void)
 		AHBConfig.And (~DWHCI_CORE_AHB_CFG_GLOBALINT_MASK);
 		AHBConfig.Write ();
 
-		CDWHCIRegister DevCtrl (DWHCI_DEV_CTRL);
-		DevCtrl.Read ();
-		DevCtrl.Or (DWHCI_DEV_CTRL_SOFT_DISCONNECT);
-		DevCtrl.Write ();
-
 		if (!InitCore ())
 		{
 			LOGPANIC ("Cannot initialize core");
 		}
 
+		CDWHCIRegister DevCtrl (DWHCI_DEV_CTRL);
 		DevCtrl.Read ();
-		DevCtrl.And (~DWHCI_DEV_CTRL_SOFT_DISCONNECT);
+		DevCtrl.Or (DWHCI_DEV_CTRL_SOFT_DISCONNECT);
 		DevCtrl.Write ();
 
 		// Re-create EPs
@@ -182,6 +178,10 @@ boolean CDWUSBGadget::UpdatePlugAndPlay (void)
 		AHBConfig.Read ();
 		AHBConfig.Or (DWHCI_CORE_AHB_CFG_GLOBALINT_MASK);
 		AHBConfig.Write ();
+
+		DevCtrl.Read ();
+		DevCtrl.And (~DWHCI_DEV_CTRL_SOFT_DISCONNECT);
+		DevCtrl.Write ();
 	}
 	else if (m_bPnPEvent[PnPEventConfigured])
 	{
