@@ -11,7 +11,7 @@ static s16 s_ring_left [OUT_RING_SIZE];
 static s16 s_ring_right[OUT_RING_SIZE];
 static volatile unsigned s_ring_wr = 0;
 static volatile unsigned s_ring_rd = 0;
-static volatile unsigned s_ring_otg_rd = 0;
+static volatile unsigned s_ring_otg_rd = OUT_RING_SIZE - 96;
 
 void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
