@@ -67,7 +67,7 @@ private:
 	void HandleOutInterrupt (void);
 	void HandleInInterrupt (void);
 
-	void HandleUSBReset (void);
+	static void HandleUSBReset (void);
 
 	friend class CDWUSBGadget;
 
