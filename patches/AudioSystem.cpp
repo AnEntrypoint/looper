@@ -406,64 +406,31 @@ bool AudioSystem::takeUpdateResponsibility()
 void AudioSystem::startUpdate()
 {
 	DataMemBarrier();
-	if (s_nInUpdate)
-	{
-		s_numOverflows++;
-		return;
-	}
-	s_nInUpdate = 1;
+	s_nInUpdate++;
 	DataMemBarrier();
 
 	#if CORE_FOR_AUDIO_SYSTEM == 0
 		doUpdate();
 	#else
-		CCoreTask::Get()->SendIPI(CORE_FOR_AUDIO_SYSTEM,IPI_AUDIO_UPDATE);
+		if (s_nInUpdate == 1)
+			CCoreTask::Get()->SendIPI(CORE_FOR_AUDIO_SYSTEM,IPI_AUDIO_UPDATE);
 	#endif
 }
 
 
 void AudioSystem::doUpdate()
 {
-	#define WITH_TIMING
-
-	#ifdef WITH_TIMING
-		uint32_t totalcycles = CTimer::GetClockTicks();
-			// GetClockTicks() is in millionths of a second
-			// based on the 1Mhz physical counter, so we don't
-			// divide it any further.
-	#endif
-	
-	for (AudioStream *p = s_pFirstStream; p; p = p->m_pNextStream)
+	while (s_nInUpdate > 0)
 	{
-		if (p->m_numConnections)
+		for (AudioStream *p = s_pFirstStream; p; p = p->m_pNextStream)
 		{
-			#ifdef WITH_TIMING
-				uint32_t cycles =  CTimer::GetClockTicks();
-			#endif
-			
-			p->update();
-
-			// TODO: traverse inputQueueArray and release
-			// any input blocks that weren't consumed?
-
-			#ifdef WITH_TIMING
-				cycles = (CTimer::GetClockTicks() - cycles);
-				p->m_cpuCycles = cycles;
-				if (cycles > p->m_cpuCyclesMax)
-					p->m_cpuCyclesMax = cycles;
-			#endif
+			if (p->m_numConnections)
+				p->update();
 		}
+		DataMemBarrier();
+		s_nInUpdate--;
+		DataMemBarrier();
 	}
-	
-	#ifdef WITH_TIMING
-		totalcycles = (CTimer::GetClockTicks() - totalcycles);
-		s_cpuCycles = totalcycles;
-		if (totalcycles > s_cpuCyclesMax)
-			s_cpuCyclesMax = totalcycles;
-	#endif
-	
-	DataMemBarrier();
-	s_nInUpdate = 0;
 }
 
 	
