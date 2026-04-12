@@ -136,14 +136,16 @@ void CDWUSBGadgetEndpoint::OnUSBReset (void)
 void CDWUSBGadgetEndpoint::BeginTransfer (TTransferMode Mode, void *pBuffer, size_t nLength)
 {
 	if (!m_nEP)
-		LOGWARN ("EP0 BeginTransfer mode=%u buf=%p len=%u", (unsigned)Mode, pBuffer, (unsigned)nLength);
+		LOGWARN ("EP0 BeginTransfer mode=%u buf=%p len=%u prevmode=%u", (unsigned)Mode, pBuffer, (unsigned)nLength, (unsigned)m_TransferMode);
 	assert (Mode < TransferUnknown);
-	assert (m_TransferMode == TransferUnknown);
+	if (m_TransferMode != TransferUnknown || m_pTransferBuffer || m_nTransferLength != (size_t) -1)
+	{
+		LOGWARN ("EP%u BeginTransfer: auto-reset stale state (mode=%u)", m_nEP, (unsigned)m_TransferMode);
+		InitTransfer ();
+	}
 	m_TransferMode = Mode;
 	assert (pBuffer || !nLength);
-	assert (!m_pTransferBuffer);
 	m_pTransferBuffer = pBuffer;
-	assert (m_nTransferLength == (size_t) -1);
 	m_nTransferLength = nLength;
 	unsigned nPacketCount = 1;
 	if (nLength)
@@ -295,7 +297,6 @@ void CDWUSBGadgetEndpoint::HandleOutInterrupt (void)
 				LOGWARN ("EP0 SETUP_DONE: m_pTransferBuffer is NULL");
 		}
 		LOGWARN ("EP0 SETUP_DONE: calling OnControlMessage");
-		InitTransfer ();
 		OnControlMessage ();
 		LOGWARN ("EP0 SETUP_DONE: OnControlMessage returned");
 		OutEPInt.And (~DWHCI_DEV_OUT_EP_INT_XFER_COMPLETE);
