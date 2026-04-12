@@ -1,5 +1,8 @@
 ## 2026-04-12 — OTG USB gadget enumeration fix
 
+- fix: dwusbgadget.cpp — pulse soft-disconnect from UpdatePlugAndPlay main loop when SUSPEND fires at StateEnumDone; sets s_bNeedReconnect flag (max 3 attempts) to force Windows re-enumerate after boot SUSPEND absorption
+- debug: dwusbgadgetendpoint.cpp FinishTransfer assert replaced with LOGWARN+continue to diagnose nXferSize>nTransferLength without halting kernel
+- fix: usbaudiogadgetendpoint.h — remove empty OnUSBReset override; base CDWUSBGadgetEndpoint::OnUSBReset now called on USB reset, clearing stale transfer state via InitTransfer()
 - fix: dwusbgadget.cpp Initialize() pulses soft-disconnect for 100ms after InitCore() to force Windows host re-enumeration on Pi boot; without this Windows does not retry after a prior failed enumeration
 - fix: dwusbgadget.cpp HandleUSBSuspend also ignores SUSPEND when state==StateEnumDone; debug trace showed SUSPEND fires at StateEnumDone (=3) not StateResetDone — Windows sends SUSPEND between ENUM_DONE and EP0 GET_DESCRIPTOR, killing EP0 before it can respond
 - fix: dwusbgadget.cpp patched — HandleUSBSuspend now ignores SUSPEND when state==StateResetDone; prevents UpdatePlugAndPlay from destroying active enumeration window; ENUM_DONE fires normally → EP0 OnActivate() → EP0 armed; root cause: SUSPEND fired between RESET and ENUM_DONE during Windows USB enumeration, causing PnPEventSuspend to kill EP0 before it was ever armed
