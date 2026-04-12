@@ -157,11 +157,6 @@ boolean CDWUSBGadget::UpdatePlugAndPlay (void)
 			LOGPANIC ("Cannot initialize core");
 		}
 
-		CDWHCIRegister DevCtrl (DWHCI_DEV_CTRL);
-		DevCtrl.Read ();
-		DevCtrl.Or (DWHCI_DEV_CTRL_SOFT_DISCONNECT);
-		DevCtrl.Write ();
-
 		// Re-create EPs
 		size_t nDescLength;
 		const TUSBDeviceDescriptor *pDeviceDesc =
@@ -178,10 +173,6 @@ boolean CDWUSBGadget::UpdatePlugAndPlay (void)
 		AHBConfig.Read ();
 		AHBConfig.Or (DWHCI_CORE_AHB_CFG_GLOBALINT_MASK);
 		AHBConfig.Write ();
-
-		DevCtrl.Read ();
-		DevCtrl.And (~DWHCI_DEV_CTRL_SOFT_DISCONNECT);
-		DevCtrl.Write ();
 	}
 	else if (m_bPnPEvent[PnPEventConfigured])
 	{
@@ -516,7 +507,8 @@ void CDWUSBGadget::HandleUSBSuspend (void)
 #endif
 
 	if (   m_State != StatePowered
-	    && m_State != StateSuspended)
+	    && m_State != StateSuspended
+	    && m_State != StateResetDone)
 	{
 		m_bPnPEvent[PnPEventSuspend] = TRUE;
 

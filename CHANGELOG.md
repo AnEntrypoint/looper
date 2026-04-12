@@ -1,6 +1,6 @@
 ## 2026-04-12 — OTG USB gadget enumeration fix
 
-- fix: dwusbgadget.cpp patched — set DWHCI_DEV_CTRL_SOFT_DISCONNECT after InitCore() (not before — Reset() wipes all registers including DEV_CTRL), hold through EP creation and interrupt enable, clear after; forces host-visible USB disconnect/reconnect so Windows sends fresh USB RESET → ENUM_DONE → EP0 OnActivate() → EP0 armed
+- fix: dwusbgadget.cpp patched — HandleUSBSuspend now ignores SUSPEND when state==StateResetDone; prevents UpdatePlugAndPlay from destroying active enumeration window; ENUM_DONE fires normally → EP0 OnActivate() → EP0 armed; root cause: SUSPEND fired between RESET and ENUM_DONE during Windows USB enumeration, causing PnPEventSuspend to kill EP0 before it was ever armed
 - fix: s_DeviceDescriptor changed from static const to static (non-const) so VID/PID can be written at runtime without const_cast; const_cast into .rodata was silently ignored by MMU on rPi4, causing vid=0000/pid=0000 in device descriptor
 - debug: GetDescriptor logs device descriptor fields (len/cls/vid/pid) and config descriptor size
 
