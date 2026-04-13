@@ -26,6 +26,34 @@ jobs:
         with:
           path: circle/_prh/_apps/Looper
 
+      - name: Compute cache key for libraries
+        id: cache-key
+        run: |
+          CIRCLE_HASH=$(find circle -type f -name "*.h" -o -name "*.cpp" | sort | xargs cat | md5sum | cut -d' ' -f1)
+          PATCHES_HASH=$(find circle/_prh/_apps/Looper/patches -type f | sort | xargs cat | md5sum | cut -d' ' -f1)
+          CACHE_KEY="circle-libs-${CIRCLE_HASH:0:8}-${PATCHES_HASH:0:8}"
+          echo "key=$CACHE_KEY" >> $GITHUB_OUTPUT
+
+      - name: Restore cached libraries
+        uses: actions/cache@v3
+        id: cache-restore
+        with:
+          path: |
+            circle/lib/libcircle.a
+            circle/lib/fs/libfs.a
+            circle/lib/input/libinput.a
+            circle/lib/sched/libsched.a
+            circle/lib/usb/libusb.a
+            circle/lib/usb/gadget/libusbgadget.a
+            circle/lib/net/libnet.a
+            circle/addon/fatfs/libfatfs.a
+            circle/addon/SDCard/libsdcard.a
+            circle/addon/wlan/libwlan.a
+            circle/_prh/utils/lib_my_utils.a
+            circle/_prh/audio/libaudio.a
+          key: ${{ steps.cache-key.outputs.key }}
+          restore-keys: circle-libs-
+
       - name: Apply patches
         run: |
           ln -sf bcm_pcm.h circle/_prh/audio/BCM_PCM.h
@@ -71,6 +99,7 @@ jobs:
           sed -i 's|//#define ARM_ALLOW_MULTI_CORE|#define ARM_ALLOW_MULTI_CORE|' circle/include/circle/sysconfig.h
 
       - name: Build circle libraries
+        if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
           make -C circle/lib RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
           make -C circle/lib/fs RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
@@ -105,6 +134,25 @@ jobs:
         run: |
           make -C circle/_prh/utils RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
           make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1
+
+      - name: Save libraries to cache
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            circle/lib/libcircle.a
+            circle/lib/fs/libfs.a
+            circle/lib/input/libinput.a
+            circle/lib/sched/libsched.a
+            circle/lib/usb/libusb.a
+            circle/lib/usb/gadget/libusbgadget.a
+            circle/lib/net/libnet.a
+            circle/addon/fatfs/libfatfs.a
+            circle/addon/SDCard/libsdcard.a
+            circle/addon/wlan/libwlan.a
+            circle/_prh/utils/lib_my_utils.a
+            circle/_prh/audio/libaudio.a
+          key: ${{ steps.cache-key.outputs.key }}
 
       - name: Build Looper
         run: |
