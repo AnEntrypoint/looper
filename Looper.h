@@ -19,6 +19,7 @@
 #include <audio/Audio.h>
 #include "commonDefines.h"
     // LOOPER_NUM_TRACKS and LAYERS, TRACK_STATES, LOOP_COMMANDS, and common CC's
+#include "patches/RubberBandWrapper.h"
 
 #define WITH_METERS   1
 
@@ -256,6 +257,7 @@ class loopClip : public publicClip
         loopTrack  *m_pLoopTrack;
 
         s16 *m_buffer;
+        RubberBandWrapper m_wrapper;
 
         void _startRecording();
         void _startEndingRecording(u32 trimToBlocks, bool willPlay);

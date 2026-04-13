@@ -4,7 +4,8 @@
 #define log_name "lclip"
 
 loopClip::loopClip(u16 clip_num, loopTrack *pTrack) :
-    publicClip(pTrack->getTrackNum(), clip_num)
+    publicClip(pTrack->getTrackNum(), clip_num),
+    m_wrapper(AUDIO_SAMPLE_RATE, LOOPER_NUM_CHANNELS)
 {
     m_pLoopTrack = pTrack;
     init();
