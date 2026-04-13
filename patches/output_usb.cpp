@@ -9,13 +9,10 @@ audio_block_t *AudioOutputUSB::s_block_right = 0;
 
 #define OUT_RING_SIZE     256
 #define OUT_RING_MASK     (OUT_RING_SIZE - 1)
-#define OTG_MAX_LAG       (OUT_RING_SIZE / 2)
 static s16 s_ring_left [OUT_RING_SIZE];
 static s16 s_ring_right[OUT_RING_SIZE];
 static volatile unsigned s_ring_wr = 0;
 static volatile unsigned s_ring_rd = 0;
-static unsigned s_otg_rd = 0;
-static bool     s_otg_rd_valid = false;
 
 #ifndef LOOPER_USB_AUDIO
 static volatile unsigned s_otg_sample_count = 0;
@@ -27,26 +24,13 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
     unsigned wr = s_ring_wr;
 
-    if (!s_otg_rd_valid)
-    {
-        s_otg_rd = wr - nSamples;
-        s_otg_rd_valid = true;
-    }
-    else
-    {
-        unsigned lag = wr - s_otg_rd;
-        if (lag > OTG_MAX_LAG)
-            s_otg_rd = wr - nSamples;
-    }
-
-    unsigned rd = s_otg_rd;
+    unsigned rd = wr - nSamples;
     for (unsigned i = 0; i < nSamples; i++)
     {
         pLeft[i]  = s_ring_left [rd & OUT_RING_MASK];
         pRight[i] = s_ring_right[rd & OUT_RING_MASK];
         rd++;
     }
-    s_otg_rd = rd;
 
 #ifndef LOOPER_USB_AUDIO
     unsigned usb_wr_now = AudioInputUSB_inRingWr ();

@@ -2,6 +2,7 @@
 #define _usbaudiogadgetendpoint_h
 
 #include <circle/usb/gadget/dwusbgadgetendpoint.h>
+#include <circle/macros.h>
 #include <circle/types.h>
 
 class CUSBAudioGadget;
@@ -31,9 +32,9 @@ private:
 	TAudioInHandler  *m_pInHandler;
 	TAudioOutHandler *m_pOutHandler;
 
-	u8 m_InBuf  [AUDIO_GADGET_PKT_SIZE];
-	u8 m_OutBuf [AUDIO_GADGET_PKT_SIZE];
-	u8 m_InBufNext [AUDIO_GADGET_PKT_SIZE];
+	DMA_BUFFER (u8, m_InBuf,     AUDIO_GADGET_PKT_SIZE);
+	DMA_BUFFER (u8, m_OutBuf,    AUDIO_GADGET_PKT_SIZE);
+	DMA_BUFFER (u8, m_InBufNext, AUDIO_GADGET_PKT_SIZE);
 
 	s16 m_OutRingLeft  [AUDIO_GADGET_RING_SIZE];
 	s16 m_OutRingRight [AUDIO_GADGET_RING_SIZE];
