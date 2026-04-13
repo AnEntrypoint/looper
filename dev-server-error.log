@@ -596,3 +596,4 @@ Node.js v23.10.0
 [UPDATE] failed: socket hang up
 [UPDATE] failed: socket hang up
 [UPDATE] failed: Client network socket disconnected before secure TLS connection was established
+[UPDATE] failed: read ECONNRESET
