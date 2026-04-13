@@ -152,13 +152,40 @@ TShutdownMode CKernel::Run(void)
 	linkInit(&m_WLAN);
 
 	CSocket *pRebootSocket = new CSocket(&m_Net, IPPROTO_UDP);
-	if (pRebootSocket->Bind(4444) < 0) { delete pRebootSocket; pRebootSocket = nullptr; }
+	if (pRebootSocket->Bind(4444) < 0)
+	{
+		m_Logger.Write(log_name, LogWarning, "reboot socket bind failed on port 4444");
+		delete pRebootSocket;
+		pRebootSocket = nullptr;
+	}
+	else
+	{
+		m_Logger.Write(log_name, LogNotice, "reboot socket bound to port 4444");
+	}
 
 	CSocket *pDebugSocket = new CSocket(&m_Net, IPPROTO_UDP);
-	if (pDebugSocket->Bind(4445) < 0) { delete pDebugSocket; pDebugSocket = nullptr; }
+	if (pDebugSocket->Bind(4445) < 0)
+	{
+		m_Logger.Write(log_name, LogWarning, "debug socket bind failed on port 4445");
+		delete pDebugSocket;
+		pDebugSocket = nullptr;
+	}
+	else
+	{
+		m_Logger.Write(log_name, LogNotice, "debug socket bound to port 4445");
+	}
 
 	CSocket *pMidiSocket = new CSocket(&m_Net, IPPROTO_UDP);
-	if (pMidiSocket->Bind(4446) < 0) { delete pMidiSocket; pMidiSocket = nullptr; }
+	if (pMidiSocket->Bind(4446) < 0)
+	{
+		m_Logger.Write(log_name, LogWarning, "midi socket bind failed on port 4446");
+		delete pMidiSocket;
+		pMidiSocket = nullptr;
+	}
+	else
+	{
+		m_Logger.Write(log_name, LogNotice, "midi socket bound to port 4446");
+	}
 
 	setup();
 

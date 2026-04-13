@@ -19,10 +19,14 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 		CIPAddress sender;
 		u16 port;
 		int n = pReboot->ReceiveFrom(buf, sizeof buf - 1, MSG_DONTWAIT, &sender, &port);
-		if (n >= 6 && memcmp(buf, "REBOOT", 6) == 0)
+		if (n > 0)
 		{
-			m_Logger.Write(kLog, LogNotice, "Reboot command received via UDP");
-			return ShutdownReboot;
+			m_Logger.Write(kLog, LogDebug, "reboot socket received %d bytes from %s:%u", n, (const char *)sender.Format(), port);
+			if (n >= 6 && memcmp(buf, "REBOOT", 6) == 0)
+			{
+				m_Logger.Write(kLog, LogNotice, "Reboot command received via UDP");
+				return ShutdownReboot;
+			}
 		}
 	}
 
