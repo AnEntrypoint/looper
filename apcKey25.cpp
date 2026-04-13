@@ -231,15 +231,6 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
 #endif
         return;
     }
-
-    if (msgType == 0x91 && data2 > 0)
-    {
-        if (m_transposeLocked)
-        {
-            m_transposePitch = data1 % 12;
-        }
-        return;
-    }
 }
 
 void apcKey25::update()
