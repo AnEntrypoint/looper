@@ -200,6 +200,7 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
     if (msgType == APC_CH_NOTE_ON && data2 > 0)
     {
         if (data1 == APC_BTN_SHIFT) { m_shift = true; return; }
+        if (data1 == 64) { m_transposeLocked = true; return; }
         if (data1 < APC_ROWS * APC_COLS)
         {
             _onPadPress(data1 / APC_COLS, data1 % APC_COLS);
@@ -212,6 +213,7 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
     if (msgType == APC_CH_NOTE_OFF || (msgType == APC_CH_NOTE_ON && data2 == 0))
     {
         if (data1 == APC_BTN_SHIFT) { m_shift = false; return; }
+        if (data1 == 64) { m_transposeLocked = false; return; }
         if (data1 < APC_ROWS * APC_COLS)
             _onPadRelease(data1 / APC_COLS, data1 % APC_COLS);
         return;
