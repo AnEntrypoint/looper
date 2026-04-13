@@ -34,6 +34,8 @@ ifdef ARM_ALLOW_MULTI_CORE
 DEFINE += -DARM_ALLOW_MULTI_CORE
 endif
 
+DEFINE += -DLOOPER_LIVE_PITCH
+
 include $(CIRCLEHOME)/Rules.mk
 
 .PHONY: cstdint RubberBandStretcher.h
