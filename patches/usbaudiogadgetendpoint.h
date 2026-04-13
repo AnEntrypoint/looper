@@ -10,7 +10,7 @@ typedef void TAudioInHandler  (s16 *pLeft, s16 *pRight, unsigned nSamples);
 typedef void TAudioOutHandler (const s16 *pLeft, const s16 *pRight, unsigned nSamples);
 
 #define AUDIO_GADGET_RING_SIZE  256
-#define AUDIO_GADGET_PKT_SIZE   176
+#define AUDIO_GADGET_PKT_SIZE   192
 
 class CUSBAudioGadgetEndpoint : public CDWUSBGadgetEndpoint
 {
