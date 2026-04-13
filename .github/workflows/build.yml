@@ -107,7 +107,9 @@ jobs:
           make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1
 
       - name: Build Looper
-        run: make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1
+        run: |
+          make -C circle/_prh/_apps/Looper clean RASPPI=4 AARCH=32
+          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1
 
       - name: Collect boot files
         run: |
