@@ -251,6 +251,7 @@ class loopClip : public publicClip
         void clearMarkPoint();
         void halveLength();
         void doubleLength();
+        void setTempoRatio(float ratio)  { m_wrapper.setTempoRatio(ratio); }
 
     private:
 
@@ -455,6 +456,7 @@ class loopMachine : public publicLoopMachine
         int m_mark_point_state;
 
         volatile u16 m_track_pending[LOOPER_NUM_TRACKS];
+        u32 m_prevMasterLoopBlocks;
 
         loopTrack *m_tracks[LOOPER_NUM_TRACKS];
 
