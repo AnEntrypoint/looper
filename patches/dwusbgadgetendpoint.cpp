@@ -176,13 +176,10 @@ void CDWUSBGadgetEndpoint::BeginTransfer (TTransferMode Mode, void *pBuffer, siz
 		InEPCtrl.Or (s_NextEPSeq[m_nEP] << DWHCI_DEV_IN_EP_CTRL_NEXT_EP__SHIFT);
 		if (m_Type == TypeIsochronous)
 		{
-			CDWHCIRegister DevStatus (DWHCI_DEV_STATUS);
-			u32 nFrame = (DevStatus.Read () & DWHCI_DEV_STATUS_SOFFN__MASK)
-				     >> DWHCI_DEV_STATUS_SOFFN__SHIFT;
-			if ((nFrame + 1) & 1)
-				InEPCtrl.Or (DWHCI_DEV_EP_CTRL_SET_ODD_FRAME);
-			else
-				InEPCtrl.Or (DWHCI_DEV_EP_CTRL_SET_EVEN_FRAME);
+			// Clear both frame parity bits — let hardware pick next available frame.
+			// Setting explicit even/odd caused periodic frame-parity mismatches
+			// (~every 8.7s) when DSTS read races with SOF counter advancement.
+			InEPCtrl.And (~(DWHCI_DEV_EP_CTRL_SET_EVEN_FRAME | DWHCI_DEV_EP_CTRL_SET_ODD_FRAME));
 		}
 		InEPCtrl.Or (DWHCI_DEV_EP_CTRL_EP_ENABLE);
 		InEPCtrl.Or (DWHCI_DEV_EP_CTRL_CLEAR_NAK);
