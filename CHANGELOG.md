@@ -1,3 +1,8 @@
+## 2026-04-13 — Add transpose state observability: DebugState struct + getDebugState()
+
+- feat: apcKey25.h — add DebugState struct (transposeLocked, transposePitch, pitchWheelOffset, driftTarget, computedRatio) and getDebugState() method declaration to expose transpose lock state for troubleshooting
+- feat: apcKey25Transpose.cpp — implement getDebugState() to return current transpose state as immutable struct; enables live monitoring of lock/unlock, pitch changes, drift behavior without performance impact
+
 ## 2026-04-13 — Fix build errors: kernel.cpp SetLogLevel, Makefile include path, add RubberBandWrapper header
 
 - fix: patches/kernel.cpp — remove line 83 `m_Logger.SetLogLevel(LogPanic, &m_Screen)` which does not exist in Circle's CLogger class; log level is already set in constructor to LogDebug

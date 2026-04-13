@@ -41,6 +41,16 @@ public:
     void handleMidi(u8 status, u8 data1, u8 data2);
     void update();
 
+    struct DebugState {
+        bool transposeLocked;
+        int transposePitch;
+        float pitchWheelOffset;
+        float driftTarget;
+        float computedRatio;
+    };
+
+    DebugState getDebugState() const;
+
 private:
     bool          m_shift;
     volatile bool m_cmdReady;

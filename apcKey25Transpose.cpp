@@ -60,6 +60,17 @@ u8 apcKey25::_muteLedColor(int track)
     return color;
 }
 
+apcKey25::DebugState apcKey25::getDebugState() const
+{
+    return {
+        m_transposeLocked,
+        m_transposePitch,
+        m_pitchWheelOffset,
+        m_driftTarget,
+        m_computedRatio
+    };
+}
+
 void apcKey25::_updateGridLeds()
 {
     for (int row = 0; row < LOOPER_NUM_TRACKS; row++)
