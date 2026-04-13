@@ -46,24 +46,14 @@ void AudioOutputOTG::start (void)
 
 void AudioOutputOTG::tapHandler (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
-	AudioOutputUSB_tapOTG (pLeft, pRight, nSamples);
-
-	// If output is silent (all zeros), overlay 440Hz test tone so we can
-	// verify the OTG pipeline works independently of UCA222 audio.
-	bool allZero = true;
-	for (unsigned i = 0; i < nSamples && allZero; i++)
-		if (pLeft[i] || pRight[i]) allZero = false;
-
-	if (allZero)
+	// Output 440Hz test sine directly to verify OTG pipeline.
+	// Phase increment: 65536 * 440 / 48000 = 600.57 -> 600
+	const unsigned inc = (unsigned)((u64)65536 * SINE_FREQ_HZ / SINE_SAMPLE_RATE);
+	for (unsigned i = 0; i < nSamples; i++)
 	{
-		// Phase increment per sample: 65536 * SINE_FREQ_HZ / SINE_SAMPLE_RATE
-		const unsigned inc = (unsigned)((u64)65536 * SINE_FREQ_HZ / SINE_SAMPLE_RATE);
-		for (unsigned i = 0; i < nSamples; i++)
-		{
-			s16 v = sineApprox (s_sinePhase, SINE_AMPLITUDE);
-			pLeft[i]  = v;
-			pRight[i] = v;
-			s_sinePhase += inc;
-		}
+		s16 v = sineApprox (s_sinePhase, SINE_AMPLITUDE);
+		pLeft[i]  = v;
+		pRight[i] = v;
+		s_sinePhase += inc;
 	}
 }
