@@ -17,20 +17,17 @@ static volatile unsigned s_ring_rd = 0;
 // OTG tap: rate-adaptive ring reader.
 // Target lag = OTG_LAG_TARGET samples behind ring write pointer.
 //
-// Drift correction: IIR-smoothed avail vs target with wide deadband.
-// IIR filters out the 64-sample block-write oscillation (~750Hz sawtooth).
-// When smoothed avail drifts outside [TARGET-DEADBAND, TARGET+DEADBAND],
-// apply one skip (+1 rd) or repeat (-1 rd), then wait COOLDOWN calls.
-// At 300ppm = 14 samples/sec drift, DEADBAND=96: correction every ~7s.
+// Drift correction: direct deadband control.
+// Every OTG call: if avail > TARGET+DEADBAND, skip one sample (rd++).
+//                if avail < TARGET-DEADBAND, repeat one sample (rd--).
+// Deadband=48 > block-write oscillation (~32), so oscillation doesn't
+// trigger spurious corrections. At 300ppm=14 samples/sec drift:
+// ~14 corrections/sec, spaced ~69 calls (69ms) apart uniformly.
 #define OTG_LAG_TARGET    512
-#define OTG_IIR_SHIFT     10    // IIR coef = 1 - 1/1024, time constant ~1024 calls (~1s)
-#define OTG_DEADBAND      96    // ±96 samples from target before correction
-#define OTG_COOLDOWN      2048  // calls between corrections (~2s)
+#define OTG_DEADBAND      48    // > block-write oscillation amplitude (~32)
 
-static volatile unsigned s_otg_rd       = 0;
-static bool              s_otg_rd_init  = false;
-static unsigned          s_otg_avail_iir = 0;   // IIR smoothed avail (<<OTG_IIR_SHIFT fixed point)
-static int               s_otg_cooldown = 0;
+static volatile unsigned s_otg_rd      = 0;
+static bool              s_otg_rd_init = false;
 
 #ifndef LOOPER_USB_AUDIO
 static volatile unsigned s_otg_sample_count = 0;
@@ -44,10 +41,8 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 
     if (!s_otg_rd_init)
     {
-        s_otg_rd        = wr - OTG_LAG_TARGET;
-        s_otg_avail_iir = OTG_LAG_TARGET << OTG_IIR_SHIFT;
-        s_otg_cooldown  = OTG_COOLDOWN;
-        s_otg_rd_init   = true;
+        s_otg_rd      = wr - OTG_LAG_TARGET;
+        s_otg_rd_init = true;
     }
 
     unsigned rd = s_otg_rd;
@@ -56,31 +51,15 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
     // Hard resync on catastrophic overrun/underrun.
     if (avail >= (int)(OUT_RING_SIZE - 64) || avail <= 0)
     {
-        rd              = wr - OTG_LAG_TARGET;
-        s_otg_avail_iir = OTG_LAG_TARGET << OTG_IIR_SHIFT;
-        s_otg_cooldown  = OTG_COOLDOWN;
-        avail           = OTG_LAG_TARGET;
+        rd    = wr - OTG_LAG_TARGET;
+        avail = OTG_LAG_TARGET;
     }
 
-    // IIR smooth avail to filter out 64-sample block-write oscillation.
-    s_otg_avail_iir = s_otg_avail_iir - (s_otg_avail_iir >> OTG_IIR_SHIFT) + avail;
-    int smoothed = (int)(s_otg_avail_iir >> OTG_IIR_SHIFT);
-
-    // Single skip/repeat when smoothed avail drifts outside deadband, with cooldown.
-    if (s_otg_cooldown > 0)
-    {
-        s_otg_cooldown--;
-    }
-    else if (smoothed > OTG_LAG_TARGET + OTG_DEADBAND)
-    {
-        rd++;                          // skip one sample (drain extra buffer)
-        s_otg_cooldown = OTG_COOLDOWN;
-    }
-    else if (smoothed < OTG_LAG_TARGET - OTG_DEADBAND)
-    {
-        rd--;                          // repeat one sample (pad shrinking buffer)
-        s_otg_cooldown = OTG_COOLDOWN;
-    }
+    // Direct deadband correction: single skip or repeat per call.
+    if (avail > OTG_LAG_TARGET + OTG_DEADBAND)
+        rd++;   // skip one sample
+    else if (avail < OTG_LAG_TARGET - OTG_DEADBAND)
+        rd--;   // repeat one sample
 
     for (unsigned i = 0; i < nSamples; i++)
     {
