@@ -78,7 +78,10 @@ boolean CKernel::Initialize(void)
 #endif
 
 	if (m_Screen.Initialize())
+	{
 		m_Logger.Initialize(&m_Screen);
+		m_Logger.SetLogLevel(LogPanic, &m_Screen);
+	}
 	m_ActLED.Blink(1);
 
 	m_Serial.Initialize(SERIAL_BAUD_RATE);
