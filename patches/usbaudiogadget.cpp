@@ -1,5 +1,5 @@
-#include "usbaudiogadget.h"
 #include "usbaudiogadgetendpoint.h"
+#include "usbaudiogadget.h"
 #include <circle/util.h>
 #include <assert.h>
 
@@ -28,16 +28,16 @@ const CUSBAudioGadget::TUSBAudioGadgetConfigurationDescriptor CUSBAudioGadget::s
 	{ sizeof (TUSBInterfaceDescriptor), DESCRIPTOR_INTERFACE,
 	  1, 1, 1, 0x01, 0x02, 0x00, 0 },
 	{ 7, 0x24, 0x01, 1, 0x00, 0x01, 0x00 },
-	{ 11, 0x24, 0x02, 0x01, 0x02, 2, 0x10, 1, 0x80, 0xBB, 0x00 },
-	{ 9, 0x05, (u8)(EPOut | 0x00), 0x01, 0xC0, 0x00, 0x01, 0x00, 0x00 },
+	{ 11, 0x24, 0x02, 0x01, 0x02, 2, 0x10, 1, 0x44, 0xAC, 0x00 },
+	{ 9, 0x05, (u8)(EPOut | 0x00), 0x01, 0xB0, 0x00, 0x01, 0x00, 0x00 },
 	{ 7, 0x25, 0x01, 0x01, 0x00, 0x00, 0x00 },
 	{ sizeof (TUSBInterfaceDescriptor), DESCRIPTOR_INTERFACE,
 	  2, 0, 0, 0x01, 0x02, 0x00, 0 },
 	{ sizeof (TUSBInterfaceDescriptor), DESCRIPTOR_INTERFACE,
 	  2, 1, 1, 0x01, 0x02, 0x00, 0 },
 	{ 7, 0x24, 0x01, 4, 0x00, 0x01, 0x00 },
-	{ 11, 0x24, 0x02, 0x01, 0x02, 2, 0x10, 1, 0x80, 0xBB, 0x00 },
-	{ 9, 0x05, (u8)(EPIn | 0x80), 0x01, 0xC0, 0x00, 0x01, 0x00, 0x00 },
+	{ 11, 0x24, 0x02, 0x01, 0x02, 2, 0x10, 1, 0x44, 0xAC, 0x00 },
+	{ 9, 0x05, (u8)(EPIn | 0x80), 0x01, 0xB0, 0x00, 0x01, 0x00, 0x00 },
 	{ 7, 0x25, 0x01, 0x01, 0x00, 0x00, 0x00 },
 };
 
@@ -115,7 +115,7 @@ void CUSBAudioGadget::AddEndpoints (void)
 	descOut.bDescriptorType  = DESCRIPTOR_ENDPOINT;
 	descOut.bEndpointAddress = EPOut;
 	descOut.bmAttributes     = 0x01;
-	descOut.wMaxPacketSize   = 192;
+	descOut.wMaxPacketSize   = AUDIO_GADGET_PKT_SIZE;
 	descOut.bInterval        = 1;
 	m_pEPOut = new CUSBAudioGadgetEndpoint (&descOut, this);
 
@@ -125,7 +125,7 @@ void CUSBAudioGadget::AddEndpoints (void)
 	descIn.bDescriptorType  = DESCRIPTOR_ENDPOINT;
 	descIn.bEndpointAddress = EPIn | 0x80;
 	descIn.bmAttributes     = 0x01;
-	descIn.wMaxPacketSize   = 192;
+	descIn.wMaxPacketSize   = AUDIO_GADGET_PKT_SIZE;
 	descIn.bInterval        = 1;
 	m_pEPIn = new CUSBAudioGadgetEndpoint (&descIn, this);
 }
