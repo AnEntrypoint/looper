@@ -31,7 +31,8 @@ public:
   {
     using namespace RubberBand;
     int opts = RubberBandStretcher::OptionProcessRealTime |
-               RubberBandStretcher::OptionEngineFaster;
+               RubberBandStretcher::OptionEngineFaster |
+               RubberBandStretcher::OptionWindowShort;
     m_rb = new RubberBandStretcher(sampleRate, channels, opts, 1.0, 1.0);
     m_rb->setMaxProcessSize(524288);
     memset(m_in_ring, 0, sizeof(m_in_ring));
