@@ -178,7 +178,7 @@ void apcKey25::update()
             pTheLooper->command(arg);
         }
     }
-
+    _updateDrift();
     for (int row = 0; row < LOOPER_NUM_TRACKS; row++)
     {
         if (m_col1Held[row] && !m_col1EraseTriggered[row])

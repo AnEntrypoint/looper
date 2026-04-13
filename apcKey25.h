@@ -68,6 +68,7 @@ private:
     void _onPadRelease(int row, int col);
     void _onButton(u8 note);
     void _sendLed(u8 note, u8 velocity);
+    void _updateDrift();
     void _updateGridLeds();
     u8   _trackLedColor(int track);
     u8   _muteLedColor(int track);

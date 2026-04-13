@@ -7,6 +7,23 @@
 extern apcKey25 *pTheAPC;
 extern publicLoopMachine *pTheLooper;
 
+void apcKey25::_updateDrift()
+{
+    if (m_pitchWheelOffset != m_driftTarget)
+    {
+        unsigned long elapsedMs = m_nowMs - m_lastDriftMs;
+        float driftPerMs = 0.01f;
+        float drift = driftPerMs * elapsedMs;
+        if (m_pitchWheelOffset > m_driftTarget + 0.5f)
+            m_pitchWheelOffset -= drift;
+        else if (m_pitchWheelOffset < m_driftTarget - 0.5f)
+            m_pitchWheelOffset += drift;
+        else
+            m_pitchWheelOffset = m_driftTarget;
+        m_lastDriftMs = m_nowMs;
+    }
+}
+
 u8 apcKey25::_trackLedColor(int track)
 {
     if (track >= LOOPER_NUM_TRACKS) return APC_VEL_LED_OFF;
