@@ -97,11 +97,16 @@ void apcKey25::_onButton(u8 note)
 void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
 {
     u8 msgType = status & 0xF0;
+    u8 channel = status & 0x0F;
 
     if (msgType == APC_CH_NOTE_ON && data2 > 0)
     {
         if (data1 == APC_BTN_SHIFT) { m_shift = true; return; }
         if (data1 == 64) { m_transposeLocked = true; return; }
+        if (channel == 2 && m_transposeLocked) {
+            m_transposePitch = data1 % 12;
+            return;
+        }
         if (data1 < APC_ROWS * APC_COLS)
         {
             _onPadPress(data1 / APC_COLS, data1 % APC_COLS);
