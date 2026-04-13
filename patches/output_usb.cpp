@@ -40,15 +40,13 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 
     unsigned rd = s_otg_rd;
 
-    // If we've caught up to within nSamples of wr, snap back OTG_LAG behind wr
-    // (ring overrun — audio system ran slow). Output silence for this packet.
+    // If lagging too far behind wr (overrun — ring wrapped), clamp forward.
+    // If ahead of wr (underrun — audio ran slow), clamp to wr - nSamples.
     int avail = (int)(wr - rd);
-    if (avail < (int)nSamples)
-    {
-        s_otg_rd = wr - OTG_LAG;
-        for (unsigned i = 0; i < nSamples; i++) { pLeft[i] = 0; pRight[i] = 0; }
-        return;
-    }
+    if (avail > (int)(OUT_RING_SIZE / 2))
+        rd = wr - OTG_LAG;          // too far behind, jump forward
+    else if (avail < (int)nSamples)
+        rd = wr - nSamples;         // underrun, use most recent nSamples
 
     for (unsigned i = 0; i < nSamples; i++)
     {
