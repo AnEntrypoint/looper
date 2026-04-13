@@ -1,6 +1,8 @@
-## 2026-04-13 — Fix kernel.cpp compile error: remove erroneous CLogger::SetLogLevel() call
+## 2026-04-13 — Fix build errors: kernel.cpp SetLogLevel, Makefile include path, add RubberBandWrapper header
 
 - fix: patches/kernel.cpp — remove line 83 `m_Logger.SetLogLevel(LogPanic, &m_Screen)` which does not exist in Circle's CLogger class; log level is already set in constructor to LogDebug
+- fix: Makefile — add `-I .` to INCLUDE path so compiler can find `patches/RubberBandWrapper.h` when included from audio.cpp
+- feat: patches/RubberBandWrapper.h — add header for tempo/pitch stretching wrapper around RubberBand::RubberBandStretcher; required for integrate-clip-stretch feature
 
 ## 2026-04-12 — Fix multicore: call CMultiCoreSupport::Initialize() to start secondary cores
 

@@ -18,7 +18,7 @@ LIBS = $(PRH_HOME)/audio/libaudio.a \
        $(CIRCLEHOME)/lib/fs/libfs.a \
        $(CIRCLEHOME)/lib/libcircle.a
 
-INCLUDE += -I $(PRH_HOME) -I $(PRH_HOME)/utils -I $(PRH_HOME)/audio \
+INCLUDE += -I . -I $(PRH_HOME) -I $(PRH_HOME)/utils -I $(PRH_HOME)/audio \
            -I $(CIRCLEHOME)/addon/fatfs -I $(CIRCLEHOME)/addon/SDCard \
            -I $(CIRCLEHOME)/addon/wlan
 
