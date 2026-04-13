@@ -132,9 +132,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view latest --repo ${{ github.repository }} > /dev/null 2>&1; then
-            gh release delete latest --yes --repo ${{ github.repository }}
+            echo "Deleting old release..."
+            gh release delete latest --yes --repo ${{ github.repository }} 2>&1
+            sleep 2
           fi
+          echo "Creating new release..."
           gh release create latest looper-sd.zip \
             --title "Latest Build" \
             --notes "Automated build from commit ${{ github.sha }}" \
-            --repo ${{ github.repository }}
+            --repo ${{ github.repository }} 2>&1
