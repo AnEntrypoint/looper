@@ -8,7 +8,11 @@
 
 apcKey25 *pTheAPC = 0;
 
-apcKey25::apcKey25() : m_shift(false), m_cmdReady(false), m_cmdType(ApcCmd::NONE), m_cmdArg(0), m_nowMs(0), m_bootMs(0), m_lastLedMs(0)
+apcKey25::apcKey25()
+    : m_shift(false), m_cmdReady(false), m_cmdType(ApcCmd::NONE), m_cmdArg(0),
+      m_nowMs(0), m_bootMs(0), m_lastLedMs(0),
+      m_transposeLocked(false), m_transposePitch(0), m_pitchWheelOffset(0),
+      m_driftTarget(0.0f), m_lastDriftMs(0)
 {
     pTheAPC = this;
     for (int i = 0; i < LOOPER_NUM_TRACKS; i++)

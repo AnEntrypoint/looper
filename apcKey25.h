@@ -56,6 +56,13 @@ private:
     unsigned long m_bootMs;
     unsigned long m_lastLedMs;
 
+    // Transpose lock state
+    bool          m_transposeLocked;
+    int           m_transposePitch;      // 0-11 semitones
+    int           m_pitchWheelOffset;    // -6 to +6 fine offset
+    float         m_driftTarget;
+    unsigned long m_lastDriftMs;
+
     void _queueCmd(ApcCmd::Type type, int arg);
     void _onPadPress(int row, int col);
     void _onPadRelease(int row, int col);
