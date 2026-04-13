@@ -1,0 +1,89 @@
+﻿2026-04-07T15:20:26.6559881Z ##[group]Run sudo apt-get install -y make gcc-arm-none-eabi
+2026-04-07T15:20:26.6560857Z [36;1msudo apt-get install -y make gcc-arm-none-eabi[0m
+2026-04-07T15:20:26.6591274Z shell: /usr/bin/bash -e {0}
+2026-04-07T15:20:26.6592074Z env:
+2026-04-07T15:20:26.6592485Z   RASPPI: 4
+2026-04-07T15:20:26.6593085Z   AARCH: 32
+2026-04-07T15:20:26.6593470Z ##[endgroup]
+2026-04-07T15:20:27.5247080Z Reading package lists...
+2026-04-07T15:20:27.7250620Z Building dependency tree...
+2026-04-07T15:20:27.7260568Z Reading state information...
+2026-04-07T15:20:27.9003827Z make is already the newest version (4.3-4.1build2).
+2026-04-07T15:20:27.9005640Z The following additional packages will be installed:
+2026-04-07T15:20:27.9008126Z   binutils-arm-none-eabi libnewlib-arm-none-eabi libnewlib-dev
+2026-04-07T15:20:27.9013159Z   libstdc++-arm-none-eabi-dev libstdc++-arm-none-eabi-newlib
+2026-04-07T15:20:27.9020265Z Suggested packages:
+2026-04-07T15:20:27.9235886Z   libnewlib-doc
+2026-04-07T15:20:27.9236896Z The following NEW packages will be installed:
+2026-04-07T15:20:27.9238911Z   binutils-arm-none-eabi gcc-arm-none-eabi libnewlib-arm-none-eabi
+2026-04-07T15:20:27.9247611Z   libnewlib-dev libstdc++-arm-none-eabi-dev libstdc++-arm-none-eabi-newlib
+2026-04-07T15:20:27.9477848Z 0 upgraded, 6 newly installed, 0 to remove and 29 not upgraded.
+2026-04-07T15:20:27.9479198Z Need to get 574 MB of archives.
+2026-04-07T15:20:27.9480400Z After this operation, 3106 MB of additional disk space will be used.
+2026-04-07T15:20:27.9482365Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2026-04-07T15:20:28.0032364Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 binutils-arm-none-eabi amd64 2.42-1ubuntu1+23 [3137 kB]
+2026-04-07T15:20:28.0985126Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 gcc-arm-none-eabi amd64 15:13.2.rel1-2 [57.5 MB]
+2026-04-07T15:20:29.3083463Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 libstdc++-arm-none-eabi-dev all 15:13.2.rel1-2+26 [1320 kB]
+2026-04-07T15:20:29.3686896Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 libnewlib-dev all 4.4.0.20231231-2 [140 kB]
+2026-04-07T15:20:29.4147341Z Get:6 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 libnewlib-arm-none-eabi all 4.4.0.20231231-2 [49.2 MB]
+2026-04-07T15:20:30.8307717Z Get:7 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 libstdc++-arm-none-eabi-newlib all 15:13.2.rel1-2+26 [463 MB]
+2026-04-07T15:20:53.4741521Z Fetched 574 MB in 25s (22.7 MB/s)
+2026-04-07T15:20:53.4991518Z Selecting previously unselected package binutils-arm-none-eabi.
+2026-04-07T15:20:53.5276899Z (Reading database ... 
+2026-04-07T15:20:53.5277363Z (Reading database ... 5%
+2026-04-07T15:20:53.5277714Z (Reading database ... 10%
+2026-04-07T15:20:53.5278068Z (Reading database ... 15%
+2026-04-07T15:20:53.5278405Z (Reading database ... 20%
+2026-04-07T15:20:53.5278838Z (Reading database ... 25%
+2026-04-07T15:20:53.5279576Z (Reading database ... 30%
+2026-04-07T15:20:53.5279969Z (Reading database ... 35%
+2026-04-07T15:20:53.5280354Z (Reading database ... 40%
+2026-04-07T15:20:53.5280770Z (Reading database ... 45%
+2026-04-07T15:20:53.5281165Z (Reading database ... 50%
+2026-04-07T15:20:53.5377419Z (Reading database ... 55%
+2026-04-07T15:20:53.6802466Z (Reading database ... 60%
+2026-04-07T15:20:53.8286505Z (Reading database ... 65%
+2026-04-07T15:20:54.0195982Z (Reading database ... 70%
+2026-04-07T15:20:54.1719432Z (Reading database ... 75%
+2026-04-07T15:20:54.3655887Z (Reading database ... 80%
+2026-04-07T15:20:54.5671685Z (Reading database ... 85%
+2026-04-07T15:20:54.7162010Z (Reading database ... 90%
+2026-04-07T15:20:54.8361615Z (Reading database ... 95%
+2026-04-07T15:20:54.8362173Z (Reading database ... 100%
+2026-04-07T15:20:54.8364302Z (Reading database ... 220446 files and directories currently installed.)
+2026-04-07T15:20:54.8410014Z Preparing to unpack .../0-binutils-arm-none-eabi_2.42-1ubuntu1+23_amd64.deb ...
+2026-04-07T15:20:54.8437006Z Unpacking binutils-arm-none-eabi (2.42-1ubuntu1+23) ...
+2026-04-07T15:20:54.9403986Z Selecting previously unselected package gcc-arm-none-eabi.
+2026-04-07T15:20:54.9548287Z Preparing to unpack .../1-gcc-arm-none-eabi_15%3a13.2.rel1-2_amd64.deb ...
+2026-04-07T15:20:54.9575720Z Unpacking gcc-arm-none-eabi (15:13.2.rel1-2) ...
+2026-04-07T15:20:56.4226272Z Selecting previously unselected package libstdc++-arm-none-eabi-dev.
+2026-04-07T15:20:56.4364308Z Preparing to unpack .../2-libstdc++-arm-none-eabi-dev_15%3a13.2.rel1-2+26_all.deb ...
+2026-04-07T15:20:56.4374794Z Unpacking libstdc++-arm-none-eabi-dev (15:13.2.rel1-2+26) ...
+2026-04-07T15:20:56.7565613Z Selecting previously unselected package libnewlib-dev.
+2026-04-07T15:20:56.7711345Z Preparing to unpack .../3-libnewlib-dev_4.4.0.20231231-2_all.deb ...
+2026-04-07T15:20:56.7723376Z Unpacking libnewlib-dev (4.4.0.20231231-2) ...
+2026-04-07T15:20:56.8134319Z Selecting previously unselected package libnewlib-arm-none-eabi.
+2026-04-07T15:20:56.8270314Z Preparing to unpack .../4-libnewlib-arm-none-eabi_4.4.0.20231231-2_all.deb ...
+2026-04-07T15:20:56.8279811Z Unpacking libnewlib-arm-none-eabi (4.4.0.20231231-2) ...
+2026-04-07T15:20:58.0775190Z Selecting previously unselected package libstdc++-arm-none-eabi-newlib.
+2026-04-07T15:20:58.0919717Z Preparing to unpack .../5-libstdc++-arm-none-eabi-newlib_15%3a13.2.rel1-2+26_all.deb ...
+2026-04-07T15:20:58.0931228Z Unpacking libstdc++-arm-none-eabi-newlib (15:13.2.rel1-2+26) ...
+2026-04-07T15:21:04.5846656Z Setting up binutils-arm-none-eabi (2.42-1ubuntu1+23) ...
+2026-04-07T15:21:04.5873610Z Setting up gcc-arm-none-eabi (15:13.2.rel1-2) ...
+2026-04-07T15:21:04.5897203Z Setting up libnewlib-dev (4.4.0.20231231-2) ...
+2026-04-07T15:21:04.5980456Z Setting up libnewlib-arm-none-eabi (4.4.0.20231231-2) ...
+2026-04-07T15:21:04.6060088Z Setting up libstdc++-arm-none-eabi-dev (15:13.2.rel1-2+26) ...
+2026-04-07T15:21:04.6150549Z Setting up libstdc++-arm-none-eabi-newlib (15:13.2.rel1-2+26) ...
+2026-04-07T15:21:04.6181301Z Processing triggers for man-db (2.12.0-4build2) ...
+2026-04-07T15:21:04.6210774Z Not building database; man-db/auto-update is not 'true'.
+2026-04-07T15:21:04.6226962Z Processing triggers for libc-bin (2.39-0ubuntu8.7) ...
+2026-04-07T15:21:05.2909678Z 
+2026-04-07T15:21:05.2910468Z Running kernel seems to be up-to-date.
+2026-04-07T15:21:05.2912439Z 
+2026-04-07T15:21:05.2912961Z No services need to be restarted.
+2026-04-07T15:21:05.2913345Z 
+2026-04-07T15:21:05.2913528Z No containers need to be restarted.
+2026-04-07T15:21:05.2913969Z 
+2026-04-07T15:21:05.2914252Z No user sessions are running outdated binaries.
+2026-04-07T15:21:05.2914682Z 
+2026-04-07T15:21:05.2915058Z No VM guests are running outdated hypervisor (qemu) binaries on this host.

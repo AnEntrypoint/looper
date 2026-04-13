@@ -1,0 +1,8 @@
+﻿2026-04-07T15:21:07.2614785Z ##[group]Run git clone --depth=1 https://github.com/phorton1/circle-prh circle/_prh
+2026-04-07T15:21:07.2615391Z [36;1mgit clone --depth=1 https://github.com/phorton1/circle-prh circle/_prh[0m
+2026-04-07T15:21:07.2641705Z shell: /usr/bin/bash -e {0}
+2026-04-07T15:21:07.2641925Z env:
+2026-04-07T15:21:07.2642074Z   RASPPI: 4
+2026-04-07T15:21:07.2642247Z   AARCH: 32
+2026-04-07T15:21:07.2642396Z ##[endgroup]
+2026-04-07T15:21:07.2697264Z Cloning into 'circle/_prh'...
