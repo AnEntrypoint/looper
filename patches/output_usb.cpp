@@ -15,19 +15,26 @@ static volatile unsigned s_ring_wr = 0;
 static volatile unsigned s_ring_rd = 0;
 
 // OTG tap: rate-adaptive ring reader.
-// Target lag = OTG_LAG_TARGET. Drift correction every OTG_RATE_PERIOD calls:
-// if avail > target+threshold → skip 1 sample (audio faster than OTG)
-// if avail < target-threshold → repeat 1 sample (OTG faster than audio)
-// This eliminates periodic hard resyncs from USB clock drift (~15 ppm).
-// At 48kHz with 48-sample packets, OTG fires 1000x/sec.
-// USB clock drift ~300ppm → ~14.4 samples/sec accumulation.
-// Correct every 16 calls (~16ms): expected drift = 0.23 samples → threshold 0.
-// Fractional accumulator: each call add drift estimate, correct when |acc|>=1.
+// Target lag = OTG_LAG_TARGET.
+//
+// Drift correction: compare cumulative audio samples written (ring_wr) vs cumulative
+// OTG samples consumed (rd_base = rd ignoring corrections). Over time these diverge at
+// the USB clock drift rate (~14 samples/sec at 300ppm). Accumulate difference in a
+// fractional accumulator and correct by 1 sample (skip/repeat) when |acc| >= 1.
+//
+// Key: use a rolling window of RATE_WINDOW calls to smooth the 64-sample block
+// write granularity. Track wr at window start; compare to wr now vs expected reads.
+//
+// At 300ppm: wr advances 48000/sec, rd_base advances 48*1000/sec = 48000/sec.
+// Drift: OTG slightly faster → rd_base - wr_delta > 0 over time → rd++ corrections.
 #define OTG_LAG_TARGET    96
+#define OTG_RATE_WINDOW   1024   // calls per rate-check window (~1 second)
 
-static volatile unsigned s_otg_rd = 0;
-static bool   s_otg_rd_init = false;
-static int    s_otg_err_acc = 0;    // signed fractional error accumulator (×64)
+static volatile unsigned s_otg_rd   = 0;
+static bool              s_otg_rd_init = false;
+static unsigned          s_otg_call_count = 0;   // rolling call counter
+static unsigned          s_otg_wr_window  = 0;   // ring_wr at window start
+static int               s_otg_rate_acc   = 0;   // fractional rate error accumulator
 
 #ifndef LOOPER_USB_AUDIO
 static volatile unsigned s_otg_sample_count = 0;
@@ -41,8 +48,9 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 
     if (!s_otg_rd_init)
     {
-        s_otg_rd = wr - OTG_LAG_TARGET;
-        s_otg_rd_init = true;
+        s_otg_rd        = wr - OTG_LAG_TARGET;
+        s_otg_wr_window = wr;
+        s_otg_rd_init   = true;
     }
 
     unsigned rd = s_otg_rd;
@@ -53,22 +61,39 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
     if (avail >= (int)(OUT_RING_SIZE - 16) || avail <= 0)
     {
         rd = wr - OTG_LAG_TARGET;
-        avail = OTG_LAG_TARGET;
+        s_otg_wr_window  = wr;
+        s_otg_call_count = 0;
+        s_otg_rate_acc   = 0;
     }
 
-    // Continuous fractional drift correction (×64 fixed-point accumulator).
-    // Each call: acc += (avail - target). When |acc| >= 64, apply 1-sample
-    // correction and subtract 64. This smoothly tracks USB clock divergence.
-    s_otg_err_acc += (int)(avail) - OTG_LAG_TARGET;
-    if (s_otg_err_acc >= 64)
+    // Rate-matching drift correction over a sliding window of OTG_RATE_WINDOW calls.
+    // Expected audio written in window: OTG_RATE_WINDOW * nSamples (at nominal rates equal).
+    // Actual audio written: wr - s_otg_wr_window.
+    // Difference (actual - expected) reflects USB clock drift.
+    // Accumulate per-call fraction; correct when |acc| >= OTG_RATE_WINDOW.
+    s_otg_call_count++;
+    if (s_otg_call_count >= OTG_RATE_WINDOW)
     {
-        s_otg_err_acc -= 64;
-        rd++;           // skip 1 sample: reader lagging, speed up
+        int actual   = (int)(wr - s_otg_wr_window);
+        int expected = (int)(OTG_RATE_WINDOW * nSamples);
+        // OTG faster → fewer audio samples written per window → actual < expected.
+        // We want rd-- (repeat) when OTG faster → rate_acc should go positive.
+        // So accumulate (expected - actual): positive when OTG fast.
+        s_otg_rate_acc  += expected - actual;
+        s_otg_wr_window  = wr;
+        s_otg_call_count = 0;
     }
-    else if (s_otg_err_acc <= -64)
+
+    // Apply 1 correction per OTG call until acc is drained (spread out corrections).
+    if (s_otg_rate_acc >= 1)
     {
-        s_otg_err_acc += 64;
-        rd--;           // repeat 1 sample: reader ahead, slow down
+        s_otg_rate_acc--;
+        rd--;           // OTG too fast: repeat 1 sample to slow reader
+    }
+    else if (s_otg_rate_acc <= -1)
+    {
+        s_otg_rate_acc++;
+        rd++;           // audio too fast: skip 1 sample to speed reader
     }
 
     for (unsigned i = 0; i < nSamples; i++)
