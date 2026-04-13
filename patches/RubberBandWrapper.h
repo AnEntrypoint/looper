@@ -1,9 +1,8 @@
 #ifndef RUBBERBAND_WRAPPER_H
 #define RUBBERBAND_WRAPPER_H
 
-#include <cstdint>
-#include <cstring>
-#include <atomic>
+#include <stdint.h>
+#include <string.h>
 #include <RubberBandStretcher.h>
 
 class RubberBandWrapper {
@@ -17,8 +16,8 @@ class RubberBandWrapper {
   float m_out_ring[OUTPUT_RING_SIZE * 2];
   volatile uint32_t m_in_wr, m_in_rd;
   volatile uint32_t m_out_wr, m_out_rd;
-  std::atomic<float> m_tempoRatio;
-  std::atomic<float> m_pitchScale;
+  volatile float m_tempoRatio;
+  volatile float m_pitchScale;
   size_t m_sampleRate;
   uint32_t m_processedFrames;
   uint32_t m_retrievedFrames;
@@ -67,11 +66,11 @@ public:
     return avail;
   }
 
-  void setTempoRatio(float ratio) { m_tempoRatio.store(ratio); }
-  void setPitchScale(float scale) { m_pitchScale.store(scale); }
+  void setTempoRatio(float ratio) { m_tempoRatio = ratio; }
+  void setPitchScale(float scale) { m_pitchScale = scale; }
   void updateRatios() {
-    float tempo = m_tempoRatio.load();
-    float pitch = m_pitchScale.load();
+    float tempo = m_tempoRatio;
+    float pitch = m_pitchScale;
     m_rb->setTimeRatio(tempo);
     m_rb->setPitchScale(pitch);
   }
@@ -92,8 +91,8 @@ public:
 
   DebugState getDebugState() const {
     return {
-      m_tempoRatio.load(),
-      m_pitchScale.load(),
+      m_tempoRatio,
+      m_pitchScale,
       m_processedFrames,
       m_retrievedFrames,
       m_rb->getSamplesRequired(),
