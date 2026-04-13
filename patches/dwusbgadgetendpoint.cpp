@@ -30,7 +30,8 @@ CDWUSBGadgetEndpoint::CDWUSBGadgetEndpoint (size_t nMaxPacketSize, CDWUSBGadget 
 	m_Direction (DirectionInOut),
 	m_Type (TypeControl),
 	m_nEP (0),
-	m_nMaxPacketSize (nMaxPacketSize)
+	m_nMaxPacketSize (nMaxPacketSize),
+	m_bIsoOddFrame (false)
 {
 	InitTransfer ();
 	assert (m_pGadget);
@@ -43,7 +44,8 @@ CDWUSBGadgetEndpoint::CDWUSBGadgetEndpoint (const TUSBEndpointDescriptor *pDesc,
 	m_Direction (pDesc->bEndpointAddress & 0x80 ? DirectionIn : DirectionOut),
 	m_Type ((pDesc->bmAttributes & 0x03) == 1 ? TypeIsochronous : TypeBulk),
 	m_nEP (pDesc->bEndpointAddress & 0xF),
-	m_nMaxPacketSize (pDesc->wMaxPacketSize & 0x7FF)
+	m_nMaxPacketSize (pDesc->wMaxPacketSize & 0x7FF),
+	m_bIsoOddFrame (false)
 {
 	assert ((pDesc->bmAttributes & 0x03) == 2 || (pDesc->bmAttributes & 0x03) == 1);
 	InitTransfer ();
@@ -176,14 +178,12 @@ void CDWUSBGadgetEndpoint::BeginTransfer (TTransferMode Mode, void *pBuffer, siz
 		InEPCtrl.Or (s_NextEPSeq[m_nEP] << DWHCI_DEV_IN_EP_CTRL_NEXT_EP__SHIFT);
 		if (m_Type == TypeIsochronous)
 		{
-			// Schedule for next frame (current+1). Using current frame risks
-			// the transfer being in the past if SOF just advanced. current+1
-			// guarantees 1-frame lead time; parity of (current+1) selects the slot.
-			CDWHCIRegister DevStatus (DWHCI_DEV_STATUS);
-			u32 nFrame = (DevStatus.Read () & DWHCI_DEV_STATUS_SOFFN__MASK)
-				     >> DWHCI_DEV_STATUS_SOFFN__SHIFT;
+			// Toggle frame parity on every transfer — no SOF register read.
+			// Reading DSTS races with SOF advancement; toggling in software
+			// guarantees alternating even/odd frames at 1ms intervals.
+			m_bIsoOddFrame = !m_bIsoOddFrame;
 			InEPCtrl.And (~(DWHCI_DEV_EP_CTRL_SET_EVEN_FRAME | DWHCI_DEV_EP_CTRL_SET_ODD_FRAME));
-			if ((nFrame + 1) & 1)
+			if (m_bIsoOddFrame)
 				InEPCtrl.Or (DWHCI_DEV_EP_CTRL_SET_ODD_FRAME);
 			else
 				InEPCtrl.Or (DWHCI_DEV_EP_CTRL_SET_EVEN_FRAME);

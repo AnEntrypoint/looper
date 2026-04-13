@@ -83,6 +83,7 @@ private:
 	TTransferMode m_TransferMode;
 	void         *m_pTransferBuffer;
 	size_t        m_nTransferLength;
+	boolean       m_bIsoOddFrame;
 
 	DMA_BUFFER (u32, m_DummyBuffer, 1);
 
