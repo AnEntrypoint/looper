@@ -1,3 +1,7 @@
+## 2026-04-13 — Fix kernel.cpp compile error: remove erroneous CLogger::SetLogLevel() call
+
+- fix: patches/kernel.cpp — remove line 83 `m_Logger.SetLogLevel(LogPanic, &m_Screen)` which does not exist in Circle's CLogger class; log level is already set in constructor to LogDebug
+
 ## 2026-04-12 — Fix multicore: call CMultiCoreSupport::Initialize() to start secondary cores
 
 - fix: patches/kernel.cpp — add `m_CoreTask.Initialize()` call in `CKernel::Initialize()` after timer init, under ARM_ALLOW_MULTI_CORE guard; without this call, secondary cores never start, IPIHandler never registers, and SendIPI hangs core 0

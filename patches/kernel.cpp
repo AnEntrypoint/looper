@@ -80,7 +80,6 @@ boolean CKernel::Initialize(void)
 	if (m_Screen.Initialize())
 	{
 		m_Logger.Initialize(&m_Screen);
-		m_Logger.SetLogLevel(LogPanic, &m_Screen);
 	}
 	m_ActLED.Blink(1);
 
