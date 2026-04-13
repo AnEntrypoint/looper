@@ -128,16 +128,11 @@ jobs:
           path: looper-sd.zip
 
       - name: Create or update latest release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if gh release view latest --repo ${{ github.repository }} > /dev/null 2>&1; then
-            echo "Deleting old release..."
-            gh release delete latest --yes --repo ${{ github.repository }} 2>&1
-            sleep 2
-          fi
-          echo "Creating new release..."
-          gh release create latest looper-sd.zip \
-            --title "Latest Build" \
-            --notes "Automated build from commit ${{ github.sha }}" \
-            --repo ${{ github.repository }} 2>&1
+        uses: ncipollo/release-action@v1
+        with:
+          name: Latest Build
+          tag: latest
+          artifacts: looper-sd.zip
+          replacesArtifacts: true
+          body: "Automated build from commit ${{ github.sha }}"
+          makeLatest: true
