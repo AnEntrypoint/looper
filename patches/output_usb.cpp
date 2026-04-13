@@ -7,7 +7,7 @@
 audio_block_t *AudioOutputUSB::s_block_left  = 0;
 audio_block_t *AudioOutputUSB::s_block_right = 0;
 
-#define OUT_RING_SIZE     512
+#define OUT_RING_SIZE     2048
 #define OUT_RING_MASK     (OUT_RING_SIZE - 1)
 static s16 s_ring_left [OUT_RING_SIZE];
 static s16 s_ring_right[OUT_RING_SIZE];
@@ -27,7 +27,7 @@ static volatile unsigned s_ring_rd = 0;
 //
 // At 300ppm: wr advances 48000/sec, rd_base advances 48*1000/sec = 48000/sec.
 // Drift: OTG slightly faster → rd_base - wr_delta > 0 over time → rd++ corrections.
-#define OTG_LAG_TARGET    96
+#define OTG_LAG_TARGET    512
 #define OTG_RATE_WINDOW   1024   // calls per rate-check window (~1 second)
 
 static volatile unsigned s_otg_rd   = 0;
@@ -58,7 +58,7 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 
     // Hard resync only if ring is about to wrap (catastrophic overrun)
     // or we have no data at all (catastrophic underrun).
-    if (avail >= (int)(OUT_RING_SIZE - 16) || avail <= 0)
+    if (avail >= (int)(OUT_RING_SIZE - 64) || avail <= 0)
     {
         rd = wr - OTG_LAG_TARGET;
         s_otg_wr_window  = wr;
