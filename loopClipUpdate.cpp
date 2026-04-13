@@ -46,6 +46,12 @@ void loopClip::update(s32 *ip, s32 *op)
     }
 
     bool fade_in = (pp_main && use_play_block < CROSSFADE_BLOCKS);
+    m_wrapper.updateRatios();
+
+    s16 tmp_L[AUDIO_BLOCK_SAMPLES] = {0};
+    s16 tmp_R[AUDIO_BLOCK_SAMPLES] = {0};
+    s16 wrap_L[AUDIO_BLOCK_SAMPLES];
+    s16 wrap_R[AUDIO_BLOCK_SAMPLES];
 
     for (int channel = 0; channel < LOOPER_NUM_CHANNELS; channel++)
     {
@@ -56,27 +62,38 @@ void loopClip::update(s32 *ip, s32 *op)
         if (pp_fade)
             o_fade = ((double)(CROSSFADE_BLOCKS - m_crossfade_offset)) * FADE_BLOCK_INCREMENT;
 
+        s16 *tmp_ch = (channel == 0) ? tmp_L : tmp_R;
+        s16 *pp_m = pp_main;
+        s16 *pp_f = pp_fade;
+
         for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
         {
             if (rp) *rp++ = *ip++;
 
             if (!m_mute)
             {
-                if (pp_main)
+                if (pp_m)
                 {
-                    double val = *pp_main++ * m_volume;
+                    double val = *pp_m++ * m_volume;
                     if (fade_in) { val *= i_fade; i_fade += FADE_SAMPLE_INCREMENT; }
-                    *op += (s32)val;
+                    tmp_ch[i] += (s16)val;
                 }
-                if (pp_fade)
+                if (pp_f)
                 {
-                    double val = *pp_fade++ * m_volume * o_fade;
-                    *op += (s32)val;
+                    double val = *pp_f++ * m_volume * o_fade;
+                    tmp_ch[i] += (s16)val;
                     o_fade -= FADE_SAMPLE_INCREMENT;
                 }
             }
-            op++;
         }
+    }
+
+    m_wrapper.feedAudio(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES);
+    size_t got = m_wrapper.retrieveAudio(wrap_L, wrap_R, AUDIO_BLOCK_SAMPLES);
+
+    for (size_t i = 0; i < got; i++) {
+        *op++ += (s32)wrap_L[i];
+        *op++ += (s32)wrap_R[i];
     }
 
     if (rp)
