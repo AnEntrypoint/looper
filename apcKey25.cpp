@@ -12,7 +12,7 @@ apcKey25::apcKey25()
     : m_shift(false), m_cmdReady(false), m_cmdType(ApcCmd::NONE), m_cmdArg(0),
       m_nowMs(0), m_bootMs(0), m_lastLedMs(0),
       m_transposeLocked(false), m_transposePitch(0), m_pitchWheelOffset(0),
-      m_driftTarget(0.0f), m_lastDriftMs(0)
+      m_driftTarget(0.0f), m_lastDriftMs(0), m_computedRatio(1.0f)
 {
     pTheAPC = this;
     for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
@@ -105,6 +105,7 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
         if (data1 == 64) { m_transposeLocked = true; return; }
         if (channel == 2 && m_transposeLocked) {
             m_transposePitch = data1 % 12;
+            _updateComputedRatio();
             return;
         }
         if (data1 < APC_ROWS * APC_COLS)
@@ -142,6 +143,7 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
     {
         m_pitchWheelOffset = (data2 / 127.0f) * 12.0f - 6.0f;
         m_driftTarget = 0.0f;
+        _updateComputedRatio();
         return;
     }
 }
@@ -191,10 +193,8 @@ void apcKey25::update()
             }
         }
     }
-
     if (m_nowMs - m_bootMs < APC_LED_BOOT_DELAY_MS) return;
     if (m_nowMs - m_lastLedMs < 33) return;
     m_lastLedMs = m_nowMs;
-
     _updateGridLeds();
 }

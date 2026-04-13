@@ -7,6 +7,12 @@
 extern apcKey25 *pTheAPC;
 extern publicLoopMachine *pTheLooper;
 
+void apcKey25::_updateComputedRatio()
+{
+    float semitones = (float)m_transposePitch + m_pitchWheelOffset;
+    m_computedRatio = pow(2.0f, semitones / 12.0f);
+}
+
 void apcKey25::_updateDrift()
 {
     if (m_pitchWheelOffset != m_driftTarget)
@@ -21,6 +27,7 @@ void apcKey25::_updateDrift()
         else
             m_pitchWheelOffset = m_driftTarget;
         m_lastDriftMs = m_nowMs;
+        _updateComputedRatio();
     }
 }
 

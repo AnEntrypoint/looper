@@ -62,12 +62,14 @@ private:
     int           m_pitchWheelOffset;    // -6 to +6 fine offset
     float         m_driftTarget;
     unsigned long m_lastDriftMs;
+    float         m_computedRatio;       // tempo ratio from semitones
 
     void _queueCmd(ApcCmd::Type type, int arg);
     void _onPadPress(int row, int col);
     void _onPadRelease(int row, int col);
     void _onButton(u8 note);
     void _sendLed(u8 note, u8 velocity);
+    void _updateComputedRatio();
     void _updateDrift();
     void _updateGridLeds();
     u8   _trackLedColor(int track);
