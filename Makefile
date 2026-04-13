@@ -36,6 +36,6 @@ endif
 
 include $(CIRCLEHOME)/Rules.mk
 
-.PHONY: cstdint
+.PHONY: cstdint RubberBandStretcher.h
 
 -include $(DEPS)
