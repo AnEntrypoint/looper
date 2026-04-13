@@ -18,13 +18,13 @@ static volatile unsigned s_ring_rd = 0;
 // Target lag = OTG_LAG_TARGET.
 //
 // Drift correction using Bresenham-style long-window rate matching:
-// Every OTG_RATE_WINDOW calls, measure (expected - actual) audio samples written.
-// This gives the per-window drift in samples (positive = OTG faster).
+// Every OTG_RATE_WINDOW calls, measure (audio_written - otg_consumed).
+// If positive: buffer grew → OTG too slow → skip (advance rd extra).
+// If negative: buffer shrank → OTG too fast → repeat (hold rd one sample).
 // Spread exactly that many skip/repeat corrections evenly across the next window
 // using a Bresenham error accumulator: increment by |drift| each call, apply
 // correction when accumulator >= OTG_RATE_WINDOW, reset by OTG_RATE_WINDOW.
-// This gives perfectly uniform correction spacing with no bursts.
-// At 300ppm, drift ≈ 14 samples/window (1024 calls). Spacing = 1024/14 ≈ 73 calls.
+// At 300ppm over 4096 calls: drift ≈ 59 samples. Spacing ≈ 69 calls apart.
 #define OTG_LAG_TARGET    512
 #define OTG_RATE_WINDOW   4096  // ~4s window — long enough to average block oscillation
 
@@ -32,6 +32,7 @@ static volatile unsigned s_otg_rd         = 0;
 static bool              s_otg_rd_init    = false;
 static unsigned          s_otg_call_cnt   = 0;    // calls since window start
 static unsigned          s_otg_wr_start   = 0;    // wr at window start
+static unsigned          s_otg_rd_start   = 0;    // rd at window start (OTG samples consumed)
 static int               s_otg_drift_dir  = 0;    // +1 skip, -1 repeat, 0 unknown
 static unsigned          s_otg_bresen_err = 0;    // Bresenham error accumulator
 static unsigned          s_otg_bresen_n   = 0;    // |drift| corrections per window
@@ -50,6 +51,7 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
     {
         s_otg_rd       = wr - OTG_LAG_TARGET;
         s_otg_wr_start = wr;
+        s_otg_rd_start = wr - OTG_LAG_TARGET;
         s_otg_rd_init  = true;
     }
 
@@ -61,6 +63,7 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
     {
         rd               = wr - OTG_LAG_TARGET;
         s_otg_wr_start   = wr;
+        s_otg_rd_start   = rd;
         s_otg_call_cnt   = 0;
         s_otg_bresen_err = 0;
         s_otg_bresen_n   = 0;
@@ -71,15 +74,19 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
     s_otg_call_cnt++;
     if (s_otg_call_cnt >= OTG_RATE_WINDOW)
     {
-        int actual   = (int)(wr - s_otg_wr_start);
-        int expected = (int)(OTG_RATE_WINDOW * nSamples);
-        int drift    = expected - actual;   // >0 = OTG fast (need repeat), <0 = audio fast (need skip)
-        s_otg_drift_dir  = (drift > 0) ? -1 : (drift < 0) ? +1 : 0;
+        // actual audio written vs OTG samples consumed — difference is buffer growth/shrink
+        int audio_written = (int)(wr - s_otg_wr_start);
+        int otg_consumed  = (int)(rd - s_otg_rd_start);
+        // drift>0: audio wrote more than OTG consumed → buffer grew → skip (advance rd to drain)
+        // drift<0: OTG consumed more than audio wrote → buffer shrank → repeat (hold rd one sample)
+        int drift        = audio_written - otg_consumed;
+        s_otg_drift_dir  = (drift > 0) ? +1 : (drift < 0) ? -1 : 0;
         int absdrift     = drift > 0 ? drift : -drift;
-        if (absdrift > 128) absdrift = 128;   // cap at 128 corrections/window = 31/sec
+        if (absdrift > 128) absdrift = 128;
         s_otg_bresen_n   = (unsigned) absdrift;
         s_otg_bresen_err = 0;
         s_otg_wr_start   = wr;
+        s_otg_rd_start   = rd;
         s_otg_call_cnt   = 0;
     }
 
