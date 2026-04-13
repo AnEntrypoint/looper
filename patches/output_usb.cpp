@@ -14,6 +14,13 @@ static s16 s_ring_right[OUT_RING_SIZE];
 static volatile unsigned s_ring_wr = 0;
 static volatile unsigned s_ring_rd = 0;
 
+// OTG tap uses its own read pointer with a fixed lag behind wr.
+// Lag = 2 audio blocks (128 samples) so OTG always has fresh data
+// even when audio update fires every 1.33ms but OTG fires every 1ms.
+#define OTG_LAG  128
+static volatile unsigned s_otg_rd = 0;
+static bool s_otg_rd_init = false;
+
 #ifndef LOOPER_USB_AUDIO
 static volatile unsigned s_otg_sample_count = 0;
 static volatile unsigned s_usb_in_wr_prev = 0;
@@ -24,13 +31,32 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
     unsigned wr = s_ring_wr;
 
-    unsigned rd = wr - nSamples;
+    // On first call, place read pointer OTG_LAG samples behind wr.
+    if (!s_otg_rd_init)
+    {
+        s_otg_rd = wr - OTG_LAG;
+        s_otg_rd_init = true;
+    }
+
+    unsigned rd = s_otg_rd;
+
+    // If we've caught up to within nSamples of wr, snap back OTG_LAG behind wr
+    // (ring overrun — audio system ran slow). Output silence for this packet.
+    int avail = (int)(wr - rd);
+    if (avail < (int)nSamples)
+    {
+        s_otg_rd = wr - OTG_LAG;
+        for (unsigned i = 0; i < nSamples; i++) { pLeft[i] = 0; pRight[i] = 0; }
+        return;
+    }
+
     for (unsigned i = 0; i < nSamples; i++)
     {
         pLeft[i]  = s_ring_left [rd & OUT_RING_MASK];
         pRight[i] = s_ring_right[rd & OUT_RING_MASK];
         rd++;
     }
+    s_otg_rd = rd;
 
 #ifndef LOOPER_USB_AUDIO
     unsigned usb_wr_now = AudioInputUSB_inRingWr ();
