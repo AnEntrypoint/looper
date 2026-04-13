@@ -7,19 +7,25 @@
 audio_block_t *AudioOutputUSB::s_block_left  = 0;
 audio_block_t *AudioOutputUSB::s_block_right = 0;
 
-#define OUT_RING_SIZE     256
+#define OUT_RING_SIZE     512
 #define OUT_RING_MASK     (OUT_RING_SIZE - 1)
 static s16 s_ring_left [OUT_RING_SIZE];
 static s16 s_ring_right[OUT_RING_SIZE];
 static volatile unsigned s_ring_wr = 0;
 static volatile unsigned s_ring_rd = 0;
 
-// OTG tap uses its own read pointer with a fixed lag behind wr.
-// Lag = 2 audio blocks (128 samples) so OTG always has fresh data
-// even when audio update fires every 1.33ms but OTG fires every 1ms.
-#define OTG_LAG  128
+// OTG tap: rate-adaptive ring reader.
+// Target lag = OTG_LAG_TARGET. Drift correction every OTG_RATE_PERIOD calls:
+// if avail > target+threshold → skip 1 sample (audio faster than OTG)
+// if avail < target-threshold → repeat 1 sample (OTG faster than audio)
+// This eliminates periodic hard resyncs from USB clock drift (~15 ppm).
+#define OTG_LAG_TARGET    96
+#define OTG_RATE_PERIOD   256   // check drift every 256 OTG calls (~256ms)
+#define OTG_RATE_THRESH   8     // correct if drift > 8 samples from target
+
 static volatile unsigned s_otg_rd = 0;
-static bool s_otg_rd_init = false;
+static bool   s_otg_rd_init = false;
+static unsigned s_otg_rate_count = 0;
 
 #ifndef LOOPER_USB_AUDIO
 static volatile unsigned s_otg_sample_count = 0;
@@ -31,22 +37,33 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
     unsigned wr = s_ring_wr;
 
-    // On first call, place read pointer OTG_LAG samples behind wr.
     if (!s_otg_rd_init)
     {
-        s_otg_rd = wr - OTG_LAG;
+        s_otg_rd = wr - OTG_LAG_TARGET;
         s_otg_rd_init = true;
     }
 
     unsigned rd = s_otg_rd;
-
-    // If lagging too far behind wr (overrun — ring wrapped), clamp forward.
-    // If ahead of wr (underrun — audio ran slow), clamp to wr - nSamples.
     int avail = (int)(wr - rd);
-    if (avail > (int)(OUT_RING_SIZE / 2))
-        rd = wr - OTG_LAG;          // too far behind, jump forward
-    else if (avail < (int)nSamples)
-        rd = wr - nSamples;         // underrun, use most recent nSamples
+
+    // Hard resync only if ring is about to wrap (catastrophic overrun)
+    // or we have no data at all (catastrophic underrun).
+    if (avail >= (int)(OUT_RING_SIZE - 16) || avail <= 0)
+    {
+        rd = wr - OTG_LAG_TARGET;
+        avail = OTG_LAG_TARGET;
+    }
+
+    // Periodic gentle drift correction: skip or repeat 1 sample
+    if (++s_otg_rate_count >= OTG_RATE_PERIOD)
+    {
+        s_otg_rate_count = 0;
+        int err = avail - OTG_LAG_TARGET;
+        if (err > OTG_RATE_THRESH)
+            rd++;           // skip 1: OTG is falling behind, catch up
+        else if (err < -OTG_RATE_THRESH)
+            rd--;           // repeat 1: OTG is running ahead, slow down
+    }
 
     for (unsigned i = 0; i < nSamples; i++)
     {
