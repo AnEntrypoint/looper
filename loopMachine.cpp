@@ -730,3 +730,24 @@ void loopMachine::updateState(void)
     }
 
 }
+
+int loopMachine::getWrapperDebugStates(publicLoopMachine::ClipWrapperDebug *out, int maxCount)
+{
+    int count = 0;
+    for (int i = 0; i < LOOPER_NUM_TRACKS && count < maxCount; i++)
+    {
+        loopTrack *pTrack = getTrack(i);
+        for (int j = 0; j < LOOPER_NUM_LAYERS && count < maxCount; j++)
+        {
+            loopClip *pClip = pTrack->getClip(j);
+            if (pClip)
+            {
+                out[count].track_num = i;
+                out[count].clip_num = j;
+                out[count].state = pClip->getWrapperDebugState();
+                count++;
+            }
+        }
+    }
+    return count;
+}

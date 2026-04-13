@@ -252,6 +252,7 @@ class loopClip : public publicClip
         void halveLength();
         void doubleLength();
         void setTempoRatio(float ratio)  { m_wrapper.setTempoRatio(ratio); }
+        RubberBandWrapper::DebugState getWrapperDebugState() const { return m_wrapper.getDebugState(); }
 
     private:
 
@@ -389,6 +390,14 @@ class publicLoopMachine : public AudioStream
             return 0;
         }
 
+        struct ClipWrapperDebug {
+            u16 track_num;
+            u16 clip_num;
+            RubberBandWrapper::DebugState state;
+        };
+
+        virtual int getWrapperDebugStates(ClipWrapperDebug *out, int maxCount) = 0;
+
     protected:
 
         virtual void update() = 0;
@@ -440,6 +449,8 @@ class loopMachine : public publicLoopMachine
         void incDecRunning(int inc);
 
         void LogUpdate(const char *lname, const char *format, ...);
+
+        virtual int getWrapperDebugStates(ClipWrapperDebug *out, int maxCount);
 
 
     private:
