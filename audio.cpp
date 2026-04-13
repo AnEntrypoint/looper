@@ -169,7 +169,8 @@ void setup()
 void loop()
 {
 #ifdef LOOPER_LIVE_PITCH
-	if (pLivePitchWrapper) pLivePitchWrapper->updateRatios();
+	if (pLivePitchWrapper && pTheAPC && pTheAPC->m_transposeLocked)
+		pLivePitchWrapper->updateRatios();
 #endif
 	if (pTheLooper) {
 		logString_t *msg;
