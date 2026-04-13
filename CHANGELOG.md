@@ -1,3 +1,7 @@
+## 2026-04-13 — Fix CI build: add .PHONY cstdint target for RubberBandWrapper dependency
+
+- fix: Makefile — add `.PHONY: cstdint` target to suppress "No rule to make target cstdint" error when Circle's build system includes system headers in .d dependency files; cstdint is a standard header included by patches/RubberBandWrapper.h
+
 ## 2026-04-13 — Add transpose state observability: DebugState struct + getDebugState()
 
 - feat: apcKey25.h — add DebugState struct (transposeLocked, transposePitch, pitchWheelOffset, driftTarget, computedRatio) and getDebugState() method declaration to expose transpose lock state for troubleshooting

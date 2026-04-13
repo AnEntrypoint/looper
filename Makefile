@@ -36,4 +36,6 @@ endif
 
 include $(CIRCLEHOME)/Rules.mk
 
+.PHONY: cstdint
+
 -include $(DEPS)
