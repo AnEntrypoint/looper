@@ -212,6 +212,19 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             _onPadRelease(data1 / APC_COLS, data1 % APC_COLS);
         return;
     }
+
+    if (msgType == 0xB0 && data1 == 1)
+    {
+#ifdef LOOPER_LIVE_PITCH
+        extern RubberBandWrapper *pLivePitchWrapper;
+        if (pLivePitchWrapper)
+        {
+            float ratio = 0.5f + (data2 / 127.0f) * 2.0f;
+            pLivePitchWrapper->setTempoRatio(ratio);
+        }
+#endif
+        return;
+    }
 }
 
 void apcKey25::update()
