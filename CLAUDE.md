@@ -32,6 +32,14 @@
 - **5 looper tracks** mapped to APC Key 25's 5 rows (notes 0-39). `LOOPER_NUM_TRACKS=5` in `commonDefines.h`.
 - **VU meter on APC column 8** (rightmost). Peak level tracked in `inHandler` (no blocking), displayed as 5-LED green/red meter at 30fps from `_updateGridLeds`.
 
+## Rubber Band integration
+
+- **Instantiation scope**: Each `loopClip` owns a `RubberBandWrapper` instance for clip time-stretch. Live pitch shifting uses a separate optional wrapper instantiated in `audio.cpp` setup() or lazily on first MIDI pitch event. Wrappers NOT global in `audio.cpp` signal routing layer — instantiation per concern (clip stretch vs live pitch), not per subsystem.
+- **Signal routing**: Clip output routes through wrapper: `loopClip::update()` calls `m_wrapper.feedAudio(left, right, AUDIO_BLOCK_SAMPLES)` to queue samples, then polls `m_wrapper.retrieveAudio()` to read stretched output. Live pitch wrapper (if present) sits as an optional insert point in the UCA222 input chain before `loopMachine`. Both feed `float*` to RubberBand API; conversion s16↔float happens inline in wrapper (divide/multiply by 32768.0).
+- **Block size strategy**: Looper processes 64-sample blocks; RubberBand minimum process size is 256 samples. `RubberBandWrapper` pre-allocates a 4096-sample input ring in constructor. feedAudio() writes 64 samples per call; when ring accumulates ≥256 samples, process() is called internally. Output may be partial blocks (< 64 samples); caller must loop until satisfied. Post-process remainder stays in output ring for next retrieveAudio() call. This decoupling allows small block looper audio to feed large-block time-stretch without stalling.
+- **Tempo sync**: `RubberBandWrapper` holds `atomic<float> m_tempoRatio`. Link handler calls `wrapper.setTempoRatio(ratio)` atomically (no locks). `loopMachine::update()` calls `wrapper.updateRatios()` before feedAudio/retrieveAudio to propagate Link BPM changes to all per-clip wrappers. RubberBand::setTimeRatio() is RT-safe (no realloc); one update-loop frame latency (~1.3ms @ 64 blocks, 48kHz) acceptable for Link-driven quantize.
+- **Memory budget**: Per-wrapper ~5.1 MB (pre-alloc via `setMaxProcessSize(524288)`). 5 clips × 5.1 MB = 25.5 MB for clip stretching. Optional live pitch wrapper +5.1 MB = ~30.6 MB total. Device has 512 MB+; acceptable margin. No dynamic allocation during process(); RTAssertion added to verify.
+
 ## Clip state machine
 
 - **`ClipState` enum** (9 mutually-exclusive values) replaces the former 7 `CLIP_STATE_*` bitmask defines. Impossible combinations (e.g. `RECORD_IN|PLAY_MAIN`) are no longer representable.
