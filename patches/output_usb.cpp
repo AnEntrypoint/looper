@@ -19,13 +19,15 @@ static volatile unsigned s_ring_rd = 0;
 // if avail > target+threshold → skip 1 sample (audio faster than OTG)
 // if avail < target-threshold → repeat 1 sample (OTG faster than audio)
 // This eliminates periodic hard resyncs from USB clock drift (~15 ppm).
+// At 48kHz with 48-sample packets, OTG fires 1000x/sec.
+// USB clock drift ~300ppm → ~14.4 samples/sec accumulation.
+// Correct every 16 calls (~16ms): expected drift = 0.23 samples → threshold 0.
+// Fractional accumulator: each call add drift estimate, correct when |acc|>=1.
 #define OTG_LAG_TARGET    96
-#define OTG_RATE_PERIOD   256   // check drift every 256 OTG calls (~256ms)
-#define OTG_RATE_THRESH   8     // correct if drift > 8 samples from target
 
 static volatile unsigned s_otg_rd = 0;
 static bool   s_otg_rd_init = false;
-static unsigned s_otg_rate_count = 0;
+static int    s_otg_err_acc = 0;    // signed fractional error accumulator (×64)
 
 #ifndef LOOPER_USB_AUDIO
 static volatile unsigned s_otg_sample_count = 0;
@@ -54,15 +56,19 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
         avail = OTG_LAG_TARGET;
     }
 
-    // Periodic gentle drift correction: skip or repeat 1 sample
-    if (++s_otg_rate_count >= OTG_RATE_PERIOD)
+    // Continuous fractional drift correction (×64 fixed-point accumulator).
+    // Each call: acc += (avail - target). When |acc| >= 64, apply 1-sample
+    // correction and subtract 64. This smoothly tracks USB clock divergence.
+    s_otg_err_acc += (int)(avail) - OTG_LAG_TARGET;
+    if (s_otg_err_acc >= 64)
     {
-        s_otg_rate_count = 0;
-        int err = avail - OTG_LAG_TARGET;
-        if (err > OTG_RATE_THRESH)
-            rd++;           // skip 1: OTG is falling behind, catch up
-        else if (err < -OTG_RATE_THRESH)
-            rd--;           // repeat 1: OTG is running ahead, slow down
+        s_otg_err_acc -= 64;
+        rd++;           // skip 1 sample: reader lagging, speed up
+    }
+    else if (s_otg_err_acc <= -64)
+    {
+        s_otg_err_acc += 64;
+        rd--;           // repeat 1 sample: reader ahead, slow down
     }
 
     for (unsigned i = 0; i < nSamples; i++)
