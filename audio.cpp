@@ -12,6 +12,9 @@
 #include "apcKey25.h"
 #include <circle/logger.h>
 #include <circle/timer.h>
+#ifdef LOOPER_LIVE_PITCH
+	#include "patches/RubberBandWrapper.h"
+#endif
 
 #define log_name "audio"
 
@@ -87,6 +90,10 @@
 	AudioOutputOTG otgOut;
 #endif
 
+#ifdef LOOPER_LIVE_PITCH
+	RubberBandWrapper *pLivePitchWrapper = 0;
+#endif
+
 loopMachine *pTheLoopMachine = 0;
 publicLoopMachine *pTheLooper = 0;
 
@@ -104,8 +111,16 @@ void setup()
 	pTheLooper = (publicLoopMachine *) pTheLoopMachine;
 
 	debug_blink(1);
+#ifdef LOOPER_LIVE_PITCH
+	pLivePitchWrapper = new RubberBandWrapper(AUDIO_SAMPLE_RATE, LOOPER_NUM_CHANNELS);
+	new AudioConnection(input,				0,  *pLivePitchWrapper,	0);
+	new AudioConnection(input,				1,  *pLivePitchWrapper,	1);
+	new AudioConnection(*pLivePitchWrapper,	0,  *pTheLooper,		0);
+	new AudioConnection(*pLivePitchWrapper,	1,  *pTheLooper,		1);
+#else
 	new AudioConnection(input,			0,  *pTheLooper,	0);
 	new AudioConnection(input,			1,  *pTheLooper,	1);
+#endif
 	new AudioConnection(*pTheLooper,	0,  output,			0);
 	new AudioConnection(*pTheLooper,	1,  output,			1);
 
@@ -153,6 +168,9 @@ void setup()
 
 void loop()
 {
+#ifdef LOOPER_LIVE_PITCH
+	if (pLivePitchWrapper) pLivePitchWrapper->updateRatios();
+#endif
 	if (pTheLooper) {
 		logString_t *msg;
 		while ((msg = pTheLooper->getNextLogString()) != nullptr) {
