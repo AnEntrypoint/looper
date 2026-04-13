@@ -177,18 +177,16 @@ dhcp.on('message',(msg,rinfo)=>{
 dhcp.on('error',err=>{if(err.code==='EACCES'){console.error('[DHCP] need admin: port 67');process.exit(1);}console.error('[DHCP]',err.message);});
 dhcp.bind(67,'0.0.0.0',()=>{dhcp.setBroadcast(true);console.log('[DHCP] listening :67 tftp='+SERVER_IP);});
 
-const OTG_PATTERNS=[['uac gadget','[OTG-AUDIO] gadget'],['iso ep','[OTG-AUDIO] iso-ep'],['alt=1','[OTG-AUDIO] streaming-start'],['alt=0','[OTG-AUDIO] streaming-stop']];
-const CRITICAL_PATTERNS=['error','fatal','crash','panic','assert','fail','exception'];
 const syslog=dgram.createSocket('udp4');
 syslog.on('message',(msg,rinfo)=>{
   const text=parseSyslog(msg.toString());
   if(!text||text.startsWith('icmp:'))return;
   const ts='['+new Date().toISOString().substring(11,23)+'] ';
   const line=ts+text+'\n';
-  const lowerText=text.toLowerCase();
-  const isCritical=CRITICAL_PATTERNS.some(p=>lowerText.includes(p));
-  if(isCritical)process.stdout.write(line);
   fs.appendFileSync(LOG_FILE,line);
+  const lowerText=text.toLowerCase();
+  if(lowerText.includes('panic')||lowerText.includes('crash')||lowerText.includes('kernel panic')||lowerText.includes('fatal'))
+    process.stdout.write(line);
 });
 syslog.on('error',err=>{if(err.code==='EACCES'){console.error('[syslog] need admin: port 514');process.exit(1);}console.error('[syslog]',err.message);});
 syslog.bind(514,'0.0.0.0',()=>console.log('[syslog] listening :514'));
