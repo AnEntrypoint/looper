@@ -155,16 +155,6 @@ jobs:
             circle/_prh/audio/libaudio.a
           key: ${{ steps.cache-key.outputs.key }}
 
-      - name: Diagnose Rules.mk shell calls
-        run: |
-          echo "=== toolchain shell call timing ==="
-          time arm-none-eabi-gcc -mcpu=cortex-a72 -mfpu=neon-fp-armv8 -mfloat-abi=hard -print-file-name=libgcc.a
-          time arm-none-eabi-gcc -mcpu=cortex-a72 -mfpu=neon-fp-armv8 -mfloat-abi=hard -print-file-name=libm.a
-          echo "=== all shell calls in Rules.mk ==="
-          grep -n 'shell' circle/Rules.mk || true
-          echo "=== make -n dry run with timeout 60s ==="
-          time timeout 60 make -n -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 2>&1 | head -5 || echo "make -n exit: $?"
-
       - name: Build Looper
         timeout-minutes: 30
         run: |
@@ -199,5 +189,6 @@ jobs:
           tag: latest
           artifacts: looper-sd.zip
           replacesArtifacts: true
+          allowUpdates: true
           body: "Automated build from commit ${{ github.sha }}"
           makeLatest: true
