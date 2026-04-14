@@ -157,7 +157,10 @@ jobs:
 
       - name: Build Looper
         run: |
-          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 -j4
+          echo "=== Rules.mk check ==="
+          grep -c "no-warn-rwx-segments" circle/Rules.mk && echo "PATCH FAILED" || echo "PATCH OK"
+          sudo apt-get install -y strace
+          timeout 120 strace -e trace=execve,read,write -f make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 2>&1 | head -200 || true
 
       - name: Collect boot files
         run: |
