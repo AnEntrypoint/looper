@@ -101,16 +101,16 @@ jobs:
       - name: Build circle libraries
         if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
-          make -C circle/lib RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
-          make -C circle/lib/fs RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
-          make -C circle/lib/input RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
-          make -C circle/lib/sched RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
-          make -C circle/lib/usb RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
-          make -C circle/lib/usb/gadget RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
-          make -C circle/lib/net RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
-          make -C circle/addon/fatfs RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
-          make -C circle/addon/SDCard RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
-          make -C circle/addon/wlan RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/lib RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
+          make -C circle/lib/fs RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
+          make -C circle/lib/input RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
+          make -C circle/lib/sched RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
+          make -C circle/lib/usb RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
+          make -C circle/lib/usb/gadget RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
+          make -C circle/lib/net RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
+          make -C circle/addon/fatfs RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
+          make -C circle/addon/SDCard RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
+          make -C circle/addon/wlan RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
 
       - name: Download WiFi firmware
         run: |
@@ -132,8 +132,8 @@ jobs:
 
       - name: Build circle-prh libraries
         run: |
-          make -C circle/_prh/utils RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1
-          make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/_prh/utils RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
+          make -C circle/_prh/audio RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 -j4
 
       - name: Save libraries to cache
         if: steps.cache-restore.outputs.cache-hit != 'true'
@@ -156,8 +156,7 @@ jobs:
 
       - name: Build Looper
         run: |
-          make -C circle/_prh/_apps/Looper clean RASPPI=4 AARCH=32
-          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 -j4
 
       - name: Collect boot files
         run: |
