@@ -154,6 +154,14 @@ jobs:
             circle/_prh/audio/libaudio.a
           key: ${{ steps.cache-key.outputs.key }}
 
+      - name: Diagnose Looper build
+        run: |
+          echo "=== circle/Rules.mk shell commands ==="
+          grep -n '!=' circle/Rules.mk || echo "no != found"
+          grep -n 'shell' circle/Rules.mk || echo "no shell found"
+          echo "=== make dry run ==="
+          timeout 30 make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 -n 2>&1 || echo "EXIT: $?"
+
       - name: Build Looper
         run: |
           make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1
