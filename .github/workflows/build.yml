@@ -157,12 +157,10 @@ jobs:
 
       - name: Diagnose Rules.mk shell calls
         run: |
-          echo "=== arm-none-eabi-ld --help test (with timeout) ==="
-          timeout 5 arm-none-eabi-ld --help 2>&1 | head -3 || echo "LD help timed out or failed: $?"
-          echo "=== arm-none-eabi-gcc -print-file-name test ==="
-          arm-none-eabi-gcc -mcpu=cortex-a72 -marm -mfpu=neon-fp-armv8 -mfloat-abi=hard -print-file-name=libgcc.a
-          echo "=== make -n dry run with timeout ==="
-          timeout 15 make -n -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 2>&1 | head -5 || echo "make -n exit: $?"
+          echo "=== Rules.mk lines 230-245 after patch ==="
+          awk 'NR>=230 && NR<=245' circle/Rules.mk
+          echo "=== make -n dry run with timeout 30s ==="
+          timeout 30 make -n -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 2>&1 | head -10 || echo "make -n exit: $?"
 
       - name: Build Looper
         run: |

@@ -16,8 +16,13 @@ with open('circle/Rules.mk', 'w') as f:
     f.writelines(out)
 
 print('patch applied:', patched)
-if not patched:
-    print('WARNING: target line not found - printing all shell lines:')
-    for i, line in enumerate(lines):
+
+# Verify: print all shell lines after patching
+print('=== shell/rwx lines after patch ===')
+with open('circle/Rules.mk') as f:
+    for i, line in enumerate(f):
         if 'shell' in line or 'rwx' in line or 'warn-rwx' in line:
             print(f'  {i+1}: {repr(line.rstrip())}')
+
+if not patched:
+    print('WARNING: target line not found')
