@@ -163,9 +163,14 @@ jobs:
           timeout 30 make -n -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 2>&1 | head -10 || echo "make -n exit: $?"
 
       - name: Build Looper
+        timeout-minutes: 30
         run: |
           set -x
-          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 V=1 -j4
+          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 V=1 -j4 2>&1 | tee /tmp/build_looper.log; echo "EXIT:${PIPESTATUS[0]}"
+
+      - name: Show last build output on failure
+        if: failure()
+        run: tail -50 /tmp/build_looper.log || true
 
       - name: Collect boot files
         run: |
