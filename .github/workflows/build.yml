@@ -97,15 +97,7 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/output_otg.h circle/_prh/audio/output_otg.h
           cp circle/_prh/_apps/Looper/patches/output_otg.cpp circle/_prh/audio/output_otg.cpp
           sed -i 's|//#define ARM_ALLOW_MULTI_CORE|#define ARM_ALLOW_MULTI_CORE|' circle/include/circle/sysconfig.h
-          python3 -c "
-import re, sys
-with open('circle/Rules.mk') as f:
-    content = f.read()
-patched = re.sub(r'ifneq \(\$\(strip \$\(shell \$\(LD\).*no-warn-rwx-segments.*', 'ifeq (0,1)', content)
-with open('circle/Rules.mk', 'w') as f:
-    f.write(patched)
-print('no-warn-rwx patch applied:', 'no-warn-rwx-segments' not in patched)
-"
+          python3 circle/_prh/_apps/Looper/patches/patch_rules_mk.py
 
       - name: Build circle libraries
         if: steps.cache-restore.outputs.cache-hit != 'true'
