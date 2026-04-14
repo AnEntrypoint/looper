@@ -27,7 +27,7 @@
 #define S32_MIN     -32768
 
 
-#if 1
+#if 0
     #define LOOPER_LOG(f,...)           pTheLoopMachine->LogUpdate(log_name,f,__VA_ARGS__)
 #elif 0
     #define LOOPER_LOG(f,...)           CLogger::Get()->Write(log_name,LogDebug,f,__VA_ARGS__)
