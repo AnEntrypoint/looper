@@ -76,6 +76,7 @@ private:
     float         m_computedRatio;
     bool          m_liveEngaged;
     float         m_livePitchSemitones;
+    volatile bool m_liveLedDirty;
 
     void _applyLivePitch();
     void _queueCmd(ApcCmd::Type type, int arg);
