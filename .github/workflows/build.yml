@@ -97,7 +97,15 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/output_otg.h circle/_prh/audio/output_otg.h
           cp circle/_prh/_apps/Looper/patches/output_otg.cpp circle/_prh/audio/output_otg.cpp
           sed -i 's|//#define ARM_ALLOW_MULTI_CORE|#define ARM_ALLOW_MULTI_CORE|' circle/include/circle/sysconfig.h
-          sed -i 's/ifneq.*no-warn-rwx-segments.*/ifeq (0,1)/' circle/Rules.mk
+          python3 -c "
+import re, sys
+with open('circle/Rules.mk') as f:
+    content = f.read()
+patched = re.sub(r'ifneq \(\$\(strip \$\(shell \$\(LD\).*no-warn-rwx-segments.*', 'ifeq (0,1)', content)
+with open('circle/Rules.mk', 'w') as f:
+    f.write(patched)
+print('no-warn-rwx patch applied:', 'no-warn-rwx-segments' not in patched)
+"
 
       - name: Build circle libraries
         if: steps.cache-restore.outputs.cache-hit != 'true'
@@ -157,10 +165,7 @@ jobs:
 
       - name: Build Looper
         run: |
-          echo "=== Rules.mk check ==="
-          grep -c "no-warn-rwx-segments" circle/Rules.mk && echo "PATCH FAILED" || echo "PATCH OK"
-          sudo apt-get install -y strace
-          timeout 120 strace -e trace=execve,read,write -f make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 2>&1 | head -200 || true
+          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 -j4
 
       - name: Collect boot files
         run: |
