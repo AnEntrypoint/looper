@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <string.h>
-#include <RubberBandStretcher.h>
+#include <rubberband/RubberBandStretcher.h>
 
 class RubberBandWrapper {
   static constexpr size_t INPUT_RING_SIZE = 4096;
