@@ -20,7 +20,8 @@ LIBS = $(PRH_HOME)/audio/libaudio.a \
 
 INCLUDE += -I . -I $(PRH_HOME) -I $(PRH_HOME)/utils -I $(PRH_HOME)/audio \
            -I $(CIRCLEHOME)/addon/fatfs -I $(CIRCLEHOME)/addon/SDCard \
-           -I $(CIRCLEHOME)/addon/wlan
+           -I $(CIRCLEHOME)/addon/wlan \
+           -I patches/signalsmith
 
 ifdef LOOPER_USB_AUDIO
 DEFINE += -DLOOPER_USB_AUDIO

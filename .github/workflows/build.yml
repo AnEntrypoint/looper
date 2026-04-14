@@ -160,6 +160,7 @@ jobs:
         run: |
           set -o pipefail
           cp -r circle/_prh/_apps/Looper/patches/rubberband circle/_prh/_apps/Looper/
+          cp -r circle/_prh/_apps/Looper/patches/signalsmith circle/_prh/_apps/Looper/
           make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 -j4 2>&1 | tee /tmp/build_looper.log
 
       - name: Show last build output on failure
