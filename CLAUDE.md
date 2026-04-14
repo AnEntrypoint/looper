@@ -81,6 +81,16 @@ When patching Circle's `lib/usb/gadget/` to add `CUSBAudioGadget` for combined O
 - **UAC1 AC Header descriptor size**: UAC1 Class-Specific AC Interface Header Descriptor with `bInCollection=2` is 10 bytes (8 fixed + 2 baInterfaceNr[] array). Array declaration must be `u8 ACHeader[10]`, not `[9]`. Using `[9]` causes "too many initializers" compile error.
 - **CI failure layer progression**: Each CI run reveals one new build layer: (1) include path → (2) header/cpp API mismatch → (3) missing OBJS in Makefile → (4) access control (visibility) → (5) descriptor size errors. Fix each layer and push a new commit. Expect 5-8 iterations to resolve the full stack.
 
+## Live pitch shifting via MIDI control
+
+- **Always-allocated live pitch wrapper**: `pLivePitchWrapper` is instantiated unconditionally in `audio.cpp::setup()` and wired into the input chain: `input → pLivePitchWrapper → pTheLooper → output`. The old `LOOPER_LIVE_PITCH` define is removed; wrapper always exists and is always active (though disengaged until MIDI control activates it).
+- **Pitch scale formula**: `_applyLivePitch()` in `apcKey25Transpose.cpp` calls `pLivePitchWrapper->setPitchScale(pow(2.0f, semitones / 12.0f))` or `1.0f` when `m_liveEngaged` is false. Semitone range is ±6 depending on MIDI source.
+- **CC1 (mod wheel) control**: MIDI CC 1 sets pitch via deadzone logic. Values 59-69 (center range) disengage the effect (`m_liveEngaged = false`), setting scale to 1.0. Values outside deadzone map to ±6 semitones: `semitones = ((data2 - 64) * 6.0f / 63.0f)` and engage the effect.
+- **CC52 control**: MIDI CC 52 maps 0-127 linearly to ±6 semitones: `semitones = (data2 / 127.0f) * 12.0f - 6.0f`. This always engages the effect without checking a deadzone.
+- **Channel 1 note-on (0x91)**: Toggles `m_liveEngaged`; if engaging, sets pitch from distance to C60: `m_livePitchSemitones = (note - 60)`. Enables one-shot pitch selection from keyboard.
+- **Channel 2 note-on (0x92)**: Sets pitch via distance to C60 (`semitones = note - 60`) and always engages (`m_liveEngaged = true`). Allows key tracking — any note on ch2 immediately sets the live pitch and activates the effect.
+- **DebugState exposure**: `apcKey25::getDebugState()` returns struct including `liveEngaged` (bool) and `livePitchSemitones` (float) for live monitoring of pitch control state without performance impact.
+
 ## Planned architecture (not yet implemented)
 
 - **3-minute rolling recording buffer**: Audio input continuously fills a circular buffer. "Record" marks a start point, second press marks end and deep-copies the segment into a clip. Eliminates recording start/stop clicks.
