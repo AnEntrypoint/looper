@@ -13,9 +13,7 @@ jobs:
       AARCH: 32
     steps:
       - name: Install toolchain and make
-        run: |
-          sudo apt-get install -y make gcc-arm-none-eabi librubberband-dev
-          find /usr/include -name "RubberBandStretcher.h" 2>/dev/null || echo "header not found"
+        run: sudo apt-get install -y make gcc-arm-none-eabi librubberband-dev
 
       - name: Clone rsta2/circle
         run: git clone --depth=1 https://github.com/rsta2/circle circle
@@ -170,8 +168,9 @@ jobs:
       - name: Build Looper
         timeout-minutes: 30
         run: |
-          set -x
-          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 V=1 -j4 2>&1 | tee /tmp/build_looper.log; echo "EXIT:${PIPESTATUS[0]}"
+          set -o pipefail
+          cp -r /usr/include/rubberband circle/_prh/_apps/Looper/
+          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 -j4 2>&1 | tee /tmp/build_looper.log
 
       - name: Show last build output on failure
         if: failure()
