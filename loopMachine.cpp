@@ -2,6 +2,8 @@
 #include <circle/logger.h>
 #include <circle/synchronize.h>
 #include "abletonLink.h"
+#include "patches/RubberBandWrapper.h"
+extern RubberBandWrapper *pLivePitchWrapper;
 
 #define log_name "lmachine"
 
@@ -519,6 +521,27 @@ void loopMachine::update(void)
 		if (in)
 			AudioSystem::release(in);
 
+	}
+
+	if (pLivePitchWrapper)
+	{
+		s16 tmp_L[AUDIO_BLOCK_SAMPLES], tmp_R[AUDIO_BLOCK_SAMPLES];
+		s16 out_L[AUDIO_BLOCK_SAMPLES], out_R[AUDIO_BLOCK_SAMPLES];
+		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+		{
+			tmp_L[i] = (s16)m_input_buffer[i];
+			tmp_R[i] = (s16)m_input_buffer[AUDIO_BLOCK_SAMPLES + i];
+		}
+		pLivePitchWrapper->feedAudio(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES);
+		size_t got = pLivePitchWrapper->retrieveAudio(out_L, out_R, AUDIO_BLOCK_SAMPLES);
+		if (got == AUDIO_BLOCK_SAMPLES)
+		{
+			for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+			{
+				m_input_buffer[i] = out_L[i];
+				m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = out_R[i];
+			}
+		}
 	}
 
 	if (linkIsSynced())

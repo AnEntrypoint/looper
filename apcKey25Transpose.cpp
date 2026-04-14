@@ -77,7 +77,7 @@ apcKey25::DebugState apcKey25::getDebugState() const
     return {
         m_transposeLocked,
         m_transposePitch,
-        m_pitchWheelOffset,
+        (float)m_pitchWheelOffset,
         m_driftTarget,
         m_computedRatio,
         m_liveEngaged,

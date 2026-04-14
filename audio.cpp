@@ -108,10 +108,8 @@ void setup()
 
 	debug_blink(1);
 	pLivePitchWrapper = new RubberBandWrapper(AUDIO_SAMPLE_RATE, LOOPER_NUM_CHANNELS);
-	new AudioConnection(input,              0,  *pLivePitchWrapper, 0);
-	new AudioConnection(input,              1,  *pLivePitchWrapper, 1);
-	new AudioConnection(*pLivePitchWrapper, 0,  *pTheLooper,        0);
-	new AudioConnection(*pLivePitchWrapper, 1,  *pTheLooper,        1);
+	new AudioConnection(input,      0,  *pTheLooper,    0);
+	new AudioConnection(input,      1,  *pTheLooper,    1);
 	new AudioConnection(*pTheLooper,	0,  output,			0);
 	new AudioConnection(*pTheLooper,	1,  output,			1);
 
@@ -159,8 +157,6 @@ void setup()
 
 void loop()
 {
-	if (pLivePitchWrapper)
-		pLivePitchWrapper->updateRatios();
 	if (pTheLooper) {
 		logString_t *msg;
 		while ((msg = pTheLooper->getNextLogString()) != nullptr) {
