@@ -97,6 +97,7 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/output_otg.h circle/_prh/audio/output_otg.h
           cp circle/_prh/_apps/Looper/patches/output_otg.cpp circle/_prh/audio/output_otg.cpp
           sed -i 's|//#define ARM_ALLOW_MULTI_CORE|#define ARM_ALLOW_MULTI_CORE|' circle/include/circle/sysconfig.h
+          sed -i '236s/.*/ifeq (0,1)/' circle/Rules.mk
 
       - name: Build circle libraries
         if: steps.cache-restore.outputs.cache-hit != 'true'
@@ -154,17 +155,9 @@ jobs:
             circle/_prh/audio/libaudio.a
           key: ${{ steps.cache-key.outputs.key }}
 
-      - name: Diagnose Looper build
-        run: |
-          echo "=== circle/Rules.mk shell commands ==="
-          grep -n '!=' circle/Rules.mk || echo "no != found"
-          grep -n 'shell' circle/Rules.mk || echo "no shell found"
-          echo "=== make dry run ==="
-          timeout 30 make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 -n 2>&1 || echo "EXIT: $?"
-
       - name: Build Looper
         run: |
-          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1
+          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 -j4
 
       - name: Collect boot files
         run: |
