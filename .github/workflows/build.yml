@@ -13,7 +13,7 @@ jobs:
       AARCH: 32
     steps:
       - name: Install toolchain and make
-        run: sudo apt-get install -y make gcc-arm-none-eabi librubberband-dev
+        run: sudo apt-get install -y make gcc-arm-none-eabi
 
       - name: Clone rsta2/circle
         run: git clone --depth=1 https://github.com/rsta2/circle circle
@@ -169,7 +169,7 @@ jobs:
         timeout-minutes: 30
         run: |
           set -o pipefail
-          cp -r /usr/include/rubberband circle/_prh/_apps/Looper/
+          cp -r circle/_prh/_apps/Looper/patches/rubberband circle/_prh/_apps/Looper/
           make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 -j4 2>&1 | tee /tmp/build_looper.log
 
       - name: Show last build output on failure
