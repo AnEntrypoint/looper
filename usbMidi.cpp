@@ -73,3 +73,10 @@ void usbMidiSendCC(int cc_num, int value)
     for (int i = 1; i <= 8; i++)
         if (s_pDevices[i]) s_pDevices[i]->SendPlainMIDI(0, msg, 3);
 }
+
+void usbMidiSend(u8 status, u8 data1, u8 data2)
+{
+    u8 msg[3] = { status, data1, data2 };
+    for (int i = 1; i <= 8; i++)
+        if (s_pDevices[i]) s_pDevices[i]->SendPlainMIDI(0, msg, 3);
+}
