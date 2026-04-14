@@ -47,6 +47,8 @@ public:
         float pitchWheelOffset;
         float driftTarget;
         float computedRatio;
+        bool liveEngaged;
+        float livePitchSemitones;
     };
 
     DebugState getDebugState() const;
@@ -66,14 +68,16 @@ private:
     unsigned long m_bootMs;
     unsigned long m_lastLedMs;
 
-    // Transpose lock state
     bool          m_transposeLocked;
-    int           m_transposePitch;      // 0-11 semitones
-    int           m_pitchWheelOffset;    // -6 to +6 fine offset
+    int           m_transposePitch;
+    int           m_pitchWheelOffset;
     float         m_driftTarget;
     unsigned long m_lastDriftMs;
-    float         m_computedRatio;       // tempo ratio from semitones
+    float         m_computedRatio;
+    bool          m_liveEngaged;
+    float         m_livePitchSemitones;
 
+    void _applyLivePitch();
     void _queueCmd(ApcCmd::Type type, int arg);
     void _onPadPress(int row, int col);
     void _onPadRelease(int row, int col);

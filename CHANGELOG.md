@@ -1,3 +1,10 @@
+## 2026-04-14 — Live pitch shifting via MIDI CC1/CC52/ch1/ch2 → pLivePitchWrapper
+
+- feat: audio.cpp — always allocate pLivePitchWrapper; wire input→wrapper→looper unconditionally; remove LOOPER_LIVE_PITCH guards
+- feat: apcKey25.h — add m_liveEngaged, m_livePitchSemitones fields; _applyLivePitch() helper; expose both in DebugState
+- feat: apcKey25.cpp — CC1 mod wheel: deadzone 59-69 disengages (pitch=1.0), outside sets semitones ±6 from center; CC52: maps 0-127 to ±6 semitones on live input; ch1 note-on toggles m_liveEngaged + sets pitch from distance-to-C60; ch2 note-on sets pitch = pow(2, (note-60)/12) and engages
+- feat: apcKey25Transpose.cpp — _applyLivePitch() calls pLivePitchWrapper->setPitchScale(pow(2, semitones/12)) or 1.0 when disengaged
+
 ## 2026-04-13 — Fix CI build: add .PHONY cstdint target for RubberBandWrapper dependency
 
 - fix: Makefile — add `.PHONY: cstdint` target to suppress "No rule to make target cstdint" error when Circle's build system includes system headers in .d dependency files; cstdint is a standard header included by patches/RubberBandWrapper.h

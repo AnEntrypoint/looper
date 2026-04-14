@@ -3,6 +3,7 @@
 #include "apcKey25.h"
 #include "input_usb.h"
 #include "Looper.h"
+#include "patches/RubberBandWrapper.h"
 
 extern apcKey25 *pTheAPC;
 extern publicLoopMachine *pTheLooper;
@@ -60,6 +61,14 @@ u8 apcKey25::_muteLedColor(int track)
     return color;
 }
 
+void apcKey25::_applyLivePitch()
+{
+    extern RubberBandWrapper *pLivePitchWrapper;
+    if (!pLivePitchWrapper) return;
+    float scale = m_liveEngaged ? powf(2.0f, m_livePitchSemitones / 12.0f) : 1.0f;
+    pLivePitchWrapper->setPitchScale(scale);
+}
+
 apcKey25::DebugState apcKey25::getDebugState() const
 {
     return {
@@ -67,7 +76,9 @@ apcKey25::DebugState apcKey25::getDebugState() const
         m_transposePitch,
         m_pitchWheelOffset,
         m_driftTarget,
-        m_computedRatio
+        m_computedRatio,
+        m_liveEngaged,
+        m_livePitchSemitones
     };
 }
 
