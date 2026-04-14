@@ -103,9 +103,9 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
     if (msgType == APC_CH_NOTE_ON && data2 > 0)
     {
         if (data1 == APC_BTN_SHIFT) { m_shift = true; return; }
-        if (channel == 1) {
+        if (channel == 1 && data1 == 64) {
             m_liveEngaged = !m_liveEngaged;
-            m_livePitchSemitones = m_liveEngaged ? (float)((int)data1 - 60) : 0.0f;
+            if (!m_liveEngaged) m_livePitchSemitones = 0.0f;
             _applyLivePitch();
             return;
         }
@@ -128,6 +128,7 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
     if (msgType == APC_CH_NOTE_OFF || (msgType == APC_CH_NOTE_ON && data2 == 0))
     {
         if (data1 == APC_BTN_SHIFT) { m_shift = false; return; }
+        if (channel == 1 && data1 == 64) return;
         if (data1 == 64) { m_transposeLocked = false; return; }
         if (data1 < APC_ROWS * APC_COLS)
             _onPadRelease(data1 / APC_COLS, data1 % APC_COLS);
