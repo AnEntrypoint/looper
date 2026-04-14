@@ -163,13 +163,13 @@ jobs:
           echo "=== all shell calls in Rules.mk ==="
           grep -n 'shell' circle/Rules.mk || true
           echo "=== make -n dry run with timeout 60s ==="
-          time timeout 60 make -n -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 2>&1 | head -5 || echo "make -n exit: $?"
+          time timeout 60 make -n -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 2>&1 | head -5 || echo "make -n exit: $?"
 
       - name: Build Looper
         timeout-minutes: 30
         run: |
           set -x
-          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 V=1 -j4 2>&1 | tee /tmp/build_looper.log; echo "EXIT:${PIPESTATUS[0]}"
+          make -C circle/_prh/_apps/Looper RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 V=1 -j4 2>&1 | tee /tmp/build_looper.log; echo "EXIT:${PIPESTATUS[0]}"
 
       - name: Show last build output on failure
         if: failure()
