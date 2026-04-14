@@ -11,6 +11,8 @@ class RubberBandWrapper {
   static constexpr size_t RING_MASK_IN = INPUT_RING_SIZE - 1;
   static constexpr size_t RING_MASK_OUT = OUTPUT_RING_SIZE - 1;
 
+  static constexpr size_t MAX_BLOCK = 256;
+
   RubberBand::RubberBandStretcher *m_rb;
   float m_in_ring[INPUT_RING_SIZE * 2];
   float m_out_ring[OUTPUT_RING_SIZE * 2];
@@ -21,6 +23,10 @@ class RubberBandWrapper {
   size_t m_sampleRate;
   uint32_t m_processedFrames;
   uint32_t m_retrievedFrames;
+  float m_feed_L[MAX_BLOCK];
+  float m_feed_R[MAX_BLOCK];
+  float m_retr_L[MAX_BLOCK];
+  float m_retr_R[MAX_BLOCK];
 
 public:
   RubberBandWrapper(size_t sampleRate, size_t channels)
@@ -41,26 +47,23 @@ public:
   ~RubberBandWrapper() { delete m_rb; }
 
   void feedAudio(const int16_t *left, const int16_t *right, size_t samples) {
-    const float *ptrs[2] = { nullptr, nullptr };
-    float tmpL[256], tmpR[256];
     for (size_t i = 0; i < samples; i++) {
-      tmpL[i] = (float)left[i] / 32768.0f;
-      tmpR[i] = (float)right[i] / 32768.0f;
+      m_feed_L[i] = (float)left[i] / 32768.0f;
+      m_feed_R[i] = (float)right[i] / 32768.0f;
     }
-    ptrs[0] = tmpL; ptrs[1] = tmpR;
+    const float *ptrs[2] = { m_feed_L, m_feed_R };
     m_rb->process(ptrs, samples, false);
     m_processedFrames += samples;
   }
 
   size_t retrieveAudio(int16_t *left, int16_t *right, size_t maxSamples) {
-    float tmpL[256], tmpR[256];
-    float *out[2] = { tmpL, tmpR };
+    float *out[2] = { m_retr_L, m_retr_R };
     size_t avail = m_rb->retrieve(out, maxSamples);
     for (size_t i = 0; i < avail; i++) {
-      float l = tmpL[i] * 32768.0f;
-      float r = tmpR[i] * 32768.0f;
-      left[i] = (int16_t)(l > 32767 ? 32767 : (l < -32768 ? -32768 : l));
-      right[i] = (int16_t)(r > 32767 ? 32767 : (r < -32768 ? -32768 : r));
+      float l = m_retr_L[i] * 32768.0f;
+      float r = m_retr_R[i] * 32768.0f;
+      left[i]  = (int16_t)(l > 32767.0f ? 32767 : (l < -32768.0f ? -32768 : (int16_t)l));
+      right[i] = (int16_t)(r > 32767.0f ? 32767 : (r < -32768.0f ? -32768 : (int16_t)r));
     }
     m_retrievedFrames += avail;
     return avail;
