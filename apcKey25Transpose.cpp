@@ -69,7 +69,7 @@ void apcKey25::_applyLivePitch()
     float scale = m_liveEngaged ? powf(2.0f, m_livePitchSemitones / 12.0f) : 1.0f;
     pLivePitchWrapper->setPitchScale(scale);
     u8 vel = m_liveEngaged ? 127 : 0;
-    usbMidiSend(0x91, 0x40, vel);
+    usbMidiSend(0x90, 0x40, vel);
 }
 
 apcKey25::DebugState apcKey25::getDebugState() const
