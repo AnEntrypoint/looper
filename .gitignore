@@ -95,6 +95,7 @@ package-lock.json
 
 .plugkit-browser-profile/
 $null
+.claude/scheduled_tasks.lock
 package.json
 tftproot/
 .tftp-sha
