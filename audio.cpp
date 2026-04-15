@@ -108,6 +108,8 @@ void setup()
 
 	debug_blink(1);
 	pLivePitchWrapper = new RubberBandWrapper(AUDIO_SAMPLE_RATE, LOOPER_NUM_CHANNELS);
+	// Note: pLivePitchWrapper is NOT an AudioStream; it's fed directly in loopMachine::update()
+	// Audio path: input → loopMachine (which internally feeds pLivePitchWrapper) → output
 	new AudioConnection(input,      0,  *pTheLooper,    0);
 	new AudioConnection(input,      1,  *pTheLooper,    1);
 	new AudioConnection(*pTheLooper,	0,  output,			0);

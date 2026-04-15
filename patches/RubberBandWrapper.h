@@ -23,7 +23,11 @@ public:
     : m_pitchScale(1.0f), m_channels(channels),
       m_processedFrames(0), m_retrievedFrames(0)
   {
-    m_stretch.presetDefault((int)channels, (float)sampleRate);
+    // Use low-latency manual config: ~512 sample window for ~10.7ms latency at 48kHz
+    // signalsmith default is massive (5760 samples = 120ms), which causes audible delay
+    int blockSamples = 512;
+    int intervalSamples = 256;
+    m_stretch.configure((int)channels, blockSamples, intervalSamples);
     memset(m_feed_L, 0, sizeof(m_feed_L));
     memset(m_feed_R, 0, sizeof(m_feed_R));
     memset(m_retr_L, 0, sizeof(m_retr_L));
