@@ -4,14 +4,28 @@
 namespace std {
 
 template<typename T>
-class function {
+class function;
+
+// Specialization for function pointer types R(*)(Args...)
+template<typename R, typename... Args>
+class function<R(Args...)> {
+private:
+    typedef R (*FuncPtr)(Args...);
+    FuncPtr m_ptr;
+
 public:
     function() : m_ptr(nullptr) {}
+
+    function(FuncPtr f) : m_ptr(f) {}
+
     template<typename Func>
-    function(Func f) : m_ptr((void*)1) {}
+    function(Func f) : m_ptr(nullptr) {}
+
     operator bool() const { return m_ptr != nullptr; }
-private:
-    void *m_ptr;
+
+    R operator()(Args... args) const {
+        return m_ptr(args...);
+    }
 };
 
 }

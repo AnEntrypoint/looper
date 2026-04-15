@@ -77,7 +77,7 @@ public:
         if (_size >= _capacity) {
             _grow(_capacity == 0 ? 1 : _capacity * 2);
         }
-        new (_data + _size) T(static_cast<Args&&>(args)...);
+        new ((void*)(_data + _size)) T(static_cast<Args&&>(args)...);
         return _data[_size++];
     }
 
