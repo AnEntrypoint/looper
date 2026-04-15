@@ -85,7 +85,7 @@ namespace delay {
 			CSample & operator[](int offset) {
 				return buffer->buffer[(bufferIndex + (unsigned)offset)&buffer->bufferMask];
 			}
-			const Sample & operator[](int offset) const {
+			CSample & operator[](int offset) const {
 				return buffer->buffer[(bufferIndex + (unsigned)offset)&buffer->bufferMask];
 			}
 
