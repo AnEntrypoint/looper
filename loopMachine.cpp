@@ -3,8 +3,10 @@
 #include <circle/synchronize.h>
 #include "abletonLink.h"
 #include "patches/RubberBandWrapper.h"
+#include "patches/apcEffectsProcessor.h"
 #include "apcKey25.h"
 extern RubberBandWrapper *pLivePitchWrapper;
+extern apcEffectsProcessor *pEffectsProcessor;
 
 #define log_name "lmachine"
 
@@ -595,6 +597,22 @@ void loopMachine::update(void)
 			{
 				pTrack->update(m_input_buffer,m_output_buffer);
 			}
+		}
+	}
+
+	if (pEffectsProcessor && pTheAPC)
+	{
+		float left[AUDIO_BLOCK_SAMPLES], right[AUDIO_BLOCK_SAMPLES];
+		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+		{
+			left[i] = (float)m_output_buffer[i] / 32768.0f;
+			right[i] = (float)m_output_buffer[AUDIO_BLOCK_SAMPLES + i] / 32768.0f;
+		}
+		pEffectsProcessor->processFilterAndSends(left, right, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
+		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+		{
+			m_output_buffer[i] = (s32)(left[i] * 32768.0f);
+			m_output_buffer[AUDIO_BLOCK_SAMPLES + i] = (s32)(right[i] * 32768.0f);
 		}
 	}
 

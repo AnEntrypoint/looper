@@ -53,7 +53,18 @@ public:
         float livePitchSemitones;
     };
 
+    struct EffectsState {
+        float filterHP;
+        float filterLP;
+        float filterRes;
+        float reverbAmount;
+        float reverbTime;
+        float delayAmount;
+        float delayTime;
+    };
+
     DebugState getDebugState() const;
+    EffectsState getEffectsState() const;
 
 private:
     bool          m_shift;

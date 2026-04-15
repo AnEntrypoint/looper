@@ -84,6 +84,19 @@ apcKey25::DebugState apcKey25::getDebugState() const
     };
 }
 
+apcKey25::EffectsState apcKey25::getEffectsState() const
+{
+    return {
+        m_filterHP,
+        m_filterLP,
+        m_filterRes,
+        m_reverbAmount,
+        m_reverbTime,
+        m_delayAmount,
+        m_delayTime
+    };
+}
+
 void apcKey25::_updateGridLeds()
 {
     for (int row = 0; row < LOOPER_NUM_TRACKS; row++)

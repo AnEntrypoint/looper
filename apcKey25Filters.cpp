@@ -2,9 +2,16 @@
 
 #include "apcKey25.h"
 #include "usbMidi.h"
+#include "patches/apcEffectsProcessor.h"
+
+extern apcEffectsProcessor *pEffectsProcessor;
 
 void apcKey25::_applyFilters()
 {
+    if (!pEffectsProcessor) return;
+    pEffectsProcessor->setHighpassCutoff(m_filterHP);
+    pEffectsProcessor->setLowpassCutoff(m_filterLP);
+    pEffectsProcessor->setFilterResonance(m_filterRes);
 }
 
 void apcKey25::handleFilterCC(u8 cc, u8 data2)
@@ -52,4 +59,9 @@ void apcKey25::handleEffectsCC(u8 cc, u8 data2)
 
 void apcKey25::_applyEffects()
 {
+    if (!pEffectsProcessor) return;
+    pEffectsProcessor->setReverbAmount(m_reverbAmount);
+    pEffectsProcessor->setReverbTime(m_reverbTime);
+    pEffectsProcessor->setDelayAmount(m_delayAmount);
+    pEffectsProcessor->setDelayTime(m_delayTime);
 }
