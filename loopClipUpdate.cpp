@@ -73,12 +73,12 @@ void loopClip::update(s32 *ip, s32 *op)
                 {
                     double val = *pp_m++ * m_volume;
                     if (fade_in) { val *= i_fade; i_fade += FADE_SAMPLE_INCREMENT; }
-                    tmp_ch[i] += (s16)val;
+                    tmp_ch[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
                 }
                 if (pp_f)
                 {
                     double val = *pp_f++ * m_volume * o_fade;
-                    tmp_ch[i] += (s16)val;
+                    tmp_ch[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
                     o_fade -= FADE_SAMPLE_INCREMENT;
                 }
             }
