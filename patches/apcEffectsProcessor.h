@@ -12,6 +12,9 @@ namespace std {
   using ::sinh;
   using ::cosh;
   using ::log;
+  using ::log10;
+  using ::sin;
+  using ::cos;
 }
 
 #include "signalsmith/dsp/filters.h"
