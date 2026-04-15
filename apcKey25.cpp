@@ -13,7 +13,8 @@ apcKey25::apcKey25()
       m_nowMs(0), m_bootMs(0), m_lastLedMs(0),
       m_transposeLocked(false), m_transposePitch(0), m_pitchWheelOffset(0),
       m_driftTarget(0.0f), m_lastDriftMs(0), m_computedRatio(1.0f),
-      m_liveEngaged(false), m_livePitchSemitones(0.0f), m_liveLedDirty(false)
+      m_liveEngaged(false), m_livePitchSemitones(0.0f), m_liveLedDirty(false),
+      m_filterHP(0.0f), m_filterLP(1.0f), m_filterRes(0.0f)
 {
     pTheAPC = this;
     for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
@@ -39,60 +40,6 @@ void apcKey25::_queueCmd(ApcCmd::Type type, int arg)
     m_cmdType  = type;
     m_cmdArg   = arg;
     m_cmdReady = true;
-}
-
-void apcKey25::_onPadPress(int row, int col)
-{
-    if (row >= LOOPER_NUM_TRACKS) return;
-    if (col == 0)
-    {
-        _queueCmd(ApcCmd::TRACK, row);
-    }
-    else if (col == 1)
-    {
-        m_col1Held[row]           = true;
-        m_col1EraseTriggered[row] = false;
-        m_col1HoldStart[row]      = m_nowMs;
-    }
-    else if (col >= 2 && col <= 5)
-    {
-        int layer = col - 2;
-        _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_CLEAR_LAYER_BASE + row * LOOPER_NUM_LAYERS + layer);
-    }
-    else if (col == 6)
-    {
-        _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_HALVE_TRACK_BASE + row);
-    }
-    else if (col == 7)
-    {
-        _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_DOUBLE_TRACK_BASE + row);
-    }
-}
-
-void apcKey25::_onPadRelease(int row, int col)
-{
-    if (col == 1 && row < LOOPER_NUM_TRACKS)
-    {
-        if (m_col1Held[row] && !m_col1EraseTriggered[row])
-        {
-            publicTrack *pTrack = pTheLooper->getPublicTrack(row);
-            if (pTrack->getNumRunningClips())
-                _queueCmd(ApcCmd::STOP_TRACK, row);
-            else
-                _queueCmd(ApcCmd::ERASE_TRACK, row);
-        }
-        m_col1Held[row] = false;
-    }
-}
-
-void apcKey25::_onButton(u8 note)
-{
-    if (note == APC_BTN_STOP_ALL)
-        _queueCmd(ApcCmd::LOOPER, m_shift ? LOOP_COMMAND_STOP_IMMEDIATE : LOOP_COMMAND_STOP);
-    else if (note == APC_BTN_RECORD)
-        _queueCmd(ApcCmd::LOOPER, m_shift ? LOOP_COMMAND_ABORT_RECORDING : LOOP_COMMAND_DUB_MODE);
-    else if (note == APC_BTN_PLAY)
-        _queueCmd(ApcCmd::LOOPER, m_shift ? LOOP_COMMAND_LOOP_IMMEDIATE : LOOP_COMMAND_CLEAR_ALL);
 }
 
 void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
@@ -158,6 +105,12 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
         m_livePitchSemitones = (data2 / 127.0f) * 12.0f - 6.0f;
         m_liveEngaged = true;
         _applyLivePitch();
+        return;
+    }
+
+    if (msgType == 0xB0 && (data1 == 51 || data1 == 54 || data1 == 55))
+    {
+        handleFilterCC(data1, data2);
         return;
     }
 }

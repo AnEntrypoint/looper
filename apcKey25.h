@@ -39,6 +39,7 @@ public:
     apcKey25();
 
     void handleMidi(u8 status, u8 data1, u8 data2);
+    void handleFilterCC(u8 cc, u8 data2);
     void update();
 
     struct DebugState {
@@ -78,7 +79,12 @@ private:
     float         m_livePitchSemitones;
     volatile bool m_liveLedDirty;
 
+    float         m_filterHP;
+    float         m_filterLP;
+    float         m_filterRes;
+
     void _applyLivePitch();
+    void _applyFilters();
     void _queueCmd(ApcCmd::Type type, int arg);
     void _onPadPress(int row, int col);
     void _onPadRelease(int row, int col);
