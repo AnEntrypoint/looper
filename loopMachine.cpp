@@ -527,25 +527,26 @@ void loopMachine::update(void)
 
 	if (pLivePitchWrapper && pTheAPC)
 	{
-		// Always feed audio through wrapper. Control pitch via scale:
-		// OFF (scale=1.0) = passthrough with inherent latency only
-		// ON (scale!=1.0) = actual pitch shifting
-		s16 tmp_L[AUDIO_BLOCK_SAMPLES], tmp_R[AUDIO_BLOCK_SAMPLES];
-		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+		auto dbg = pTheAPC->getDebugState();
+		if (dbg.liveEngaged)
 		{
-			tmp_L[i] = (s16)m_input_buffer[i];
-			tmp_R[i] = (s16)m_input_buffer[AUDIO_BLOCK_SAMPLES + i];
-		}
-
-		pLivePitchWrapper->feedAudio(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES);
-		s16 out_L[AUDIO_BLOCK_SAMPLES], out_R[AUDIO_BLOCK_SAMPLES];
-		size_t got = pLivePitchWrapper->retrieveAudio(out_L, out_R, AUDIO_BLOCK_SAMPLES);
-		if (got == AUDIO_BLOCK_SAMPLES)
-		{
+			s16 tmp_L[AUDIO_BLOCK_SAMPLES], tmp_R[AUDIO_BLOCK_SAMPLES];
 			for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
 			{
-				m_input_buffer[i] = out_L[i];
-				m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = out_R[i];
+				tmp_L[i] = (s16)m_input_buffer[i];
+				tmp_R[i] = (s16)m_input_buffer[AUDIO_BLOCK_SAMPLES + i];
+			}
+
+			pLivePitchWrapper->feedAudio(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES);
+			s16 out_L[AUDIO_BLOCK_SAMPLES], out_R[AUDIO_BLOCK_SAMPLES];
+			size_t got = pLivePitchWrapper->retrieveAudio(out_L, out_R, AUDIO_BLOCK_SAMPLES);
+			if (got == AUDIO_BLOCK_SAMPLES)
+			{
+				for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+				{
+					m_input_buffer[i] = out_L[i];
+					m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = out_R[i];
+				}
 			}
 		}
 	}

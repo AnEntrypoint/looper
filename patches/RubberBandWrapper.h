@@ -12,7 +12,7 @@ class RubberBandWrapper {
   uint32_t m_processedFrames;
   uint32_t m_retrievedFrames;
 
-  static constexpr size_t MAX_BLOCK = 256;
+  static constexpr size_t MAX_BLOCK = 512;
   float m_feed_L[MAX_BLOCK];
   float m_feed_R[MAX_BLOCK];
   float m_retr_L[MAX_BLOCK];
@@ -23,8 +23,6 @@ public:
     : m_pitchScale(1.0f), m_channels(channels),
       m_processedFrames(0), m_retrievedFrames(0)
   {
-    // Use low-latency manual config: ~512 sample window for ~10.7ms latency at 48kHz
-    // signalsmith default is massive (5760 samples = 120ms), which causes audible delay
     int blockSamples = 512;
     int intervalSamples = 256;
     m_stretch.configure((int)channels, blockSamples, intervalSamples);
