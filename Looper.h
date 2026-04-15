@@ -251,8 +251,8 @@ class loopClip : public publicClip
         void clearMarkPoint();
         void halveLength();
         void doubleLength();
-        void setTempoRatio(float ratio)  { m_wrapper.setTempoRatio(ratio); }
-        RubberBandWrapper::DebugState getWrapperDebugState() const { return m_wrapper.getDebugState(); }
+        void setTempoRatio(float ratio)  {}
+        RubberBandWrapper::DebugState getWrapperDebugState() const { return { 1.0f, 0, 0 }; }
 
     private:
 

@@ -46,12 +46,9 @@ void loopClip::update(s32 *ip, s32 *op)
     }
 
     bool fade_in = (pp_main && use_play_block < CROSSFADE_BLOCKS);
-    m_wrapper.updateRatios();
 
     s16 tmp_L[AUDIO_BLOCK_SAMPLES] = {0};
     s16 tmp_R[AUDIO_BLOCK_SAMPLES] = {0};
-    s16 wrap_L[AUDIO_BLOCK_SAMPLES];
-    s16 wrap_R[AUDIO_BLOCK_SAMPLES];
 
     for (int channel = 0; channel < LOOPER_NUM_CHANNELS; channel++)
     {
@@ -88,12 +85,9 @@ void loopClip::update(s32 *ip, s32 *op)
         }
     }
 
-    m_wrapper.feedAudio(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES);
-    size_t got = m_wrapper.retrieveAudio(wrap_L, wrap_R, AUDIO_BLOCK_SAMPLES);
-
-    for (size_t i = 0; i < got; i++) {
-        *op++ += (s32)wrap_L[i];
-        *op++ += (s32)wrap_R[i];
+    for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+        *op++ += (s32)tmp_L[i];
+        *op++ += (s32)tmp_R[i];
     }
 
     if (rp)
