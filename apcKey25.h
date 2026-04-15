@@ -40,6 +40,7 @@ public:
 
     void handleMidi(u8 status, u8 data1, u8 data2);
     void handleFilterCC(u8 cc, u8 data2);
+    void handleEffectsCC(u8 cc, u8 data2);
     void update();
 
     struct DebugState {
@@ -83,8 +84,14 @@ private:
     float         m_filterLP;
     float         m_filterRes;
 
+    float         m_reverbAmount;
+    float         m_reverbTime;
+    float         m_delayAmount;
+    float         m_delayTime;
+
     void _applyLivePitch();
     void _applyFilters();
+    void _applyEffects();
     void _queueCmd(ApcCmd::Type type, int arg);
     void _onPadPress(int row, int col);
     void _onPadRelease(int row, int col);

@@ -25,3 +25,31 @@ void apcKey25::handleFilterCC(u8 cc, u8 data2)
         _applyFilters();
     }
 }
+
+void apcKey25::handleEffectsCC(u8 cc, u8 data2)
+{
+    if (cc == 48)
+    {
+        m_reverbAmount = data2 / 127.0f;
+        _applyEffects();
+    }
+    else if (cc == 49)
+    {
+        m_reverbTime = data2 / 127.0f;
+        _applyEffects();
+    }
+    else if (cc == 50)
+    {
+        m_delayAmount = data2 / 127.0f;
+        _applyEffects();
+    }
+    else if (cc == 53)
+    {
+        m_delayTime = data2 / 127.0f;
+        _applyEffects();
+    }
+}
+
+void apcKey25::_applyEffects()
+{
+}

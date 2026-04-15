@@ -14,7 +14,8 @@ apcKey25::apcKey25()
       m_transposeLocked(false), m_transposePitch(0), m_pitchWheelOffset(0),
       m_driftTarget(0.0f), m_lastDriftMs(0), m_computedRatio(1.0f),
       m_liveEngaged(false), m_livePitchSemitones(0.0f), m_liveLedDirty(false),
-      m_filterHP(0.0f), m_filterLP(1.0f), m_filterRes(0.0f)
+      m_filterHP(0.0f), m_filterLP(1.0f), m_filterRes(0.0f),
+      m_reverbAmount(0.0f), m_reverbTime(0.5f), m_delayAmount(0.0f), m_delayTime(0.5f)
 {
     pTheAPC = this;
     for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
@@ -111,6 +112,12 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
     if (msgType == 0xB0 && (data1 == 51 || data1 == 54 || data1 == 55))
     {
         handleFilterCC(data1, data2);
+        return;
+    }
+
+    if (msgType == 0xB0 && (data1 == 48 || data1 == 49 || data1 == 50 || data1 == 53))
+    {
+        handleEffectsCC(data1, data2);
         return;
     }
 }
