@@ -20,12 +20,11 @@ static int s_updateCount = 0;
 
 void usbMidiProcess(bool bPlugAndPlayUpdated)
 {
-    if (!bPlugAndPlayUpdated) return;
-
     s_updateCount++;
+    bool bNeedsScan = bPlugAndPlayUpdated || (s_updateCount % 30 == 1);
 
-    // Every 10th PnP update, log which umidi slots are present
-    if (s_updateCount % 10 == 1)
+    // Every 30th iteration, log which umidi slots are present
+    if (bNeedsScan && s_updateCount % 30 == 1)
     {
         CString name;
         CString found;
@@ -39,18 +38,20 @@ void usbMidiProcess(bool bPlugAndPlayUpdated)
             s_updateCount, found.GetLength() ? (const char *)found : "none");
     }
 
-    CString name;
-    for (int i = 1; i <= 8; i++)
-    {
-        if (s_registered[i]) continue;
-        name.Format("umidi%d", i);
-        CUSBMIDIDevice *pDev = (CUSBMIDIDevice *)
-            CDeviceNameService::Get()->GetDevice((const char *)name, FALSE);
-        if (!pDev) continue;
-        s_pDevices[i] = pDev;
-        s_registered[i] = true;
-        CLogger::Get()->Write(log_name, LogNotice, "USB MIDI device connected: %s", (const char *)name);
-        pDev->RegisterPacketHandler(packetHandler);
+    if (bNeedsScan) {
+        CString name;
+        for (int i = 1; i <= 8; i++)
+        {
+            if (s_registered[i]) continue;
+            name.Format("umidi%d", i);
+            CUSBMIDIDevice *pDev = (CUSBMIDIDevice *)
+                CDeviceNameService::Get()->GetDevice((const char *)name, FALSE);
+            if (!pDev) continue;
+            s_pDevices[i] = pDev;
+            s_registered[i] = true;
+            CLogger::Get()->Write(log_name, LogNotice, "USB MIDI device connected: %s", (const char *)name);
+            pDev->RegisterPacketHandler(packetHandler);
+        }
     }
 }
 
