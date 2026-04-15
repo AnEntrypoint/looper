@@ -90,6 +90,7 @@ When patching Circle's `lib/usb/gadget/` to add `CUSBAudioGadget` for combined O
 - **Channel 1 note-on (0x91)**: Toggles `m_liveEngaged`; if engaging, sets pitch from distance to C60: `m_livePitchSemitones = (note - 60)`. Enables one-shot pitch selection from keyboard.
 - **Channel 2 note-on (0x92)**: Sets pitch via distance to C60 (`semitones = note - 60`) and always engages (`m_liveEngaged = true`). Allows key tracking — any note on ch2 immediately sets the live pitch and activates the effect.
 - **DebugState exposure**: `apcKey25::getDebugState()` returns struct including `liveEngaged` (bool) and `livePitchSemitones` (float) for live monitoring of pitch control state without performance impact.
+- **Conditional buffering for zero-latency bypass**: When pitch shift is OFF, audio bypasses `pLivePitchWrapper` entirely (zero latency). When ON, audio accumulates in a 4-block static buffer (256 samples at 64-sample block size) before processing. `loopMachine.cpp` must `#include "apcKey25.h"` with quotes (not angle brackets) for project-local header resolution. Before feeding audio to the wrapper, verify `if (pLivePitchWrapper && pTheAPC && pTheAPC->getDebugState().liveEngaged)`. Access `m_liveEngaged` only via the debug accessor; it is a private field. signalsmith-stretch instances expose `inputLatency()` and `outputLatency()` methods to query processing delay.
 
 ## Planned architecture (not yet implemented)
 
