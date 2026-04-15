@@ -24,7 +24,7 @@ public:
       m_processedFrames(0), m_retrievedFrames(0)
   {
     int blockSamples = 512;
-    int intervalSamples = 256;
+    int intervalSamples = 192;
     m_stretch.configure((int)channels, blockSamples, intervalSamples);
     memset(m_feed_L, 0, sizeof(m_feed_L));
     memset(m_feed_R, 0, sizeof(m_feed_R));
