@@ -54,4 +54,9 @@ void apcKey25::_onButton(u8 note)
         _queueCmd(ApcCmd::LOOPER, m_shift ? LOOP_COMMAND_ABORT_RECORDING : LOOP_COMMAND_DUB_MODE);
     else if (note == APC_BTN_PLAY)
         _queueCmd(ApcCmd::LOOPER, m_shift ? LOOP_COMMAND_LOOP_IMMEDIATE : LOOP_COMMAND_CLEAR_ALL);
+    else if (note == APC_BTN_FORMAT)
+    {
+        m_liveEngaged = !m_liveEngaged;
+        _applyLivePitch();
+    }
 }

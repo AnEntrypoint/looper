@@ -11,6 +11,7 @@
 #define APC_BTN_STOP_ALL    0x51
 #define APC_BTN_PLAY        0x5B
 #define APC_BTN_RECORD      0x5D
+#define APC_BTN_FORMAT      0x54
 #define APC_BTN_SHIFT       0x62
 
 #define APC_CH_NOTE_ON      0x90
