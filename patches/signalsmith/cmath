@@ -1,0 +1,34 @@
+#ifndef SIGNALSMITH_CMATH_STUB_H
+#define SIGNALSMITH_CMATH_STUB_H
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+extern "C" {
+    double cos(double);
+    double sin(double);
+    double sqrt(double);
+    double exp(double);
+    double atan2(double, double);
+    float cosf(float);
+    float sinf(float);
+    float sqrtf(float);
+    float expf(float);
+    float atan2f(float, float);
+}
+
+namespace std {
+    using ::cos;
+    using ::sin;
+    using ::sqrt;
+    using ::exp;
+    using ::atan2;
+    using ::cosf;
+    using ::sinf;
+    using ::sqrtf;
+    using ::expf;
+    using ::atan2f;
+}
+
+#endif
