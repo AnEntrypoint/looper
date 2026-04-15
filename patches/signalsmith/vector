@@ -28,6 +28,10 @@ private:
 public:
     vector() : _data(nullptr), _size(0), _capacity(0) {}
 
+    vector(size_t count, const T &value) : _data(nullptr), _size(0), _capacity(0) {
+        resize(count, value);
+    }
+
     ~vector() {
         if (_data) delete[] _data;
     }
