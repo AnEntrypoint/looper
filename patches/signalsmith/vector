@@ -1,8 +1,7 @@
 #ifndef SIGNALSMITH_VECTOR_STUB_H
 #define SIGNALSMITH_VECTOR_STUB_H
 
-#include <cstddef>
-#include <cstring>
+typedef unsigned long size_t;
 
 namespace std {
 
