@@ -3,10 +3,8 @@
 #include <circle/synchronize.h>
 #include "abletonLink.h"
 #include "patches/RubberBandWrapper.h"
-#include "patches/apcEffectsProcessor.h"
 #include "apcKey25.h"
 extern RubberBandWrapper *pLivePitchWrapper;
-extern apcEffectsProcessor *pEffectsProcessor;
 
 #define log_name "lmachine"
 
@@ -600,21 +598,11 @@ void loopMachine::update(void)
 		}
 	}
 
-	if (pEffectsProcessor && pTheAPC)
-	{
-		float left[AUDIO_BLOCK_SAMPLES], right[AUDIO_BLOCK_SAMPLES];
-		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-		{
-			left[i] = (float)m_output_buffer[i] / 32768.0f;
-			right[i] = (float)m_output_buffer[AUDIO_BLOCK_SAMPLES + i] / 32768.0f;
-		}
-		pEffectsProcessor->processFilterAndSends(left, right, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
-		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-		{
-			m_output_buffer[i] = (s32)(left[i] * 32768.0f);
-			m_output_buffer[AUDIO_BLOCK_SAMPLES + i] = (s32)(right[i] * 32768.0f);
-		}
-	}
+	// TODO: Effects processor integration (signalsmith math namespace compatibility issue)
+	// if (pEffectsProcessor && pTheAPC)
+	// {
+	//   Process effects here when signalsmith template issues resolved
+	// }
 
 	u32 outPeak = 0;
 	for (int i = 0; i < LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES; i++)
