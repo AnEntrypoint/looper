@@ -156,6 +156,7 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
     if (msgType == 0xB0 && data1 == 52)
     {
         m_livePitchSemitones = (data2 / 127.0f) * 12.0f - 6.0f;
+        m_liveEngaged = true;
         _applyLivePitch();
         return;
     }
