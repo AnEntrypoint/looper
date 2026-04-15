@@ -113,6 +113,10 @@ public:
         _size = 0;
     }
 
+    void assign(size_t newSize, const T &value) {
+        resize(newSize, value);
+    }
+
     T& front() { return _data[0]; }
     const T& front() const { return _data[0]; }
 
