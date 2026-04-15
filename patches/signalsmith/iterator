@@ -1,0 +1,30 @@
+#ifndef SIGNALSMITH_ITERATOR_STUB_H
+#define SIGNALSMITH_ITERATOR_STUB_H
+
+namespace std {
+
+// std::begin - get iterator to start of container
+template<typename Container>
+auto begin(Container &c) {
+    return c.begin();
+}
+
+template<typename Container>
+auto begin(const Container &c) {
+    return c.begin();
+}
+
+// std::end - get iterator to end of container
+template<typename Container>
+auto end(Container &c) {
+    return c.end();
+}
+
+template<typename Container>
+auto end(const Container &c) {
+    return c.end();
+}
+
+}
+
+#endif

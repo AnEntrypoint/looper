@@ -3,6 +3,17 @@
 
 namespace std {
 
+// std::conditional - choose type based on compile-time bool
+template<bool B, typename T, typename F>
+struct conditional {
+    typedef T type;
+};
+
+template<typename T, typename F>
+struct conditional<false, T, F> {
+    typedef F type;
+};
+
 template<typename T>
 struct is_floating_point {
     static const bool value = false;

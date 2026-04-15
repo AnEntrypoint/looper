@@ -60,6 +60,22 @@ template<typename T> T arg(const complex<T> &c) { return (T)::atan2((double)c._i
 template<> inline float arg(const complex<float> &c) { return ::atan2f(c._i, c._r); }
 template<typename T> constexpr T norm(const complex<T> &c) { return c._r*c._r + c._i*c._i; }
 
+// std::polar(magnitude, angle) -> complex<T>
+template<typename T>
+inline complex<T> polar(const T &mag, const T &angle) {
+    return complex<T>(mag * ::cos(angle), mag * ::sin(angle));
+}
+
+template<>
+inline complex<double> polar(const double &mag, const double &angle) {
+    return complex<double>(mag * ::cos(angle), mag * ::sin(angle));
+}
+
+template<>
+inline complex<float> polar(const float &mag, const float &angle) {
+    return complex<float>(mag * ::cosf(angle), mag * ::sinf(angle));
+}
+
 } // namespace std
 
 #endif

@@ -1,7 +1,9 @@
 #ifndef SIGNALSMITH_VECTOR_STUB_H
 #define SIGNALSMITH_VECTOR_STUB_H
 
+#ifndef _SIZE_T_DEFINED
 typedef unsigned long size_t;
+#endif
 
 namespace std {
 

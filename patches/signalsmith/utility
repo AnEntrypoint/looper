@@ -1,0 +1,12 @@
+#ifndef SIGNALSMITH_UTILITY_STUB_H
+#define SIGNALSMITH_UTILITY_STUB_H
+
+namespace std {
+
+// std::declval - obtain a reference to a value of type T for type-dependent code
+template<typename T>
+typename T::type&& declval();
+
+}
+
+#endif
