@@ -1,0 +1,65 @@
+#ifndef SIGNALSMITH_COMPLEX_STUB_H
+#define SIGNALSMITH_COMPLEX_STUB_H
+
+extern "C" {
+    double sin(double);
+    double cos(double);
+    double exp(double x);
+    double sqrt(double);
+    double atan2(double, double);
+    float sinf(float);
+    float cosf(float);
+    float expf(float);
+    float sqrtf(float);
+    float atan2f(float, float);
+}
+
+namespace std {
+
+template<typename T>
+struct complex {
+    T _r, _i;
+    constexpr complex(T r = T(), T i = T()) : _r(r), _i(i) {}
+    constexpr T real() const { return _r; }
+    constexpr T imag() const { return _i; }
+    void real(T r) { _r = r; }
+    void imag(T i) { _i = i; }
+    constexpr complex operator+(const complex &o) const { return {_r+o._r, _i+o._i}; }
+    constexpr complex operator-(const complex &o) const { return {_r-o._r, _i-o._i}; }
+    constexpr complex operator*(const complex &o) const { return {_r*o._r-_i*o._i, _r*o._i+_i*o._r}; }
+    complex operator/(const complex &o) const {
+        T d = o._r*o._r + o._i*o._i;
+        return {(_r*o._r+_i*o._i)/d, (_i*o._r-_r*o._i)/d};
+    }
+    complex &operator+=(const complex &o) { _r+=o._r; _i+=o._i; return *this; }
+    complex &operator-=(const complex &o) { _r-=o._r; _i-=o._i; return *this; }
+    complex &operator*=(const complex &o) { *this=*this*o; return *this; }
+    constexpr complex operator*(T s) const { return {_r*s, _i*s}; }
+    constexpr complex operator/(T s) const { return {_r/s, _i/s}; }
+    constexpr bool operator==(const complex &o) const { return _r==o._r && _i==o._i; }
+    constexpr bool operator!=(const complex &o) const { return !(*this==o); }
+};
+
+template<typename T>
+constexpr complex<T> operator*(T s, const complex<T> &c) { return {c._r*s, c._i*s}; }
+
+template<typename T> constexpr T real(const complex<T> &c) { return c._r; }
+template<typename T> constexpr T imag(const complex<T> &c) { return c._i; }
+template<typename T> T abs(const complex<T> &c) { return (T)::sqrt((double)(c._r*c._r+c._i*c._i)); }
+template<> inline float abs(const complex<float> &c) { return ::sqrtf(c._r*c._r+c._i*c._i); }
+template<typename T> constexpr complex<T> conj(const complex<T> &c) { return {c._r, -c._i}; }
+template<typename T> complex<T> exp(const complex<T> &c) {
+    T e = (T)::exp((double)c._r);
+    return {e*(T)::cos((double)c._i), e*(T)::sin((double)c._i)};
+}
+template<> inline complex<float> exp(const complex<float> &c) {
+    float e = ::expf(c._r);
+    return {e*::cosf(c._i), e*::sinf(c._i)};
+}
+template<typename T> T arg(const complex<T> &c) { return (T)::atan2((double)c._i, (double)c._r); }
+template<> inline float arg(const complex<float> &c) { return ::atan2f(c._i, c._r); }
+template<typename T> constexpr T norm(const complex<T> &c) { return c._r*c._r + c._i*c._i; }
+
+} // namespace std
+
+#endif
