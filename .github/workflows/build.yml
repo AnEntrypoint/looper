@@ -12,8 +12,8 @@ jobs:
       RASPPI: 4
       AARCH: 32
     steps:
-      - name: Install toolchain and make
-        run: sudo apt-get install -y make gcc-arm-none-eabi
+      - name: Install toolchain, make, and ccache
+        run: sudo apt-get install -y make gcc-arm-none-eabi ccache
 
       - name: Clone rsta2/circle
         run: git clone --depth=1 https://github.com/rsta2/circle circle
@@ -102,6 +102,9 @@ jobs:
       - name: Build circle libraries
         if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
+          export CC="ccache arm-none-eabi-gcc"
+          export CXX="ccache arm-none-eabi-g++"
+          ccache -z
           make -C circle/lib RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
           make -C circle/lib/fs RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
           make -C circle/lib/input RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j4
@@ -156,7 +159,7 @@ jobs:
           key: ${{ steps.cache-key.outputs.key }}
 
       - name: Build Looper
-        timeout-minutes: 30
+        timeout-minutes: 60
         run: |
           set -o pipefail
           cp -r circle/_prh/_apps/Looper/patches/rubberband circle/_prh/_apps/Looper/
