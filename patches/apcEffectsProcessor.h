@@ -4,6 +4,16 @@
 #include <stdint.h>
 #include <string.h>
 #include <cmath>
+#include <math.h>
+
+// Bring C math functions into std namespace for signalsmith compatibility
+namespace std {
+  using ::tan;
+  using ::sinh;
+  using ::cosh;
+  using ::log;
+}
+
 #include "signalsmith/dsp/filters.h"
 
 class apcEffectsProcessor {
