@@ -16,13 +16,18 @@ void loopClip::update(s32 *ip, s32 *op)
     switch (m_state)
     {
         case CS_RECORDING:
-        case CS_RECORDING_TAIL:
         case CS_FINISHING:
             rp = getBlock(m_record_block);
             break;
         case CS_RECORDING_MAIN:
             // Record only, no playback during main recording phase to avoid read-write race
             rp = getBlock(m_record_block);
+            break;
+        case CS_RECORDING_TAIL:
+            // Recording with playback feedback: write new input, play back completed blocks only
+            rp = getBlock(m_record_block);
+            if (m_record_block > 0)
+                pp_main = getBlock(m_play_block);
             break;
         case CS_PLAYING:
             if (m_mark_point_active)

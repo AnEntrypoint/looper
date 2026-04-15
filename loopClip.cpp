@@ -134,6 +134,7 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
         pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
     }
     m_state = willPlay ? CS_RECORDING_TAIL : CS_FINISHING;
+    m_play_block = 0;
     m_pLoopTrack->incDecNumRecordedClips(1);
 }
 
