@@ -5,7 +5,7 @@ namespace std {
 
 // std::declval - obtain a reference to a value of type T for type-dependent code
 template<typename T>
-typename T::type&& declval();
+T&& declval() noexcept;
 
 }
 

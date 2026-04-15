@@ -14,6 +14,7 @@ extern "C" {
     double floor(double);
     double ceil(double);
     double round(double);
+    double log(double);
     float cosf(float);
     float sinf(float);
     float sqrtf(float);
@@ -22,6 +23,7 @@ extern "C" {
     float floorf(float);
     float ceilf(float);
     float roundf(float);
+    float logf(float);
 }
 
 namespace std {
@@ -33,6 +35,7 @@ namespace std {
     using ::floor;
     using ::ceil;
     using ::round;
+    using ::log;
     using ::cosf;
     using ::sinf;
     using ::sqrtf;
@@ -41,6 +44,7 @@ namespace std {
     using ::floorf;
     using ::ceilf;
     using ::roundf;
+    using ::logf;
 }
 
 #endif

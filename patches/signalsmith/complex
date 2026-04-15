@@ -1,6 +1,10 @@
 #ifndef SIGNALSMITH_COMPLEX_STUB_H
 #define SIGNALSMITH_COMPLEX_STUB_H
 
+#ifdef abs
+#undef abs
+#endif
+
 extern "C" {
     double sin(double);
     double cos(double);

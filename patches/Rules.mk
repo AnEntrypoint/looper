@@ -26,7 +26,7 @@ CIRCLEHOME ?= ..
 # prh - personal defines and includes
 
 DEFINE += -DPRH_MODS -DPLUS3B -DLOOPER_USB_AUDIO
-INCLUDE	+=  -I $(CIRCLEHOME)/_prh
+INCLUDE	+=  -I $(CIRCLEHOME)/_prh/_apps/Looper/patches/signalsmith -I $(CIRCLEHOME)/_prh
 
 # prh - changed RASPI from 1 and PREFIX from arm-eabi-
 
