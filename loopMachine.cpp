@@ -3,6 +3,7 @@
 #include <circle/synchronize.h>
 #include "abletonLink.h"
 #include "patches/RubberBandWrapper.h"
+#include "apcKey25.h"
 extern RubberBandWrapper *pLivePitchWrapper;
 
 #define log_name "lmachine"
@@ -24,8 +25,6 @@ s32 loopMachine::m_output_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];
 s16 loopMachine::m_pitch_buffer_L[256];
 s16 loopMachine::m_pitch_buffer_R[256];
 u16 loopMachine::m_pitch_buffer_pos = 0;
-
-extern apcKey25 *pTheAPC;
 
 
 const char *getLoopCommandName(u16 cmd)
