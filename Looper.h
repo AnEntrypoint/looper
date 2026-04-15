@@ -474,6 +474,10 @@ class loopMachine : public publicLoopMachine
         static s32 m_input_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];
         static s32 m_output_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];
 
+        static s16 m_pitch_buffer_L[256];
+        static s16 m_pitch_buffer_R[256];
+        static u16 m_pitch_buffer_pos;
+
 };
 
 

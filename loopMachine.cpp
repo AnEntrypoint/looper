@@ -21,6 +21,12 @@ u16 control_default[LOOPER_NUM_CONTROLS] = {
 s32 loopMachine::m_input_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];
 s32 loopMachine::m_output_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];
 
+s16 loopMachine::m_pitch_buffer_L[256];
+s16 loopMachine::m_pitch_buffer_R[256];
+u16 loopMachine::m_pitch_buffer_pos = 0;
+
+extern apcKey25 *pTheAPC;
+
 
 const char *getLoopCommandName(u16 cmd)
 {
@@ -523,24 +529,32 @@ void loopMachine::update(void)
 
 	}
 
-	if (pLivePitchWrapper)
+	if (pLivePitchWrapper && pTheAPC && pTheAPC->getDebugState().liveEngaged)
 	{
 		s16 tmp_L[AUDIO_BLOCK_SAMPLES], tmp_R[AUDIO_BLOCK_SAMPLES];
-		s16 out_L[AUDIO_BLOCK_SAMPLES], out_R[AUDIO_BLOCK_SAMPLES];
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
 		{
 			tmp_L[i] = (s16)m_input_buffer[i];
 			tmp_R[i] = (s16)m_input_buffer[AUDIO_BLOCK_SAMPLES + i];
+			m_pitch_buffer_L[m_pitch_buffer_pos + i] = tmp_L[i];
+			m_pitch_buffer_R[m_pitch_buffer_pos + i] = tmp_R[i];
 		}
-		pLivePitchWrapper->feedAudio(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES);
-		size_t got = pLivePitchWrapper->retrieveAudio(out_L, out_R, AUDIO_BLOCK_SAMPLES);
-		if (got == AUDIO_BLOCK_SAMPLES)
+		m_pitch_buffer_pos += AUDIO_BLOCK_SAMPLES;
+
+		if (m_pitch_buffer_pos >= 256)
 		{
-			for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+			s16 out_L[AUDIO_BLOCK_SAMPLES], out_R[AUDIO_BLOCK_SAMPLES];
+			pLivePitchWrapper->feedAudio(m_pitch_buffer_L, m_pitch_buffer_R, 256);
+			size_t got = pLivePitchWrapper->retrieveAudio(out_L, out_R, AUDIO_BLOCK_SAMPLES);
+			if (got == AUDIO_BLOCK_SAMPLES)
 			{
-				m_input_buffer[i] = out_L[i];
-				m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = out_R[i];
+				for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+				{
+					m_input_buffer[i] = out_L[i];
+					m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = out_R[i];
+				}
 			}
+			m_pitch_buffer_pos = 0;
 		}
 	}
 
