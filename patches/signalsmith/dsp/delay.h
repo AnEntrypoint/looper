@@ -3,12 +3,12 @@
 #ifndef SIGNALSMITH_DSP_DELAY_H
 #define SIGNALSMITH_DSP_DELAY_H
 
-#include <vector>
-#include <array>
-#include <cmath> // for std::ceil()
-#include <type_traits>
+#include "vector"
+#include "array"
+#include "cmath"
+#include "type_traits"
 
-#include <complex>
+#include "complex"
 #include "./fft.h"
 #include "./windows.h"
 

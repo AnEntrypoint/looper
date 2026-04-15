@@ -15,6 +15,8 @@ extern "C" {
     double ceil(double);
     double round(double);
     double log(double);
+    double fabs(double);
+    double pow(double, double);
     float cosf(float);
     float sinf(float);
     float sqrtf(float);
@@ -24,6 +26,8 @@ extern "C" {
     float ceilf(float);
     float roundf(float);
     float logf(float);
+    float fabsf(float);
+    float powf(float, float);
 }
 
 namespace std {
@@ -36,6 +40,8 @@ namespace std {
     using ::ceil;
     using ::round;
     using ::log;
+    using ::fabs;
+    using ::pow;
     using ::cosf;
     using ::sinf;
     using ::sqrtf;
@@ -45,6 +51,10 @@ namespace std {
     using ::ceilf;
     using ::roundf;
     using ::logf;
+    using ::fabsf;
+    using ::powf;
+    inline double abs(double d) { return fabs(d); }
+    inline float abs(float f) { return fabsf(f); }
 }
 
 #endif

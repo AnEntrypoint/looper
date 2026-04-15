@@ -5,10 +5,10 @@
 #include "dsp/delay.h"
 #include "dsp/perf.h"
 SIGNALSMITH_DSP_VERSION_CHECK(1, 6, 0); // Check version is compatible
-#include <vector>
-#include <algorithm>
-#include <functional>
-#include <random>
+#include "vector"
+#include "algorithm"
+#include "functional"
+#include "random"
 
 namespace signalsmith { namespace stretch {
 

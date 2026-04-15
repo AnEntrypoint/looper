@@ -8,7 +8,8 @@
 #include "./windows.h"
 #include "./delay.h"
 
-#include <cmath>
+#include "cmath"
+#include "algorithm"
 
 namespace signalsmith {
 namespace spectral {

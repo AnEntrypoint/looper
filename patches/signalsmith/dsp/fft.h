@@ -5,9 +5,11 @@
 
 #include "./perf.h"
 
-#include <vector>
-#include <complex>
-#include <cmath>
+#include "vector"
+#include "complex"
+#include "cmath"
+#include "iterator"
+#include "algorithm"
 
 namespace signalsmith { namespace fft {
 	/**	@defgroup FFT FFT (complex and real)

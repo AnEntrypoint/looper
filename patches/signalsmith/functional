@@ -6,9 +6,12 @@ namespace std {
 template<typename T>
 class function {
 public:
-    function() {}
+    function() : m_ptr(nullptr) {}
     template<typename Func>
-    function(Func) {}
+    function(Func f) : m_ptr((void*)1) {}
+    operator bool() const { return m_ptr != nullptr; }
+private:
+    void *m_ptr;
 };
 
 }
