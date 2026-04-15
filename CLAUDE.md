@@ -32,13 +32,12 @@
 - **5 looper tracks** mapped to APC Key 25's 5 rows (notes 0-39). `LOOPER_NUM_TRACKS=5` in `commonDefines.h`.
 - **VU meter on APC column 8** (rightmost). Peak level tracked in `inHandler` (no blocking), displayed as 5-LED green/red meter at 30fps from `_updateGridLeds`.
 
-## Rubber Band integration
+## Rubber Band integration (clip time-stretch only)
 
-- **Instantiation scope**: Each `loopClip` owns a `RubberBandWrapper` instance for clip time-stretch. Live pitch shifting uses a separate optional wrapper instantiated in `audio.cpp` setup() or lazily on first MIDI pitch event. Wrappers NOT global in `audio.cpp` signal routing layer — instantiation per concern (clip stretch vs live pitch), not per subsystem.
-- **Signal routing**: Clip output routes through wrapper: `loopClip::update()` calls `m_wrapper.feedAudio(left, right, AUDIO_BLOCK_SAMPLES)` to queue samples, then polls `m_wrapper.retrieveAudio()` to read stretched output. Live pitch wrapper (if present) sits as an optional insert point in the UCA222 input chain before `loopMachine`. Both feed `float*` to RubberBand API; conversion s16↔float happens inline in wrapper (divide/multiply by 32768.0).
-- **Block size strategy**: Looper processes 64-sample blocks; RubberBand minimum process size is 256 samples. `RubberBandWrapper` pre-allocates a 4096-sample input ring in constructor. feedAudio() writes 64 samples per call; when ring accumulates ≥256 samples, process() is called internally. Output may be partial blocks (< 64 samples); caller must loop until satisfied. Post-process remainder stays in output ring for next retrieveAudio() call. This decoupling allows small block looper audio to feed large-block time-stretch without stalling.
+- **Instantiation scope**: Each `loopClip` owns a `RubberBandWrapper` instance for clip time-stretch. Separate from live pitch shifting, which uses signalsmith-stretch.
+- **Signal routing**: Clip output routes through wrapper: `loopClip::update()` calls `m_wrapper.feedAudio(left, right, AUDIO_BLOCK_SAMPLES)` to queue samples, then polls `m_wrapper.retrieveAudio()` to read stretched output. Both feed `float*` to RubberBand API; conversion s16↔float happens inline in wrapper (divide/multiply by 32768.0).
 - **Tempo sync**: `RubberBandWrapper` holds `atomic<float> m_tempoRatio`. Link handler calls `wrapper.setTempoRatio(ratio)` atomically (no locks). `loopMachine::update()` calls `wrapper.updateRatios()` before feedAudio/retrieveAudio to propagate Link BPM changes to all per-clip wrappers. RubberBand::setTimeRatio() is RT-safe (no realloc); one update-loop frame latency (~1.3ms @ 64 blocks, 48kHz) acceptable for Link-driven quantize.
-- **Memory budget**: Per-wrapper ~5.1 MB (pre-alloc via `setMaxProcessSize(524288)`). 5 clips × 5.1 MB = 25.5 MB for clip stretching. Optional live pitch wrapper +5.1 MB = ~30.6 MB total. Device has 512 MB+; acceptable margin. No dynamic allocation during process(); RTAssertion added to verify.
+- **Memory budget**: Per-wrapper ~5.1 MB (pre-alloc via `setMaxProcessSize(524288)`). 5 clips × 5.1 MB = 25.5 MB for clip stretching. Device has 512 MB+; acceptable margin. No dynamic allocation during process(); RTAssertion added to verify.
 
 ## Clip state machine
 
@@ -83,14 +82,14 @@ When patching Circle's `lib/usb/gadget/` to add `CUSBAudioGadget` for combined O
 
 ## Live pitch shifting via MIDI control
 
-- **Always-allocated live pitch wrapper**: `pLivePitchWrapper` is instantiated unconditionally in `audio.cpp::setup()` and wired into the input chain: `input → pLivePitchWrapper → pTheLooper → output`. The old `LOOPER_LIVE_PITCH` define is removed; wrapper always exists and is always active (though disengaged until MIDI control activates it).
-- **Pitch scale formula**: `_applyLivePitch()` in `apcKey25Transpose.cpp` calls `pLivePitchWrapper->setPitchScale(pow(2.0f, semitones / 12.0f))` or `1.0f` when `m_liveEngaged` is false. Semitone range is ±6 depending on MIDI source.
+- **Wrapper instantiation and bypass**: `pLivePitchWrapper` is instantiated unconditionally in `audio.cpp::setup()`. In `loopMachine::update()`, audio is routed through the wrapper ONLY when `pTheAPC->getDebugState().liveEngaged` is true. When pitch shifting is OFF, audio completely bypasses the wrapper for zero-latency passthrough.
+- **signalsmith-stretch configuration**: Configured with blockSamples=512, intervalSamples=256, yielding ~10.7ms processing latency at 48kHz. Wrapper buffers input in 512-sample temp arrays and calls `m_stretch.process()` on each feedAudio/retrieveAudio call pair.
+- **Pitch scale formula**: When engaged, `_applyLivePitch()` in `apcKey25Transpose.cpp` calls `pLivePitchWrapper->setPitchScale(pow(2.0f, semitones / 12.0f))`. Semitone range is ±6 depending on MIDI source.
 - **CC1 (mod wheel) control**: MIDI CC 1 sets pitch via deadzone logic. Values 59-69 (center range) disengage the effect (`m_liveEngaged = false`), setting scale to 1.0. Values outside deadzone map to ±6 semitones: `semitones = ((data2 - 64) * 6.0f / 63.0f)` and engage the effect.
 - **CC52 control**: MIDI CC 52 maps 0-127 linearly to ±6 semitones: `semitones = (data2 / 127.0f) * 12.0f - 6.0f`. This always engages the effect without checking a deadzone.
 - **Channel 1 note-on (0x91)**: Toggles `m_liveEngaged`; if engaging, sets pitch from distance to C60: `m_livePitchSemitones = (note - 60)`. Enables one-shot pitch selection from keyboard.
 - **Channel 2 note-on (0x92)**: Sets pitch via distance to C60 (`semitones = note - 60`) and always engages (`m_liveEngaged = true`). Allows key tracking — any note on ch2 immediately sets the live pitch and activates the effect.
-- **DebugState exposure**: `apcKey25::getDebugState()` returns struct including `liveEngaged` (bool) and `livePitchSemitones` (float) for live monitoring of pitch control state without performance impact.
-- **Conditional buffering for zero-latency bypass**: When pitch shift is OFF, audio bypasses `pLivePitchWrapper` entirely (zero latency). When ON, audio accumulates in a 4-block static buffer (256 samples at 64-sample block size) before processing. `loopMachine.cpp` must `#include "apcKey25.h"` with quotes (not angle brackets) for project-local header resolution. Before feeding audio to the wrapper, verify `if (pLivePitchWrapper && pTheAPC && pTheAPC->getDebugState().liveEngaged)`. Access `m_liveEngaged` only via the debug accessor; it is a private field. signalsmith-stretch instances expose `inputLatency()` and `outputLatency()` methods to query processing delay.
+- **Zero-latency when OFF**: When `liveEngaged=false`, the wrapper is bypassed entirely in `loopMachine::update()` — conditional check on `pTheAPC->getDebugState().liveEngaged` skips feedAudio/retrieveAudio calls, restoring the looper's original near-zero-latency operation.
 
 ## Planned architecture (not yet implemented)
 
