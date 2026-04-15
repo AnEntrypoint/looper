@@ -58,7 +58,9 @@ public:
 
   void setPitchScale(float scale) {
     m_pitchScale = scale;
-    m_stretch.setTransposeFactor(scale);
+    float semitones = 12.0f * std::log2(std::max(0.001f, scale));
+    float tonalityLimit = (std::abs(semitones) >= 11.0f) ? 0.15f : 0.0f;
+    m_stretch.setTransposeFactor(scale, tonalityLimit);
   }
 
   void setTempoRatio(float) {}
