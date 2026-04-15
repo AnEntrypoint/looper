@@ -94,8 +94,8 @@ void loopClip::update(s32 *ip, s32 *op)
     }
 
     for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
-        *op++ += (s32)tmp_L[i];
-        *op++ += (s32)tmp_R[i];
+        op[i*LOOPER_NUM_CHANNELS] += (s32)tmp_L[i];
+        op[i*LOOPER_NUM_CHANNELS+1] += (s32)tmp_R[i];
     }
 
     if (rp)
