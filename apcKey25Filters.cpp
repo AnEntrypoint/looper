@@ -58,9 +58,5 @@ void apcKey25::handleEffectsCC(u8 cc, u8 data2)
 
 void apcKey25::_applyEffects()
 {
-    if (!pEffectsProcessor) return;
-    pEffectsProcessor->setReverbAmount(m_reverbAmount);
-    pEffectsProcessor->setReverbTime(m_reverbTime);
-    pEffectsProcessor->setDelayAmount(m_delayAmount);
-    pEffectsProcessor->setDelayTime(m_delayTime);
+    // TODO: Wire to effects processor when signalsmith compatibility resolved
 }
