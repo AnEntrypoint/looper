@@ -1,0 +1,132 @@
+#ifndef SIGNALSMITH_VECTOR_STUB_H
+#define SIGNALSMITH_VECTOR_STUB_H
+
+#include <cstddef>
+#include <cstring>
+
+namespace std {
+
+template<typename T>
+class vector {
+private:
+    T* _data;
+    size_t _size;
+    size_t _capacity;
+
+    void _grow(size_t newCapacity) {
+        if (newCapacity <= _capacity) return;
+        T* newData = new T[newCapacity];
+        if (_data) {
+            for (size_t i = 0; i < _size; ++i) {
+                newData[i] = _data[i];
+            }
+            delete[] _data;
+        }
+        _data = newData;
+        _capacity = newCapacity;
+    }
+
+public:
+    vector() : _data(nullptr), _size(0), _capacity(0) {}
+
+    ~vector() {
+        if (_data) delete[] _data;
+    }
+
+    vector(const vector &other) : _data(nullptr), _size(0), _capacity(0) {
+        *this = other;
+    }
+
+    vector& operator=(const vector &other) {
+        if (this != &other) {
+            resize(other._size);
+            for (size_t i = 0; i < _size; ++i) {
+                _data[i] = other._data[i];
+            }
+        }
+        return *this;
+    }
+
+    size_t size() const { return _size; }
+    size_t capacity() const { return _capacity; }
+    bool empty() const { return _size == 0; }
+
+    T* data() { return _data; }
+    const T* data() const { return _data; }
+
+    T& operator[](size_t i) { return _data[i]; }
+    const T& operator[](size_t i) const { return _data[i]; }
+
+    T& at(size_t i) { return _data[i]; }
+    const T& at(size_t i) const { return _data[i]; }
+
+    void push_back(const T &value) {
+        if (_size >= _capacity) {
+            _grow(_capacity == 0 ? 1 : _capacity * 2);
+        }
+        _data[_size++] = value;
+    }
+
+    void pop_back() {
+        if (_size > 0) --_size;
+    }
+
+    void resize(size_t newSize) {
+        if (newSize > _capacity) {
+            _grow(newSize);
+        }
+        _size = newSize;
+    }
+
+    void resize(size_t newSize, const T &value) {
+        size_t oldSize = _size;
+        resize(newSize);
+        for (size_t i = oldSize; i < newSize; ++i) {
+            _data[i] = value;
+        }
+    }
+
+    void reserve(size_t newCapacity) {
+        if (newCapacity > _capacity) {
+            _grow(newCapacity);
+        }
+    }
+
+    void shrink_to_fit() {
+        if (_capacity > _size) {
+            if (_size == 0) {
+                if (_data) delete[] _data;
+                _data = nullptr;
+                _capacity = 0;
+            } else {
+                T* newData = new T[_size];
+                for (size_t i = 0; i < _size; ++i) {
+                    newData[i] = _data[i];
+                }
+                delete[] _data;
+                _data = newData;
+                _capacity = _size;
+            }
+        }
+    }
+
+    void clear() {
+        _size = 0;
+    }
+
+    T& front() { return _data[0]; }
+    const T& front() const { return _data[0]; }
+
+    T& back() { return _data[_size - 1]; }
+    const T& back() const { return _data[_size - 1]; }
+
+    T* begin() { return _data; }
+    const T* begin() const { return _data; }
+
+    T* end() { return _data + _size; }
+    const T* end() const { return _data + _size; }
+};
+
+}
+
+#endif
