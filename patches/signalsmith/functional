@@ -1,0 +1,16 @@
+#ifndef SIGNALSMITH_FUNCTIONAL_STUB_H
+#define SIGNALSMITH_FUNCTIONAL_STUB_H
+
+namespace std {
+
+template<typename T>
+class function {
+public:
+    function() {}
+    template<typename Func>
+    function(Func) {}
+};
+
+}
+
+#endif
