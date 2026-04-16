@@ -102,20 +102,20 @@ public:
       float r = right[i];
 
       // High-pass filter (removes DC and rumble)
-      // m_hpCutoff is 0-1, map to filter coefficient directly
-      // When hpCutoff=0 (knob left), no HP filtering
-      // When hpCutoff=1 (knob right), strong HP filtering
-      float hpCoef = m_hpCutoff * 0.1f;
-      if (hpCoef > 0.001f) {
-        l = processOnePoleHighpass(l, m_hpFilterState[0], hpCoef);
-        r = processOnePoleHighpass(r, m_hpFilterState[1], hpCoef);
+      // m_hpCutoff is 0-1, scales the internal highpass cutoff parameter
+      // When hpCutoff=0 (knob left), no HP filtering (passes all)
+      // When hpCutoff=1 (knob right), strong HP filtering (removes lows)
+      float hpCutoff = m_hpCutoff * 0.3f;
+      if (hpCutoff > 0.001f) {
+        l = processOnePoleHighpass(l, m_hpFilterState[0], hpCutoff);
+        r = processOnePoleHighpass(r, m_hpFilterState[1], hpCutoff);
       }
 
       // Low-pass filter (removes highs)
-      // m_lpCutoff is 0-1, map directly: knob right = more open (brighter), left = more closed (darker)
-      // When lpCutoff=0 (knob left), coef=0 (completely dark/filtering)
-      // When lpCutoff=1 (knob right), coef=0.1 (bright/open)
-      float lpCoef = m_lpCutoff * 0.1f;
+      // m_lpCutoff is 0-1 from MIDI, inverted so knob right = darker (more filtering), left = brighter (less filtering)
+      // When lpCutoff=0 (knob left), coef=0.1 (bright/open, maximum cutoff)
+      // When lpCutoff=1 (knob right), coef=0 (dark/closed, no cutoff)
+      float lpCoef = (1.0f - m_lpCutoff) * 0.1f;
       if (lpCoef > 0.001f) {
         l = processOnePoleLowpass(l, m_lpFilterState[0], lpCoef);
         r = processOnePoleLowpass(r, m_lpFilterState[1], lpCoef);
