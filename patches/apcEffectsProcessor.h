@@ -21,8 +21,11 @@ class apcEffectsProcessor {
   size_t m_delaySamples;
 
   // Simple one-pole filter state
-  float m_lpFilterState[2];
   float m_hpFilterState[2];
+
+  // Resonant lowpass filter state (state-variable style)
+  float m_lpBand[2];      // bandpass state
+  float m_lpLow[2];       // lowpass state
 
   // Reverb line buffers (Freeverb-style)
   float m_reverbLines[4][4096];
@@ -37,17 +40,25 @@ class apcEffectsProcessor {
     if (m_delaySamples > MAX_DELAY_SAMPLES) m_delaySamples = MAX_DELAY_SAMPLES;
   }
 
-  float processOnePoleLowpass(float input, float &state, float cutoff) {
-    float coef = cutoff;
-    state = state + coef * (input - state);
-    return state;
-  }
-
   float processOnePoleHighpass(float input, float &state, float cutoff) {
     float coef = 1.0f - cutoff;
     float output = coef * (state + input - state);
     state = input;
     return output;
+  }
+
+  float processResonantLowpass(float input, float &band, float &low, float cutoff, float resonance) {
+    // State-variable lowpass with resonance feedback
+    // cutoff is 0-0.1, resonance is 0-1 (maps to Q boost 1-4)
+    float f = cutoff * 2.0f;  // normalized frequency
+    float q = 1.0f + resonance * 3.0f;  // resonance maps to Q: 1 at min, 4 at max
+
+    // Bandpass from highpass feedback
+    band = band + f * (input - low - q * band);
+    // Lowpass from bandpass integration
+    low = low + f * band;
+
+    return low;
   }
 
 public:
@@ -57,7 +68,8 @@ public:
       m_delayWritePos(0), m_sampleRate(sampleRate)
   {
     memset(m_delayBuffer, 0, sizeof(m_delayBuffer));
-    memset(m_lpFilterState, 0, sizeof(m_lpFilterState));
+    memset(m_lpBand, 0, sizeof(m_lpBand));
+    memset(m_lpLow, 0, sizeof(m_lpLow));
     memset(m_hpFilterState, 0, sizeof(m_hpFilterState));
     memset(m_reverbLines, 0, sizeof(m_reverbLines));
     memset(m_reverbPos, 0, sizeof(m_reverbPos));
@@ -111,14 +123,15 @@ public:
         r = processOnePoleHighpass(r, m_hpFilterState[1], hpCutoff);
       }
 
-      // Low-pass filter (removes highs)
+      // Low-pass filter with resonance (removes highs)
       // m_lpCutoff is 0-1 from MIDI: knob left = bright (min filtering), right = dark (max filtering)
+      // m_filterRes is 0-1: amount of resonance (Q boost at cutoff frequency)
       // When lpCutoff=0 (knob left), coef=0.001 (bright/open, minimal cutoff)
       // When lpCutoff=1 (knob right), coef=0.1 (dark/closed, strong cutoff)
       float lpCoef = m_lpCutoff * 0.1f;
       lpCoef = (lpCoef < 0.001f) ? 0.001f : lpCoef;
-      l = processOnePoleLowpass(l, m_lpFilterState[0], lpCoef);
-      r = processOnePoleLowpass(r, m_lpFilterState[1], lpCoef);
+      l = processResonantLowpass(l, m_lpBand[0], m_lpLow[0], lpCoef, m_filterRes);
+      r = processResonantLowpass(r, m_lpBand[1], m_lpLow[1], lpCoef, m_filterRes);
 
       // Delay effect
       // m_delayTime is 0-1, maps to 50ms-500ms
