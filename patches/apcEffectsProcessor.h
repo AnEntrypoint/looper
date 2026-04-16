@@ -48,13 +48,16 @@ class apcEffectsProcessor {
   }
 
   float processResonantLowpass(float input, float &band, float &low, float cutoff, float resonance) {
-    // Simple one-pole lowpass with direct resonance feedback
+    // State-variable filter with damped resonance
     float f = cutoff;
-    // Direct resonance: feed bandpass back through the input
-    float resonanceAmount = resonance * 2.0f;
+    float dampedRes = 1.0f - resonance * 0.8f;  // resonance reduces damping: 1.0 at res=0, 0.2 at res=1
 
-    band = band + f * (input - low);
-    low = low + f * (band + band * resonanceAmount);
+    // Highpass: input minus lowpass
+    float high = input - low;
+    // Bandpass: integrate highpass with damping
+    band = band * dampedRes + f * high;
+    // Lowpass: integrate bandpass
+    low = low + f * band;
 
     return low;
   }
