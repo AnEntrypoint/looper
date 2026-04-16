@@ -7,7 +7,6 @@
 // Effects processor with delay, reverb, and filtering
 class apcEffectsProcessor {
   static constexpr size_t MAX_DELAY_SAMPLES = 96000;
-  static constexpr size_t REVERB_LINE_LENGTHS[4] = {2473, 2767, 3217, 3571};
 
   float m_hpCutoff;
   float m_lpCutoff;
@@ -29,6 +28,7 @@ class apcEffectsProcessor {
   float m_reverbLines[4][4096];
   size_t m_reverbPos[4];
   float m_reverbFilter[4];
+  const size_t m_reverbLineLengths[4] = {2473, 2767, 3217, 3571};
 
   size_t m_sampleRate;
 
@@ -143,7 +143,7 @@ public:
           revL += m_reverbFilter[line];
           revR += m_reverbFilter[line];
 
-          m_reverbPos[line] = (m_reverbPos[line] + 1) % REVERB_LINE_LENGTHS[line];
+          m_reverbPos[line] = (m_reverbPos[line] + 1) % m_reverbLineLengths[line];
         }
 
         l += revL * m_reverbAmount * 0.1f;
