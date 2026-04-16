@@ -58,37 +58,48 @@ void loopClip::update(s32 *ip, s32 *op)
     s16 tmp_L[AUDIO_BLOCK_SAMPLES] = {0};
     s16 tmp_R[AUDIO_BLOCK_SAMPLES] = {0};
 
-    for (int channel = 0; channel < LOOPER_NUM_CHANNELS; channel++)
+    for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
     {
-        double i_fade = 1.0;
-        double o_fade = 1.0;
-        if (fade_in)
-            i_fade = ((double)use_play_block) * FADE_BLOCK_INCREMENT;
-        if (pp_fade)
-            o_fade = ((double)(CROSSFADE_BLOCKS - m_crossfade_offset)) * FADE_BLOCK_INCREMENT;
+        if (rp) {
+            *rp++ = *ip++;  // L
+            *rp++ = *ip++;  // R
+        }
+    }
 
-        s16 *tmp_ch = (channel == 0) ? tmp_L : tmp_R;
-        s16 *pp_m = pp_main;
-        s16 *pp_f = pp_fade;
+    double i_fade = 1.0;
+    double o_fade = 1.0;
+    if (fade_in)
+        i_fade = ((double)use_play_block) * FADE_BLOCK_INCREMENT;
+    if (pp_fade)
+        o_fade = ((double)(CROSSFADE_BLOCKS - m_crossfade_offset)) * FADE_BLOCK_INCREMENT;
 
+    if (!m_mute)
+    {
         for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
         {
-            if (rp) *rp++ = *ip++;
-
-            if (!m_mute)
+            // Read L and R from playback pointers (interleaved)
+            if (pp_main)
             {
-                if (pp_m)
-                {
-                    double val = *pp_m++ * m_volume;
-                    if (fade_in) { val *= i_fade; i_fade += FADE_SAMPLE_INCREMENT; }
-                    tmp_ch[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
-                }
-                if (pp_f)
-                {
-                    double val = *pp_f++ * m_volume * o_fade;
-                    tmp_ch[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
-                    o_fade -= FADE_SAMPLE_INCREMENT;
-                }
+                double val = *pp_main++ * m_volume;
+                if (fade_in) { val *= i_fade; i_fade += FADE_SAMPLE_INCREMENT; }
+                tmp_L[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
+            }
+            if (pp_main)
+            {
+                double val = *pp_main++ * m_volume;
+                tmp_R[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
+            }
+
+            if (pp_fade)
+            {
+                double val = *pp_fade++ * m_volume * o_fade;
+                tmp_L[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
+            }
+            if (pp_fade)
+            {
+                double val = *pp_fade++ * m_volume * o_fade;
+                tmp_R[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
+                o_fade -= FADE_SAMPLE_INCREMENT;
             }
         }
     }
