@@ -112,18 +112,18 @@ public:
       }
 
       // Low-pass filter (removes highs)
-      // m_lpCutoff is 0-1, inverted so knob right = open (bright), left = closed (dark)
-      // When lpCutoff=0 (knob left), filter is closed (coef=0.1, dark)
-      // When lpCutoff=1 (knob right), filter is open (coef=0, bright)
-      float lpCoef = (1.0f - m_lpCutoff) * 0.1f;
+      // m_lpCutoff is 0-1, map directly: knob right = more open (brighter), left = more closed (darker)
+      // When lpCutoff=0 (knob left), coef=0 (completely dark/filtering)
+      // When lpCutoff=1 (knob right), coef=0.1 (bright/open)
+      float lpCoef = m_lpCutoff * 0.1f;
       if (lpCoef > 0.001f) {
         l = processOnePoleLowpass(l, m_lpFilterState[0], lpCoef);
         r = processOnePoleLowpass(r, m_lpFilterState[1], lpCoef);
       }
 
       // Delay effect
-      // m_delayTime is 0-1, maps to 10ms-2000ms
-      float delayMs = m_delayTime * 1990.0f + 10.0f;
+      // m_delayTime is 0-1, maps to 50ms-500ms
+      float delayMs = m_delayTime * 450.0f + 50.0f;
       size_t currentDelaySamples = (size_t)(delayMs * sampleRate / 1000.0f);
       if (currentDelaySamples > MAX_DELAY_SAMPLES) currentDelaySamples = MAX_DELAY_SAMPLES;
 
@@ -134,38 +134,34 @@ public:
         delayR = m_delayBuffer[1][readPos];
       }
 
-      // Wet signal with feedback
-      float wetL = delayL * 0.7f;
-      float wetR = delayR * 0.7f;
+      // Mix: dry + wet * amount, with strong feedback
+      l = l + delayL * m_delayAmount * 0.8f;
+      r = r + delayR * m_delayAmount * 0.8f;
 
-      // Mix: dry + wet * amount
-      l = l + wetL * m_delayAmount;
-      r = r + wetR * m_delayAmount;
-
-      // Write to delay buffer: input + feedback
-      m_delayBuffer[0][m_delayWritePos] = l * 0.5f + delayL * 0.3f;
-      m_delayBuffer[1][m_delayWritePos] = r * 0.5f + delayR * 0.3f;
+      // Write to delay buffer: input + strong feedback
+      m_delayBuffer[0][m_delayWritePos] = l * 0.3f + delayL * 0.65f;
+      m_delayBuffer[1][m_delayWritePos] = r * 0.3f + delayR * 0.65f;
       m_delayWritePos = (m_delayWritePos + 1) % MAX_DELAY_SAMPLES;
 
       // Simple reverb via parallel delay lines with feedback
       if (m_reverbAmount > 0.001f) {
         float revL = 0.0f, revR = 0.0f;
-        float feedbackCoef = m_reverbTime * 0.95f;
+        float feedbackCoef = 0.5f + m_reverbTime * 0.45f;
 
         for (int line = 0; line < 4; line++) {
           float lineOut = m_reverbLines[line][m_reverbPos[line]];
-          float input = (l + r) * 0.125f;
+          float input = (l + r) * 0.05f;
 
           m_reverbLines[line][m_reverbPos[line]] = input + lineOut * feedbackCoef;
-          m_reverbFilter[line] = m_reverbFilter[line] * 0.85f + lineOut * 0.15f;
-          revL += m_reverbFilter[line] * 0.25f;
-          revR += m_reverbFilter[line] * 0.25f;
+          m_reverbFilter[line] = m_reverbFilter[line] * 0.8f + lineOut * 0.2f;
+          revL += m_reverbFilter[line] * 0.6f;
+          revR += m_reverbFilter[line] * 0.6f;
 
           m_reverbPos[line] = (m_reverbPos[line] + 1) % m_reverbLineLengths[line];
         }
 
-        l += revL * m_reverbAmount;
-        r += revR * m_reverbAmount;
+        l += revL * m_reverbAmount * 0.5f;
+        r += revR * m_reverbAmount * 0.5f;
       }
 
       left[i] = l;
