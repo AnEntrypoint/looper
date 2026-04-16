@@ -64,8 +64,10 @@ public:
 
   void setFormant(float norm) {
     // norm 0-1: 0 = no formant preservation, 1 = full formant preservation
-    // tonalityLimit in signalsmith is a fraction of sample rate
-    m_formant = norm * 0.5f;
+    // tonalityLimit: fraction of sample rate below which pitch shift applies
+    // Lower values = more formant preservation (fewer bins shifted)
+    // 0 = disabled (all bins shift uniformly), 0.01-0.1 = strong preservation
+    m_formant = norm * 0.15f;
     m_stretch.setTransposeFactor(m_pitchScale, m_formant);
   }
 

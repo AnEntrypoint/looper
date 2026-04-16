@@ -62,10 +62,9 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             return;
         }
         if (channel == 2) {
-            if (m_liveEngaged) {
-                m_livePitchSemitones = (float)((int)data1 - 60);
-                _applyLivePitch();
-            }
+            m_livePitchSemitones = (float)((int)data1 - 60);
+            m_liveEngaged = true;
+            _applyLivePitch();
             return;
         }
         if (data1 < APC_ROWS * APC_COLS)
