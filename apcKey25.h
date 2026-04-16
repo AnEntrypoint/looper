@@ -59,9 +59,9 @@ public:
         float filterLP;
         float filterRes;
         float reverbAmount;
-        float reverbTime;
         float delayAmount;
-        float delayTime;
+        float time;
+        float formant;
     };
 
     DebugState getDebugState() const;
@@ -97,13 +97,14 @@ private:
     float         m_filterRes;
 
     float         m_reverbAmount;
-    float         m_reverbTime;
     float         m_delayAmount;
-    float         m_delayTime;
+    float         m_time;
+    float         m_formant;
 
     void _applyLivePitch();
     void _applyFilters();
     void _applyEffects();
+    void _applyFormant();
     void _queueCmd(ApcCmd::Type type, int arg);
     void _onPadPress(int row, int col);
     void _onPadRelease(int row, int col);

@@ -15,7 +15,7 @@ apcKey25::apcKey25()
       m_driftTarget(0.0f), m_lastDriftMs(0), m_computedRatio(1.0f),
       m_liveEngaged(false), m_livePitchSemitones(0.0f), m_liveLedDirty(false),
       m_filterHP(0.0f), m_filterLP(1.0f), m_filterRes(0.0f),
-      m_reverbAmount(0.0f), m_reverbTime(0.5f), m_delayAmount(0.0f), m_delayTime(0.5f)
+      m_reverbAmount(0.0f), m_delayAmount(0.0f), m_time(0.5f), m_formant(0.0f)
 {
     pTheAPC = this;
     for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
@@ -120,6 +120,7 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
         handleEffectsCC(data1, data2);
         return;
     }
+
 }
 
 void apcKey25::update()

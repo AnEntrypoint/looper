@@ -91,9 +91,9 @@ apcKey25::EffectsState apcKey25::getEffectsState() const
         m_filterLP,
         m_filterRes,
         m_reverbAmount,
-        m_reverbTime,
         m_delayAmount,
-        m_delayTime
+        m_time,
+        m_formant
     };
 }
 

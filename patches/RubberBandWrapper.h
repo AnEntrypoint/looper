@@ -8,6 +8,7 @@
 class RubberBandWrapper {
   signalsmith::stretch::SignalsmithStretch<float> m_stretch;
   float m_pitchScale;
+  float m_formant;
   size_t m_channels;
   uint32_t m_processedFrames;
   uint32_t m_retrievedFrames;
@@ -20,7 +21,7 @@ class RubberBandWrapper {
 
 public:
   RubberBandWrapper(size_t sampleRate, size_t channels)
-    : m_pitchScale(1.0f), m_channels(channels),
+    : m_pitchScale(1.0f), m_formant(0.0f), m_channels(channels),
       m_processedFrames(0), m_retrievedFrames(0)
   {
     int blockSamples = 512;
@@ -58,9 +59,14 @@ public:
 
   void setPitchScale(float scale) {
     m_pitchScale = scale;
-    float semitones = 12.0f * logf(std::max(0.001f, scale)) / logf(2.0f);
-    float tonalityLimit = (std::abs(semitones) >= 11.0f) ? 0.15f : 0.0f;
-    m_stretch.setTransposeFactor(scale, tonalityLimit);
+    m_stretch.setTransposeFactor(scale, m_formant);
+  }
+
+  void setFormant(float norm) {
+    // norm 0-1: 0 = no formant preservation, 1 = full formant preservation
+    // tonalityLimit in signalsmith is a fraction of sample rate
+    m_formant = norm * 0.5f;
+    m_stretch.setTransposeFactor(m_pitchScale, m_formant);
   }
 
   void setTempoRatio(float) {}
