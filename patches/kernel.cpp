@@ -140,9 +140,7 @@ TShutdownMode CKernel::Run(void)
 {
 	m_Logger.Write(log_name, LogNotice, "Looper starting %s", build_id);
 
-	static const u8 logHostIP[] = { NET_LOG_HOST };
-	CIPAddress logHost(logHostIP);
-	m_pSysLog = new CSysLogDaemon(&m_Net, logHost);
+	m_pSysLog = nullptr;
 
 	m_Logger.Write(log_name, LogNotice, "WLAN init=%s join=%s ap=%s",
 		s_wlanOK ? "OK" : "FAILED",
