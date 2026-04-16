@@ -102,19 +102,21 @@ public:
       float r = right[i];
 
       // High-pass filter (removes DC and rumble)
-      // m_hpCutoff is 0-1, map to filter coefficient 0.001-0.1
-      if (m_hpCutoff > 0.001f) {
-        float hpCoef = m_hpCutoff * 0.1f;
+      // m_hpCutoff is 0-1, map to filter coefficient directly
+      // When hpCutoff=0 (knob left), no HP filtering
+      // When hpCutoff=1 (knob right), strong HP filtering
+      float hpCoef = m_hpCutoff * 0.1f;
+      if (hpCoef > 0.001f) {
         l = processOnePoleHighpass(l, m_hpFilterState[0], hpCoef);
         r = processOnePoleHighpass(r, m_hpFilterState[1], hpCoef);
       }
 
       // Low-pass filter (removes highs)
-      // m_lpCutoff is 0-1, map to filter coefficient 0.001-0.1
-      // When lpCutoff=0, filter is open (coef=0, no filtering)
-      // When lpCutoff=1, filter is closed (coef=0.1, maximum filtering)
-      if (m_lpCutoff > 0.001f) {
-        float lpCoef = m_lpCutoff * 0.1f;
+      // m_lpCutoff is 0-1, inverted so knob right = open (bright), left = closed (dark)
+      // When lpCutoff=0 (knob left), filter is closed (coef=0.1, dark)
+      // When lpCutoff=1 (knob right), filter is open (coef=0, bright)
+      float lpCoef = (1.0f - m_lpCutoff) * 0.1f;
+      if (lpCoef > 0.001f) {
         l = processOnePoleLowpass(l, m_lpFilterState[0], lpCoef);
         r = processOnePoleLowpass(r, m_lpFilterState[1], lpCoef);
       }
