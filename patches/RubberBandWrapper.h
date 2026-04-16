@@ -63,11 +63,11 @@ public:
   }
 
   void setFormant(float norm) {
-    // norm 0-1: 0 = no formant preservation, 1 = full formant preservation
-    // tonalityLimit: fraction of sample rate below which pitch shift applies
-    // Lower values = more formant preservation (fewer bins shifted)
-    // 0 = disabled (all bins shift uniformly), 0.01-0.1 = strong preservation
-    m_formant = norm * 0.15f;
+    // norm 0-1: maps to tonalityLimit 0-0.08
+    // At 48kHz: tonalityLimit 0.08 → freqTonalityLimit ~3.8kHz cutoff
+    // Below cutoff: pitch shifts. Above cutoff: passes through (preserves formants)
+    // 0 = no preservation (uniform shift), 1 = strong preservation
+    m_formant = norm * 0.08f;
     m_stretch.setTransposeFactor(m_pitchScale, m_formant);
   }
 
