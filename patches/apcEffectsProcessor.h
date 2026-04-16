@@ -48,15 +48,13 @@ class apcEffectsProcessor {
   }
 
   float processResonantLowpass(float input, float &band, float &low, float cutoff, float resonance) {
-    // State-variable lowpass with resonance feedback
-    // cutoff is 0-0.1, resonance is 0-1 (maps to Q boost 1-8)
-    float f = cutoff * 2.0f;  // normalized frequency
-    float q = 1.0f + resonance * 7.0f;  // resonance maps to Q: 1 at min, 8 at max
+    // Simple one-pole lowpass with direct resonance feedback
+    float f = cutoff;
+    // Direct resonance: feed bandpass back through the input
+    float resonanceAmount = resonance * 2.0f;
 
-    // Bandpass from highpass feedback
-    band = band + f * (input - low - q * band);
-    // Lowpass from bandpass integration
-    low = low + f * band;
+    band = band + f * (input - low);
+    low = low + f * (band + band * resonanceAmount);
 
     return low;
   }
@@ -126,16 +124,9 @@ public:
       // Low-pass filter with resonance (removes highs)
       // m_lpCutoff is 0-1 from MIDI: knob left = bright (min filtering), right = dark (max filtering)
       // m_filterRes is 0-1: amount of resonance (peak emphasis at cutoff)
-      // When lpCutoff=0 (knob left), coef=0.001 (bright/open, minimal cutoff)
-      // When lpCutoff=1 (knob right), coef=0.1 (dark/closed, strong cutoff)
-      if (m_lpCutoff > 0.01f || m_filterRes > 0.01f) {
-        float lpCoef = m_lpCutoff * 0.1f;
-        lpCoef = (lpCoef < 0.001f) ? 0.001f : lpCoef;
-        // Boost resonance effect: when resonance is high, lower the cutoff coefficient slightly to emphasize the peak
-        float resCutoff = lpCoef * (1.0f - m_filterRes * 0.5f);
-        l = processResonantLowpass(l, m_lpBand[0], m_lpLow[0], resCutoff, m_filterRes);
-        r = processResonantLowpass(r, m_lpBand[1], m_lpLow[1], resCutoff, m_filterRes);
-      }
+      float lpCoef = m_lpCutoff * 0.1f;
+      l = processResonantLowpass(l, m_lpBand[0], m_lpLow[0], lpCoef, m_filterRes);
+      r = processResonantLowpass(r, m_lpBand[1], m_lpLow[1], lpCoef, m_filterRes);
 
       // Delay effect
       // m_delayTime is 0-1, maps to 50ms-500ms
