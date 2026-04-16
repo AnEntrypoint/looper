@@ -112,14 +112,13 @@ public:
       }
 
       // Low-pass filter (removes highs)
-      // m_lpCutoff is 0-1 from MIDI, inverted so knob right = darker (more filtering), left = brighter (less filtering)
-      // When lpCutoff=0 (knob left), coef=0.1 (bright/open, maximum cutoff)
-      // When lpCutoff=1 (knob right), coef=0 (dark/closed, no cutoff)
-      float lpCoef = (1.0f - m_lpCutoff) * 0.1f;
-      if (lpCoef > 0.001f) {
-        l = processOnePoleLowpass(l, m_lpFilterState[0], lpCoef);
-        r = processOnePoleLowpass(r, m_lpFilterState[1], lpCoef);
-      }
+      // m_lpCutoff is 0-1 from MIDI: knob left = bright (min filtering), right = dark (max filtering)
+      // When lpCutoff=0 (knob left), coef=0.001 (bright/open, minimal cutoff)
+      // When lpCutoff=1 (knob right), coef=0.1 (dark/closed, strong cutoff)
+      float lpCoef = m_lpCutoff * 0.1f;
+      lpCoef = (lpCoef < 0.001f) ? 0.001f : lpCoef;
+      l = processOnePoleLowpass(l, m_lpFilterState[0], lpCoef);
+      r = processOnePoleLowpass(r, m_lpFilterState[1], lpCoef);
 
       // Delay effect
       // m_delayTime is 0-1, maps to 50ms-500ms
