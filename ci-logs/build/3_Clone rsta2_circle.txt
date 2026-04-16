@@ -1,8 +1,0 @@
-﻿2026-04-07T15:21:06.0983518Z ##[group]Run git clone --depth=1 https://github.com/rsta2/circle circle
-2026-04-07T15:21:06.0984099Z [36;1mgit clone --depth=1 https://github.com/rsta2/circle circle[0m
-2026-04-07T15:21:06.1011843Z shell: /usr/bin/bash -e {0}
-2026-04-07T15:21:06.1012066Z env:
-2026-04-07T15:21:06.1012226Z   RASPPI: 4
-2026-04-07T15:21:06.1012386Z   AARCH: 32
-2026-04-07T15:21:06.1012533Z ##[endgroup]
-2026-04-07T15:21:06.1106896Z Cloning into 'circle'...

@@ -1,8 +1,0 @@
-[all]
-boot_delay=0
-disable_splash=1
-gpu_mem=64
-
-[pi4]
-arm_64bit=0
-kernel=kernel7l.img

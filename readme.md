@@ -1,61 +1,80 @@
-# rpi Bare Metal Looper
+# Lanmower's Looper
 
-This repository contains the source code and other information required to
-build a bare metal rPi based Audio Looper.
+A bare-metal audio looper running on Raspberry Pi 4, controlled by an Akai APC Key 25. No operating system, no drivers, no latency — just hardware and code.
 
-[![Looper2](docs/images/Looper2_resized.jpg)](docs/images/Looper2.jpg)
+## What it does
 
-Please see the **[docs/readme.md](docs/readme.md)** file for
-the [documentation](docs/readme.md) regarding this project.
+- 5-track loop recording with overdub, quantized to Ableton Link tempo
+- Live pitch shifting via keyboard keys (signalsmith-stretch DSP)
+- Formant-preserving pitch control
+- Tape-style delay with smooth time scrubbing
+- Reverb with adjustable decay
+- 2-pole SVF lowpass filter with resonance
+- 2-pole SVF highpass filter (Butterworth)
+- USB audio I/O via Behringer UCA222 (48kHz)
+- USB-C OTG audio gadget for direct computer connection
+- WiFi Ableton Link sync (joins or creates "ticker" network)
+- VU metering on APC pad grid
 
-## Quick Start (USB Audio + APC Key25)
+## Hardware
 
-### Build
+- Raspberry Pi 4 (runs bare-metal, no Linux)
+- Akai APC Key 25 (pads + keyboard + knobs)
+- Behringer UCA222 (USB audio interface)
+- SD card with firmware
 
-CI runs automatically on push to `master` via GitHub Actions, producing `kernel7l.img` (rPi 4, RASPPI=4 32-bit).
+## MIDI CC Map (APC Key 25 Knobs)
 
-To build locally, clone into `circle/_prh/_apps/Looper/` with `circle/` as CIRCLEHOME and `circle/_prh/` as the circle-prh tree. Default build targets the Audio Injector Octo (CS42448). Add `LOOPER_USB_AUDIO=1` to target UCA222 / generic class-compliant USB audio (44100Hz stereo, 64-sample blocks) — requires `AudioInputUSB`/`AudioOutputUSB` stubs in circle-prh.
+| CC | Function |
+|----|----------|
+| 48 | Reverb amount |
+| 49 | Delay amount |
+| 50 | Time (reverb decay + delay length, 10ms-1000ms) |
+| 51 | Highpass cutoff |
+| 52 | Pitch shift (continuous, +/-6 semitones) |
+| 53 | Pitch shift formant preservation |
+| 54 | Lowpass resonance |
+| 55 | Lowpass cutoff |
 
-### Deploy to SD card (Windows)
+## Keyboard
 
-Insert your FAT32 SD card as `E:` and run:
+APC keyboard keys (MIDI channel 1) set live pitch shift based on distance from middle C (note 60). Press C4 for no shift, E4 for +4 semitones, C3 for -12, etc. Pitch locks on key press.
 
-```powershell
-.\deploy-to-sd.ps1
+## Pad Grid
+
+- Column 0: Record/play/stop per track (5 rows = 5 tracks)
+- Column 1: Tap to mute, hold to erase track
+- Columns 2-7: VU meters per track
+
+## Building
+
+CI builds automatically via GitHub Actions. The build:
+
+1. Clones [circle](https://github.com/rsta2/circle) (bare-metal framework) and [circle-prh](https://github.com/phorton1/circle-prh) (audio extensions)
+2. Applies patches from `patches/` directory
+3. Compiles for RASPPI=4, AARCH=32
+4. Produces `kernel7l.img`
+
+Output goes on the SD card alongside the Pi bootloader files.
+
+## Dev Server
+
+`node dev-server.js` runs TFTP (port 69), DHCP (port 67), and syslog (port 514) for network boot and log capture. Requires admin/root for privileged ports.
+
+## Architecture
+
+```
+USB Audio In (UCA222) --> AudioInputUSB --> loopMachine --> AudioOutputUSB --> USB Audio Out
+                                              |
+                                    pitch shift (signalsmith-stretch)
+                                    effects (SVF filters, tape delay, reverb)
+                                    loop record/playback (5 tracks, crossfade)
+                                              |
+                              OTG Audio Gadget (USB-C, side-channel)
 ```
 
-This downloads the latest `looper-sd.zip` release from GitHub and copies all files to `E:`.
+All audio processing runs in interrupt context on core 0. No OS scheduler, no context switches, no jitter.
 
-### APC Key25 Controller Layout
+## License
 
-The APC Key25 connects via a Teensy serial MIDI bridge. Each row controls one looper track directly — **boss-style, no track selector**.
-
-| Column | Action |
-|--------|--------|
-| 0–3 | Drive track (row) through empty→record→play→overdub |
-| 4 | Toggle mute all clips on track |
-| 5 | Erase track |
-| 6 | Set loop start point |
-| 7 | Clear loop start point |
-
-**Transport buttons:**
-
-| Button | Normal | + Shift |
-|--------|--------|---------|
-| Stop All | Stop at loop point | Stop immediately |
-| Record | Toggle dub mode | Abort recording |
-| Play | Clear all | Loop immediately |
-
-**LED colors:** green=playing, red=recording, yellow=pending transition, off=stopped/empty.
-
-## OTG Serial Monitor
-
-The USB-C port runs as a CDC ACM serial gadget (DWC OTG controller, separate from the USB-A xHCI). Log output is redirected to this port after kernel init. Send `R` to trigger a reboot.
-
-Run the monitor from Windows (requires `npm install serialport` once):
-
-```
-node otg-monitor.js
-```
-
-Auto-detects the CDC port. Press `r` to reboot the device, Ctrl+C to exit. Pass a port name as the first argument to override auto-detection.
+Based on [circle](https://github.com/rsta2/circle) by Rene Stange and [circle-prh](https://github.com/phorton1/circle-prh) by Patrick Horton.

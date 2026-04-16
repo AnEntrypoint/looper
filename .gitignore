@@ -1,102 +1,56 @@
-# GIT Ignore
-
-# Mac OS X
-# ----------------------------------------------
+# OS
 .DS_Store
-.AppleDouble
-.LSOverride
-# Icon must end with two \r
-Icon
-
-
-# Thumbnails
 ._*
-# Files that might appear on external disk
-.Spotlight-V100
-.Trashes
-# Directories potentially created on remote AFP share
-.AppleDB
-.AppleDesktop
-Network Trash Folder
-Temporary Items
-.apdisk
-
-# Linux
-# ----------------------------------------------
-*~
-# KDE directory preferences
-.directory
-
-# Windows
-# ----------------------------------------------
-# Windows image file caches
 Thumbs.db
-ehthumbs.db
-# Folder config file
 Desktop.ini
-# Recycle Bin used on file shares
 $RECYCLE.BIN/
-# Windows Installer files
-*.cab
-*.msi
-*.msm
-*.msp
-# Windows shortcuts
-*.lnk
+*~
 
-# C/C++
-# ----------------------------------------------
-# Object files
-*.elf
+# C/C++ build
 *.o
-*.ko
-*.lo
 *.obj
-*.slo
-# Precompiled Headers
-*.gch
-*.pch
-# Libraries
+*.elf
 *.a
-*.la
-*.lai
 *.lib
-*.lo
-# Shared objects (inc. Windows DLLs)
 *.dll
 *.so
-*.so.*
 *.dylib
-# Executables
 *.exe
 *.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Circle
-# ----------------------------------------------
+*.gch
+*.pch
 *.img
 *.lst
 *.map
 Config.mk
 Config2.mk
 
-# Directories
-# ----------------------------------------------
-.gm-stop-verified
+# Project
 dist/
 node_modules/
-syslog.log
-package-lock.json
-
-.env
-
-.plugkit-browser-profile/
-$null
-.claude/scheduled_tasks.lock
-package.json
 tftproot/
+ci-logs/
+test/
+.plugkit-browser-profile/
+
+# Logs and temp
+syslog.log
+*.log
+*.stackdump
+*.wav
+*.prd
+
+# Dev tools
+.env
+.dev-server.pid
 .tftp-sha
 .tftp-pid
+.codeinsight
+.gm-stop-verified
+$null
+package.json
+package-lock.json
+.claude/scheduled_tasks.lock
+
+# Temp files
+tmp_*
