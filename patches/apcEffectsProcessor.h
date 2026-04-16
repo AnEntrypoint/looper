@@ -102,52 +102,68 @@ public:
       float r = right[i];
 
       // High-pass filter (removes DC and rumble)
+      // m_hpCutoff is 0-1, map to filter coefficient 0.001-0.1
       if (m_hpCutoff > 0.001f) {
-        l = processOnePoleHighpass(l, m_hpFilterState[0], m_hpCutoff);
-        r = processOnePoleHighpass(r, m_hpFilterState[1], m_hpCutoff);
+        float hpCoef = m_hpCutoff * 0.1f;
+        l = processOnePoleHighpass(l, m_hpFilterState[0], hpCoef);
+        r = processOnePoleHighpass(r, m_hpFilterState[1], hpCoef);
       }
 
       // Low-pass filter (removes highs)
-      if (m_lpCutoff < 0.999f) {
-        l = processOnePoleLowpass(l, m_lpFilterState[0], m_lpCutoff);
-        r = processOnePoleLowpass(r, m_lpFilterState[1], m_lpCutoff);
+      // m_lpCutoff is 0-1, map to filter coefficient 0.001-0.1
+      // When lpCutoff=0, filter is open (coef=0, no filtering)
+      // When lpCutoff=1, filter is closed (coef=0.1, maximum filtering)
+      if (m_lpCutoff > 0.001f) {
+        float lpCoef = m_lpCutoff * 0.1f;
+        l = processOnePoleLowpass(l, m_lpFilterState[0], lpCoef);
+        r = processOnePoleLowpass(r, m_lpFilterState[1], lpCoef);
       }
 
       // Delay effect
+      // m_delayTime is 0-1, maps to 10ms-2000ms
+      float delayMs = m_delayTime * 1990.0f + 10.0f;
+      size_t currentDelaySamples = (size_t)(delayMs * sampleRate / 1000.0f);
+      if (currentDelaySamples > MAX_DELAY_SAMPLES) currentDelaySamples = MAX_DELAY_SAMPLES;
+
       float delayL = 0.0f, delayR = 0.0f;
-      if (m_delayAmount > 0.001f && m_delaySamples > 0) {
-        size_t readPos = (m_delayWritePos - m_delaySamples + MAX_DELAY_SAMPLES) % MAX_DELAY_SAMPLES;
+      if (m_delayAmount > 0.001f && currentDelaySamples > 0) {
+        size_t readPos = (m_delayWritePos + MAX_DELAY_SAMPLES - currentDelaySamples) % MAX_DELAY_SAMPLES;
         delayL = m_delayBuffer[0][readPos];
         delayR = m_delayBuffer[1][readPos];
       }
 
-      l = l + delayL * m_delayAmount * 0.5f;
-      r = r + delayR * m_delayAmount * 0.5f;
+      // Wet signal with feedback
+      float wetL = delayL * 0.7f;
+      float wetR = delayR * 0.7f;
 
-      // Write to delay buffer with feedback
-      m_delayBuffer[0][m_delayWritePos] = l * 0.8f;
-      m_delayBuffer[1][m_delayWritePos] = r * 0.8f;
+      // Mix: dry + wet * amount
+      l = l + wetL * m_delayAmount;
+      r = r + wetR * m_delayAmount;
+
+      // Write to delay buffer: input + feedback
+      m_delayBuffer[0][m_delayWritePos] = l * 0.5f + delayL * 0.3f;
+      m_delayBuffer[1][m_delayWritePos] = r * 0.5f + delayR * 0.3f;
       m_delayWritePos = (m_delayWritePos + 1) % MAX_DELAY_SAMPLES;
 
-      // Simple reverb via parallel allpass lines
+      // Simple reverb via parallel delay lines with feedback
       if (m_reverbAmount > 0.001f) {
         float revL = 0.0f, revR = 0.0f;
+        float feedbackCoef = m_reverbTime * 0.95f;
 
         for (int line = 0; line < 4; line++) {
           float lineOut = m_reverbLines[line][m_reverbPos[line]];
-          float feedback = lineOut * (m_reverbTime * 0.9f);
-          float input = (l + r) * 0.25f;
+          float input = (l + r) * 0.125f;
 
-          m_reverbLines[line][m_reverbPos[line]] = input + feedback;
-          m_reverbFilter[line] = m_reverbFilter[line] * 0.9f + lineOut * 0.1f;
-          revL += m_reverbFilter[line];
-          revR += m_reverbFilter[line];
+          m_reverbLines[line][m_reverbPos[line]] = input + lineOut * feedbackCoef;
+          m_reverbFilter[line] = m_reverbFilter[line] * 0.85f + lineOut * 0.15f;
+          revL += m_reverbFilter[line] * 0.25f;
+          revR += m_reverbFilter[line] * 0.25f;
 
           m_reverbPos[line] = (m_reverbPos[line] + 1) % m_reverbLineLengths[line];
         }
 
-        l += revL * m_reverbAmount * 0.1f;
-        r += revR * m_reverbAmount * 0.1f;
+        l += revL * m_reverbAmount;
+        r += revR * m_reverbAmount;
       }
 
       left[i] = l;
