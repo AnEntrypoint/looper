@@ -600,24 +600,6 @@ void loopMachine::update(void)
 		}
 	}
 
-	if (pEffectsProcessor)
-	{
-		float tmp_L[AUDIO_BLOCK_SAMPLES], tmp_R[AUDIO_BLOCK_SAMPLES];
-		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-		{
-			tmp_L[i] = (float)m_output_buffer[i*LOOPER_NUM_CHANNELS] / 32768.0f;
-			tmp_R[i] = (float)m_output_buffer[i*LOOPER_NUM_CHANNELS + 1] / 32768.0f;
-		}
-
-		pEffectsProcessor->processFilterAndSends(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
-
-		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-		{
-			m_output_buffer[i*LOOPER_NUM_CHANNELS] = (s32)(tmp_L[i] * 32768.0f);
-			m_output_buffer[i*LOOPER_NUM_CHANNELS + 1] = (s32)(tmp_R[i] * 32768.0f);
-		}
-	}
-
 	u32 outPeak = 0;
 	for (int i = 0; i < LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES; i++)
 	{
@@ -628,6 +610,8 @@ void loopMachine::update(void)
 
 	s32 *iip = m_input_buffer;
 	s32 *iop = m_output_buffer;
+
+	float mixL[AUDIO_BLOCK_SAMPLES], mixR[AUDIO_BLOCK_SAMPLES];
 
 	for (u16 channel=0; channel<LOOPER_NUM_CHANNELS; channel++)
 	{
@@ -660,6 +644,10 @@ void loopMachine::update(void)
 					mval32 = ((double)mval32) * mix_level;
 			#endif
 
+			if (channel == 0)
+				mixL[i] = (float)mval32 / 32768.0f;
+			else
+				mixR[i] = (float)mval32 / 32768.0f;
 
 			s16 ival = simple_clip(ival32);
 			s16 oval = simple_clip(oval32);
@@ -685,10 +673,33 @@ void loopMachine::update(void)
 			*op++ = mval;
 
 		}
+	}
 
+	if (pEffectsProcessor)
+	{
+		pEffectsProcessor->processFilterAndSends(mixL, mixR, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
 
-		transmit(out[channel], channel);
-		AudioSystem::release(out[channel]);
+		for (u16 channel=0; channel<LOOPER_NUM_CHANNELS; channel++)
+		{
+			s16 *op = out[channel]->data;
+			for (u16 i=0; i<AUDIO_BLOCK_SAMPLES; i++)
+			{
+				float processed = (channel == 0) ? mixL[i] : mixR[i];
+				s32 pval32 = (s32)(processed * 32768.0f);
+				s16 pval = simple_clip(pval32);
+				*op++ = pval;
+			}
+			transmit(out[channel], channel);
+			AudioSystem::release(out[channel]);
+		}
+	}
+	else
+	{
+		for (u16 channel=0; channel<LOOPER_NUM_CHANNELS; channel++)
+		{
+			transmit(out[channel], channel);
+			AudioSystem::release(out[channel]);
+		}
 	}
 
     m_cur_command = 0;
