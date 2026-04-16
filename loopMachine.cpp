@@ -609,7 +609,7 @@ void loopMachine::update(void)
 			tmp_R[i] = (float)m_output_buffer[i*LOOPER_NUM_CHANNELS + 1] / 32768.0f;
 		}
 
-		pEffectsProcessor->processFilterAndSends(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES, m_sampleRate);
+		pEffectsProcessor->processFilterAndSends(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
 
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
 		{
