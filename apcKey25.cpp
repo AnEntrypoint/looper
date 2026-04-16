@@ -58,10 +58,6 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             return;
         }
         if (channel == 1) {
-            m_transposeLocked = true;
-            return;
-        }
-        if (channel == 2) {
             m_livePitchSemitones = (float)((int)data1 - 60);
             m_liveEngaged = true;
             _applyLivePitch();
@@ -70,13 +66,6 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
         if (data1 < APC_ROWS * APC_COLS)
         {
             _onPadPress(data1 / APC_COLS, data1 % APC_COLS);
-            return;
-        }
-        if (channel == 0 && data1 >= 48 && data1 <= 84)
-        {
-            m_livePitchSemitones = (float)((int)data1 - 60);
-            m_liveEngaged = true;
-            _applyLivePitch();
             return;
         }
         _onButton(data1);
