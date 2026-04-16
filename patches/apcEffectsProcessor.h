@@ -114,7 +114,7 @@ public:
 
   void setTime(float norm) {
     m_time = norm;
-    float delayMs = m_time * 450.0f + 50.0f;
+    float delayMs = m_time * 990.0f + 10.0f;
     m_delayTargetSamples = delayMs * (float)m_sampleRate / 1000.0f;
     if (m_delayTargetSamples > (float)(MAX_DELAY_SAMPLES - 1))
       m_delayTargetSamples = (float)(MAX_DELAY_SAMPLES - 1);
