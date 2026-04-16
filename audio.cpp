@@ -13,6 +13,7 @@
 #include <circle/logger.h>
 #include <circle/timer.h>
 #include "patches/RubberBandWrapper.h"
+#include "patches/apcEffectsProcessor.h"
 
 #define log_name "audio"
 
@@ -89,6 +90,7 @@
 #endif
 
 RubberBandWrapper *pLivePitchWrapper = 0;
+apcEffectsProcessor *pEffectsProcessor = 0;
 
 loopMachine *pTheLoopMachine = 0;
 publicLoopMachine *pTheLooper = 0;
@@ -108,8 +110,9 @@ void setup()
 
 	debug_blink(1);
 	pLivePitchWrapper = new RubberBandWrapper(AUDIO_SAMPLE_RATE, LOOPER_NUM_CHANNELS);
-	// Note: pLivePitchWrapper is NOT an AudioStream; it's fed directly in loopMachine::update()
-	// Audio path: input → loopMachine (which internally feeds pLivePitchWrapper) → output
+	pEffectsProcessor = new apcEffectsProcessor(AUDIO_SAMPLE_RATE);
+	// Note: pLivePitchWrapper and pEffectsProcessor are NOT AudioStreams; they're fed directly in loopMachine::update()
+	// Audio path: input → loopMachine (which internally feeds pLivePitchWrapper and pEffectsProcessor) → output
 	new AudioConnection(input,      0,  *pTheLooper,    0);
 	new AudioConnection(input,      1,  *pTheLooper,    1);
 	new AudioConnection(*pTheLooper,	0,  output,			0);
