@@ -5,6 +5,7 @@
 #include "Looper.h"
 #include "patches/RubberBandWrapper.h"
 #include "usbMidi.h"
+#include <circle/util.h>
 
 extern apcKey25 *pTheAPC;
 extern publicLoopMachine *pTheLooper;
@@ -97,14 +98,28 @@ apcKey25::EffectsState apcKey25::getEffectsState() const
     };
 }
 
+static u8 s_lastLedState[128] = {0};
+static bool s_lastLedInit = false;
+
+static void sendLedCoalesced(u8 note, u8 vel)
+{
+    if (!s_lastLedInit) {
+        for (int i = 0; i < 128; i++) s_lastLedState[i] = 0xFF;
+        s_lastLedInit = true;
+    }
+    if (s_lastLedState[note] == vel) return;
+    s_lastLedState[note] = vel;
+    usbMidiSendNoteOn(note, vel);
+}
+
 void apcKey25::_updateGridLeds()
 {
     for (int row = 0; row < LOOPER_NUM_TRACKS; row++)
     {
         u8 col0 = _trackLedColor(row);
         u8 col1 = _muteLedColor(row);
-        _sendLed(_padNote(row, 0), col0);
-        _sendLed(_padNote(row, 1), col1);
+        sendLedCoalesced(_padNote(row, 0), col0);
+        sendLedCoalesced(_padNote(row, 1), col1);
     }
 
     for (int track = 0; track < LOOPER_NUM_TRACKS; track++)
@@ -125,7 +140,7 @@ void apcKey25::_updateGridLeds()
             u8 color = APC_VEL_LED_OFF;
             if (row < tvu)
                 color = (row >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_GREEN;
-            _sendLed(_padNote(row, col), color);
+            sendLedCoalesced(_padNote(row, col), color);
         }
     }
 
@@ -154,12 +169,12 @@ void apcKey25::_updateGridLeds()
             color = (i >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_GREEN;
         else if (i < outVu)
             color = (i >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_YELLOW;
-        _sendLed(0x52 + i, color);
+        sendLedCoalesced(0x52 + i, color);
     }
 
     bool running = pTheLooper->getRunning();
     u16  pending = pTheLooper->getPendingCommand();
-    _sendLed(APC_BTN_STOP_ALL, running ? (pending == LOOP_COMMAND_STOP ? APC_VEL_LED_YELLOW : APC_VEL_LED_GREEN) : APC_VEL_LED_OFF);
-    _sendLed(APC_BTN_RECORD,   pTheLooper->getDubMode() ? APC_VEL_LED_RED : APC_VEL_LED_OFF);
-    _sendLed(APC_BTN_PLAY,     pTheAPC->m_shift ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF);
+    sendLedCoalesced(APC_BTN_STOP_ALL, running ? (pending == LOOP_COMMAND_STOP ? APC_VEL_LED_YELLOW : APC_VEL_LED_GREEN) : APC_VEL_LED_OFF);
+    sendLedCoalesced(APC_BTN_RECORD,   pTheLooper->getDubMode() ? APC_VEL_LED_RED : APC_VEL_LED_OFF);
+    sendLedCoalesced(APC_BTN_PLAY,     pTheAPC->m_shift ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF);
 }

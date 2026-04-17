@@ -126,24 +126,95 @@ boolean CUSBMIDIHostDevice::Configure (void)
 	return StartRequest ();
 }
 
+#define USBMIDI_OUT_SLOTS      8
+#define USBMIDI_OUT_BUFSIZE    64
+
+struct TMIDIOutSlot
+{
+	CUSBMIDIHostDevice *pOwner;
+	volatile boolean    bBusy;
+	unsigned            nErrors;
+	u8                  Buffer[USBMIDI_OUT_BUFSIZE] __attribute__((aligned(64)));
+};
+
+static TMIDIOutSlot s_MIDIOutSlots[USBMIDI_OUT_SLOTS] = {};
+volatile unsigned g_midiOutDropped = 0;
+volatile unsigned g_midiOutErrors  = 0;
+
+static TMIDIOutSlot *AllocSlot (CUSBMIDIHostDevice *pOwner)
+{
+	for (int i = 0; i < USBMIDI_OUT_SLOTS; i++)
+	{
+		if (s_MIDIOutSlots[i].pOwner == pOwner && !s_MIDIOutSlots[i].bBusy)
+			return &s_MIDIOutSlots[i];
+	}
+	for (int i = 0; i < USBMIDI_OUT_SLOTS; i++)
+	{
+		if (s_MIDIOutSlots[i].pOwner == 0 && !s_MIDIOutSlots[i].bBusy)
+		{
+			s_MIDIOutSlots[i].pOwner = pOwner;
+			return &s_MIDIOutSlots[i];
+		}
+	}
+	return 0;
+}
+
+static void MIDIOutCompletion (CUSBRequest *pURB, void *pParam, void *pContext)
+{
+	TMIDIOutSlot *pSlot = (TMIDIOutSlot *) pContext;
+	assert (pSlot);
+	if (pURB->GetStatus () == 0)
+	{
+		pSlot->nErrors++;
+		g_midiOutErrors++;
+	}
+	delete pURB;
+	pSlot->bBusy = FALSE;
+}
+
 boolean CUSBMIDIHostDevice::SendEventsHandler (const u8 *pData, unsigned nLength, void *pParam)
 {
 	CUSBMIDIHostDevice *pThis = static_cast<CUSBMIDIHostDevice *> (pParam);
 	assert (pThis);
-
 	assert (pData != 0);
 	assert (nLength > 0);
 	assert ((nLength & 3) == 0);
 
 	if (pThis->m_pEndpointOut == 0)
+		return FALSE;
+
+	if (nLength > USBMIDI_OUT_BUFSIZE)
 	{
+		g_midiOutDropped++;
 		return FALSE;
 	}
 
-	DMA_BUFFER (u8, Buffer, nLength);
-	memcpy (Buffer, pData, nLength);
+	TMIDIOutSlot *pSlot = AllocSlot (pThis);
+	if (!pSlot)
+	{
+		g_midiOutDropped++;
+		return TRUE;
+	}
 
-	return pThis->GetHost ()->Transfer (pThis->m_pEndpointOut, Buffer, nLength) >= 0;
+	pSlot->bBusy = TRUE;
+	memcpy (pSlot->Buffer, pData, nLength);
+
+	CUSBRequest *pURB = new CUSBRequest (pThis->m_pEndpointOut, pSlot->Buffer, nLength);
+	if (!pURB)
+	{
+		pSlot->bBusy = FALSE;
+		g_midiOutDropped++;
+		return FALSE;
+	}
+	pURB->SetCompletionRoutine (MIDIOutCompletion, 0, pSlot);
+	if (!pThis->GetHost ()->SubmitAsyncRequest (pURB))
+	{
+		delete pURB;
+		pSlot->bBusy = FALSE;
+		g_midiOutDropped++;
+		return FALSE;
+	}
+	return TRUE;
 }
 
 boolean CUSBMIDIHostDevice::StartRequest (void)

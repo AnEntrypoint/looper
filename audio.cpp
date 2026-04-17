@@ -170,6 +170,8 @@ extern volatile unsigned g_otgResyncs;
 extern volatile int      g_otgLastRateStep;
 extern unsigned AudioInputUSB_inAvail (void);
 extern unsigned AudioOutputUSB_outAvail (void);
+extern volatile unsigned g_midiOutDropped;
+extern volatile unsigned g_midiOutErrors;
 
 static unsigned s_watchdogForces  = 0;
 static unsigned s_lastStatTicks   = 0;
@@ -200,14 +202,14 @@ void loop()
 		s_lastStatTicks = now;
 		unsigned inAv = AudioInputUSB_inAvail();
 		unsigned outAv = AudioOutputUSB_outAvail();
-		if (g_inUnderruns || g_outUnderruns || g_inResyncs || g_otgResyncs || s_watchdogForces)
+		if (g_inUnderruns || g_outUnderruns || g_inResyncs || g_otgResyncs || s_watchdogForces || g_midiOutDropped || g_midiOutErrors)
 		{
 			int in_ppm = ((g_inLastRateStep - 65536) * 1000000) / 65536;
 			int otg_ppm = ((g_otgLastRateStep - 65536) * 1000000) / 65536;
 			CLogger::Get()->Write("usbaudio", LogNotice,
-				"in_av=%u out_av=%u in_ur=%u out_ur=%u in_rs=%u otg_rs=%u wd=%u in_ppm=%d otg_ppm=%d",
+				"in_av=%u out_av=%u in_ur=%u out_ur=%u in_rs=%u otg_rs=%u wd=%u in_ppm=%d otg_ppm=%d midi_drop=%u midi_err=%u",
 				inAv, outAv, g_inUnderruns, g_outUnderruns, g_inResyncs, g_otgResyncs,
-				s_watchdogForces, in_ppm, otg_ppm);
+				s_watchdogForces, in_ppm, otg_ppm, g_midiOutDropped, g_midiOutErrors);
 		}
 	}
 #endif
