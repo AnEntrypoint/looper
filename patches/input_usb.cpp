@@ -13,20 +13,23 @@ bool           AudioInputUSB::s_update_responsibility = false;
 volatile u32   AudioInputUSB::s_peakLevel = 0;
 
 #define IN_RING_SIZE 512
-#define IN_TARGET_LAG   192
-#define IN_DEADBAND     64
+#define IN_TARGET_LAG   256
+#define IN_DEADBAND     128
+#define IN_RATE_GAIN    16384
+#define IN_RATE_MAX_DEV 256
+#define IN_FRAC_ONE     65536
 
 static s16 s_in_ring_left [IN_RING_SIZE];
 static s16 s_in_ring_right[IN_RING_SIZE];
 static volatile unsigned s_in_ring_wr = 0;
 static volatile unsigned s_in_ring_rd = 0;
+static unsigned s_in_rd_frac = 0;
 static s16 s_in_last_left  = 0;
 static s16 s_in_last_right = 0;
 
 volatile unsigned g_inUnderruns     = 0;
 volatile unsigned g_inResyncs       = 0;
-volatile unsigned g_inSkips         = 0;
-volatile unsigned g_inRepeats       = 0;
+volatile int      g_inLastRateStep  = 65536;
 volatile unsigned g_inLastTicks     = 0;
 
 static s16 s_otg_ring_left [IN_RING_SIZE];
@@ -107,35 +110,43 @@ void AudioInputUSB::update (void)
         DataMemBarrier ();
         unsigned wr_snap = s_in_ring_wr;
         unsigned rd = s_in_ring_rd;
+        unsigned rd_frac = s_in_rd_frac;
         int avail = (int)(wr_snap - rd);
 
         if (avail >= (int)(IN_RING_SIZE * 3 / 4) || avail < (int)AUDIO_BLOCK_SAMPLES)
         {
             rd = wr_snap - IN_TARGET_LAG;
+            rd_frac = 0;
             g_inResyncs++;
+            avail = IN_TARGET_LAG;
         }
-        else if (avail > IN_TARGET_LAG + IN_DEADBAND)
-        {
-            rd++;
-            g_inSkips++;
-        }
-        else if (avail < IN_TARGET_LAG - IN_DEADBAND)
-        {
-            rd--;
-            g_inRepeats++;
-        }
+
+        int dev = avail - (int)IN_TARGET_LAG;
+        int band_dev = 0;
+        if (dev > IN_DEADBAND)       band_dev = dev - IN_DEADBAND;
+        else if (dev < -IN_DEADBAND) band_dev = dev + IN_DEADBAND;
+        if (band_dev > IN_RATE_MAX_DEV)  band_dev = IN_RATE_MAX_DEV;
+        if (band_dev < -IN_RATE_MAX_DEV) band_dev = -IN_RATE_MAX_DEV;
+        int rate_step = IN_FRAC_ONE + (band_dev * IN_FRAC_ONE) / IN_RATE_GAIN;
+        g_inLastRateStep = rate_step;
 
         unsigned otg_rd = s_otg_ring_rd;
         for (unsigned i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
         {
             s32 l, r;
-            if ((int)(s_in_ring_wr - rd) > 0)
+            if ((int)(s_in_ring_wr - rd) > 1)
             {
-                l = s_in_ring_left [rd & (IN_RING_SIZE - 1)];
-                r = s_in_ring_right[rd & (IN_RING_SIZE - 1)];
+                s16 l0 = s_in_ring_left [rd       & (IN_RING_SIZE - 1)];
+                s16 r0 = s_in_ring_right[rd       & (IN_RING_SIZE - 1)];
+                s16 l1 = s_in_ring_left [(rd + 1) & (IN_RING_SIZE - 1)];
+                s16 r1 = s_in_ring_right[(rd + 1) & (IN_RING_SIZE - 1)];
+                l = l0 + (((s32)(l1 - l0) * (s32)rd_frac) >> 16);
+                r = r0 + (((s32)(r1 - r0) * (s32)rd_frac) >> 16);
                 s_in_last_left  = (s16)l;
                 s_in_last_right = (s16)r;
-                rd++;
+                rd_frac += rate_step;
+                rd      += rd_frac >> 16;
+                rd_frac &= 0xFFFF;
             }
             else
             {
@@ -152,7 +163,8 @@ void AudioInputUSB::update (void)
             new_left->data[i]  = l > 32767 ? 32767 : (l < -32768 ? -32768 : (s16)l);
             new_right->data[i] = r > 32767 ? 32767 : (r < -32768 ? -32768 : (s16)r);
         }
-        s_in_ring_rd = rd;
+        s_in_ring_rd  = rd;
+        s_in_rd_frac  = rd_frac;
         s_otg_ring_rd = otg_rd;
     }
 

@@ -164,12 +164,10 @@ void setup()
 extern volatile unsigned g_inLastTicks;
 extern volatile unsigned g_inUnderruns;
 extern volatile unsigned g_inResyncs;
-extern volatile unsigned g_inSkips;
-extern volatile unsigned g_inRepeats;
+extern volatile int      g_inLastRateStep;
 extern volatile unsigned g_outUnderruns;
 extern volatile unsigned g_otgResyncs;
-extern volatile unsigned g_otgSkips;
-extern volatile unsigned g_otgRepeats;
+extern volatile int      g_otgLastRateStep;
 extern unsigned AudioInputUSB_inAvail (void);
 extern unsigned AudioOutputUSB_outAvail (void);
 
@@ -204,10 +202,12 @@ void loop()
 		unsigned outAv = AudioOutputUSB_outAvail();
 		if (g_inUnderruns || g_outUnderruns || g_inResyncs || g_otgResyncs || s_watchdogForces)
 		{
+			int in_ppm = ((g_inLastRateStep - 65536) * 1000000) / 65536;
+			int otg_ppm = ((g_otgLastRateStep - 65536) * 1000000) / 65536;
 			CLogger::Get()->Write("usbaudio", LogNotice,
-				"in_av=%u out_av=%u in_ur=%u out_ur=%u in_rs=%u otg_rs=%u wd=%u in_sk=%u in_rp=%u otg_sk=%u otg_rp=%u",
+				"in_av=%u out_av=%u in_ur=%u out_ur=%u in_rs=%u otg_rs=%u wd=%u in_ppm=%d otg_ppm=%d",
 				inAv, outAv, g_inUnderruns, g_outUnderruns, g_inResyncs, g_otgResyncs,
-				s_watchdogForces, g_inSkips, g_inRepeats, g_otgSkips, g_otgRepeats);
+				s_watchdogForces, in_ppm, otg_ppm);
 		}
 	}
 #endif

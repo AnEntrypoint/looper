@@ -1,3 +1,10 @@
+## 2026-04-17b — USB audio sync: fractional Q16 read + linear interp (eliminate drift-correction crackle/smear)
+
+- feat: patches/input_usb.cpp — replace integer skip/repeat drift correction with Q16 fractional read position + 2-sample linear interpolation. Wider deadband (target=256, DB=128) + 16k rate gain means corrections spread smoothly across many blocks instead of producing 1-sample discontinuities. Rate clamped to ±256/16384 (~1.5%) to bound the worst case.
+- feat: patches/output_usb.cpp — same fractional/interp scheme on OTG tap (target=768, DB=192). Eliminates OTG-side micro-clicks on tonal content.
+- feat: audio.cpp — replace skip/repeat counters with rate-step deviation in PPM for smooth observability of drift tracking.
+- test: test.js — rewritten to 9 cases covering interp correctness (midpoint=150, zero-frac=lower), bit-exact steady-state output, ramp monotonicity, avail convergence under drift, and 5000-iter stability at ±0.1% producer drift.
+
 ## 2026-04-17 — USB audio sync stability: underrun-repeat, drift deadband, watchdog, OTG OUT parity fix
 
 - fix: patches/input_usb.cpp — repeat-last-sample on underrun (no more zero clicks), deadband skip/repeat drift correction (target=192, DB=64), catastrophic resync, IN_RING_SIZE 256→512, g_inLastTicks timestamp for watchdog, underrun/resync/skip/repeat counters

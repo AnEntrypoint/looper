@@ -16,10 +16,9 @@ static volatile unsigned s_ring_rd = 0;
 static s16 s_out_last_left  = 0;
 static s16 s_out_last_right = 0;
 
-volatile unsigned g_outUnderruns = 0;
-volatile unsigned g_otgResyncs   = 0;
-volatile unsigned g_otgSkips     = 0;
-volatile unsigned g_otgRepeats   = 0;
+volatile unsigned g_outUnderruns   = 0;
+volatile unsigned g_otgResyncs     = 0;
+volatile int      g_otgLastRateStep = 65536;
 
 unsigned AudioOutputUSB_outAvail (void) { return s_ring_wr - s_ring_rd; }
 
@@ -33,10 +32,16 @@ unsigned AudioOutputUSB_outAvail (void) { return s_ring_wr - s_ring_rd; }
 // trigger spurious corrections. At 300ppm=14 samples/sec drift:
 // ~14 corrections/sec, spaced ~69 calls (69ms) apart uniformly.
 #define OTG_LAG_TARGET    768   // headroom: 768/48000 = 16ms lag
-#define OTG_DEADBAND      48    // > block-write oscillation amplitude (~32)
+#define OTG_DEADBAND      192   // wider band — smoother drift response
+#define OTG_RATE_GAIN     16384
+#define OTG_RATE_MAX_DEV  256
+#define OTG_FRAC_ONE      65536
 
 static volatile unsigned s_otg_rd      = 0;
+static unsigned          s_otg_rd_frac = 0;
 static bool              s_otg_rd_init = false;
+static s16               s_otg_last_l  = 0;
+static s16               s_otg_last_r  = 0;
 
 #ifndef LOOPER_USB_AUDIO
 static volatile unsigned s_otg_sample_count = 0;
@@ -56,35 +61,42 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
     }
 
     unsigned rd = s_otg_rd;
+    unsigned rd_frac = s_otg_rd_frac;
     int avail = (int)(wr - rd);
 
-    // Hard resync on catastrophic overrun/underrun.
-    if (avail >= (int)(OUT_RING_SIZE - 64) || avail <= 0)
+    if (avail >= (int)(OUT_RING_SIZE - 64) || avail <= (int)nSamples)
     {
-        rd    = wr - OTG_LAG_TARGET;
-        avail = OTG_LAG_TARGET;
+        rd      = wr - OTG_LAG_TARGET;
+        rd_frac = 0;
+        avail   = OTG_LAG_TARGET;
         g_otgResyncs++;
     }
 
-    // Direct deadband correction: single skip or repeat per call.
-    if (avail > OTG_LAG_TARGET + OTG_DEADBAND)
-    {
-        rd++;
-        g_otgSkips++;
-    }
-    else if (avail < OTG_LAG_TARGET - OTG_DEADBAND)
-    {
-        rd--;
-        g_otgRepeats++;
-    }
+    int dev = avail - (int)OTG_LAG_TARGET;
+    int band_dev = 0;
+    if (dev > OTG_DEADBAND)       band_dev = dev - OTG_DEADBAND;
+    else if (dev < -OTG_DEADBAND) band_dev = dev + OTG_DEADBAND;
+    if (band_dev > OTG_RATE_MAX_DEV)  band_dev = OTG_RATE_MAX_DEV;
+    if (band_dev < -OTG_RATE_MAX_DEV) band_dev = -OTG_RATE_MAX_DEV;
+    int rate_step = OTG_FRAC_ONE + (band_dev * OTG_FRAC_ONE) / OTG_RATE_GAIN;
+    g_otgLastRateStep = rate_step;
 
     for (unsigned i = 0; i < nSamples; i++)
     {
-        pLeft[i]  = s_ring_left [rd & OUT_RING_MASK];
-        pRight[i] = s_ring_right[rd & OUT_RING_MASK];
-        rd++;
+        s16 l0 = s_ring_left [rd       & OUT_RING_MASK];
+        s16 r0 = s_ring_right[rd       & OUT_RING_MASK];
+        s16 l1 = s_ring_left [(rd + 1) & OUT_RING_MASK];
+        s16 r1 = s_ring_right[(rd + 1) & OUT_RING_MASK];
+        pLeft[i]  = (s16)(l0 + (((s32)(l1 - l0) * (s32)rd_frac) >> 16));
+        pRight[i] = (s16)(r0 + (((s32)(r1 - r0) * (s32)rd_frac) >> 16));
+        s_otg_last_l = pLeft[i];
+        s_otg_last_r = pRight[i];
+        rd_frac += rate_step;
+        rd      += rd_frac >> 16;
+        rd_frac &= 0xFFFF;
     }
-    s_otg_rd = rd;
+    s_otg_rd      = rd;
+    s_otg_rd_frac = rd_frac;
 
 #ifndef LOOPER_USB_AUDIO
     unsigned usb_wr_now = AudioInputUSB_inRingWr ();
