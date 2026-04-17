@@ -13,6 +13,15 @@ static s16 s_ring_left [OUT_RING_SIZE];
 static s16 s_ring_right[OUT_RING_SIZE];
 static volatile unsigned s_ring_wr = 0;
 static volatile unsigned s_ring_rd = 0;
+static s16 s_out_last_left  = 0;
+static s16 s_out_last_right = 0;
+
+volatile unsigned g_outUnderruns = 0;
+volatile unsigned g_otgResyncs   = 0;
+volatile unsigned g_otgSkips     = 0;
+volatile unsigned g_otgRepeats   = 0;
+
+unsigned AudioOutputUSB_outAvail (void) { return s_ring_wr - s_ring_rd; }
 
 // OTG tap: rate-adaptive ring reader.
 // Target lag = OTG_LAG_TARGET samples behind ring write pointer.
@@ -54,13 +63,20 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
     {
         rd    = wr - OTG_LAG_TARGET;
         avail = OTG_LAG_TARGET;
+        g_otgResyncs++;
     }
 
     // Direct deadband correction: single skip or repeat per call.
     if (avail > OTG_LAG_TARGET + OTG_DEADBAND)
-        rd++;   // skip one sample
+    {
+        rd++;
+        g_otgSkips++;
+    }
     else if (avail < OTG_LAG_TARGET - OTG_DEADBAND)
-        rd--;   // repeat one sample
+    {
+        rd--;
+        g_otgRepeats++;
+    }
 
     for (unsigned i = 0; i < nSamples; i++)
     {
@@ -100,19 +116,30 @@ void AudioOutputUSB::start (void)
 void AudioOutputUSB::outHandler (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
     DataMemBarrier ();
+    unsigned wr_snap = s_ring_wr;
     unsigned rd = s_ring_rd;
+    int avail = (int)(wr_snap - rd);
+
+    if (avail >= (int)(OUT_RING_SIZE - 64) || avail < (int)nSamples)
+    {
+        rd = wr_snap - nSamples * 2;
+    }
+
     for (unsigned i = 0; i < nSamples; i++)
     {
-        if (rd != s_ring_wr)
+        if ((int)(s_ring_wr - rd) > 0)
         {
             pLeft[i]  = s_ring_left [rd & (OUT_RING_SIZE - 1)];
             pRight[i] = s_ring_right[rd & (OUT_RING_SIZE - 1)];
+            s_out_last_left  = pLeft[i];
+            s_out_last_right = pRight[i];
             rd++;
         }
         else
         {
-            pLeft[i]  = 0;
-            pRight[i] = 0;
+            pLeft[i]  = s_out_last_left;
+            pRight[i] = s_out_last_right;
+            g_outUnderruns++;
         }
     }
     s_ring_rd = rd;

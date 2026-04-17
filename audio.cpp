@@ -160,6 +160,25 @@ void setup()
 	LOG("aLooper::audio.cpp setup() finished",0);
 }
 
+#if USE_USB_AUDIO
+extern volatile unsigned g_inLastTicks;
+extern volatile unsigned g_inUnderruns;
+extern volatile unsigned g_inResyncs;
+extern volatile unsigned g_inSkips;
+extern volatile unsigned g_inRepeats;
+extern volatile unsigned g_outUnderruns;
+extern volatile unsigned g_otgResyncs;
+extern volatile unsigned g_otgSkips;
+extern volatile unsigned g_otgRepeats;
+extern unsigned AudioInputUSB_inAvail (void);
+extern unsigned AudioOutputUSB_outAvail (void);
+
+static unsigned s_watchdogForces  = 0;
+static unsigned s_lastStatTicks   = 0;
+#define USB_WATCHDOG_TICKS  (CLOCKHZ / 200)
+#define USB_STAT_TICKS      CLOCKHZ
+#endif
+
 void loop()
 {
 	if (pTheLooper) {
@@ -170,5 +189,27 @@ void loop()
 			delete msg;
 		}
 	}
+#if USE_USB_AUDIO
+	unsigned now = CTimer::GetClockTicks();
+	if (g_inLastTicks && (now - g_inLastTicks) > USB_WATCHDOG_TICKS)
+	{
+		AudioSystem::startUpdate();
+		g_inLastTicks = now;
+		s_watchdogForces++;
+	}
+	if ((now - s_lastStatTicks) > USB_STAT_TICKS)
+	{
+		s_lastStatTicks = now;
+		unsigned inAv = AudioInputUSB_inAvail();
+		unsigned outAv = AudioOutputUSB_outAvail();
+		if (g_inUnderruns || g_outUnderruns || g_inResyncs || g_otgResyncs || s_watchdogForces)
+		{
+			CLogger::Get()->Write("usbaudio", LogNotice,
+				"in_av=%u out_av=%u in_ur=%u out_ur=%u in_rs=%u otg_rs=%u wd=%u in_sk=%u in_rp=%u otg_sk=%u otg_rp=%u",
+				inAv, outAv, g_inUnderruns, g_outUnderruns, g_inResyncs, g_otgResyncs,
+				s_watchdogForces, g_inSkips, g_inRepeats, g_otgSkips, g_otgRepeats);
+		}
+	}
+#endif
 	if (pTheAPC) pTheAPC->update();
 }

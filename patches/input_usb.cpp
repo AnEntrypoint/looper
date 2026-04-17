@@ -4,6 +4,7 @@
 #include "AudioSystem.h"
 #include <circle/logger.h>
 #include <circle/synchronize.h>
+#include <circle/timer.h>
 #include <circle/util.h>
 
 audio_block_t *AudioInputUSB::s_block_left  = 0;
@@ -11,11 +12,22 @@ audio_block_t *AudioInputUSB::s_block_right = 0;
 bool           AudioInputUSB::s_update_responsibility = false;
 volatile u32   AudioInputUSB::s_peakLevel = 0;
 
-#define IN_RING_SIZE 256
+#define IN_RING_SIZE 512
+#define IN_TARGET_LAG   192
+#define IN_DEADBAND     64
+
 static s16 s_in_ring_left [IN_RING_SIZE];
 static s16 s_in_ring_right[IN_RING_SIZE];
 static volatile unsigned s_in_ring_wr = 0;
 static volatile unsigned s_in_ring_rd = 0;
+static s16 s_in_last_left  = 0;
+static s16 s_in_last_right = 0;
+
+volatile unsigned g_inUnderruns     = 0;
+volatile unsigned g_inResyncs       = 0;
+volatile unsigned g_inSkips         = 0;
+volatile unsigned g_inRepeats       = 0;
+volatile unsigned g_inLastTicks     = 0;
 
 static s16 s_otg_ring_left [IN_RING_SIZE];
 static s16 s_otg_ring_right[IN_RING_SIZE];
@@ -23,6 +35,7 @@ static volatile unsigned s_otg_ring_wr = 0;
 static volatile unsigned s_otg_ring_rd = 0;
 
 volatile unsigned AudioInputUSB_inRingWr (void) { return s_in_ring_wr; }
+unsigned AudioInputUSB_inAvail (void) { return s_in_ring_wr - s_in_ring_rd; }
 
 void AudioInputUSB_injectOTG (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
 {
@@ -68,6 +81,7 @@ void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSa
     DataMemBarrier ();
     s_in_ring_wr = wr;
     if (peak > s_peakLevel) s_peakLevel = peak;
+    g_inLastTicks = CTimer::GetClockTicks ();
 
     unsigned cur_block = wr / AUDIO_BLOCK_SAMPLES;
     if (cur_block != prev_block && s_update_responsibility)
@@ -91,16 +105,43 @@ void AudioInputUSB::update (void)
     if (new_left && new_right)
     {
         DataMemBarrier ();
+        unsigned wr_snap = s_in_ring_wr;
         unsigned rd = s_in_ring_rd;
+        int avail = (int)(wr_snap - rd);
+
+        if (avail >= (int)(IN_RING_SIZE * 3 / 4) || avail < (int)AUDIO_BLOCK_SAMPLES)
+        {
+            rd = wr_snap - IN_TARGET_LAG;
+            g_inResyncs++;
+        }
+        else if (avail > IN_TARGET_LAG + IN_DEADBAND)
+        {
+            rd++;
+            g_inSkips++;
+        }
+        else if (avail < IN_TARGET_LAG - IN_DEADBAND)
+        {
+            rd--;
+            g_inRepeats++;
+        }
+
         unsigned otg_rd = s_otg_ring_rd;
         for (unsigned i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
         {
-            s32 l = 0, r = 0;
-            if (rd != s_in_ring_wr)
+            s32 l, r;
+            if ((int)(s_in_ring_wr - rd) > 0)
             {
                 l = s_in_ring_left [rd & (IN_RING_SIZE - 1)];
                 r = s_in_ring_right[rd & (IN_RING_SIZE - 1)];
+                s_in_last_left  = (s16)l;
+                s_in_last_right = (s16)r;
                 rd++;
+            }
+            else
+            {
+                l = s_in_last_left;
+                r = s_in_last_right;
+                g_inUnderruns++;
             }
             if (otg_rd != s_otg_ring_wr)
             {

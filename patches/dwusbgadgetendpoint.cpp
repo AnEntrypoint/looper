@@ -211,10 +211,9 @@ void CDWUSBGadgetEndpoint::BeginTransfer (TTransferMode Mode, void *pBuffer, siz
 		OutEPCtrl.Read ();
 		if (m_Type == TypeIsochronous)
 		{
-			CDWHCIRegister DevStatus (DWHCI_DEV_STATUS);
-			u32 nFrame = (DevStatus.Read () & DWHCI_DEV_STATUS_SOFFN__MASK)
-				     >> DWHCI_DEV_STATUS_SOFFN__SHIFT;
-			if ((nFrame + 1) & 1)
+			m_bIsoOddFrame = !m_bIsoOddFrame;
+			OutEPCtrl.And (~(DWHCI_DEV_EP_CTRL_SET_EVEN_FRAME | DWHCI_DEV_EP_CTRL_SET_ODD_FRAME));
+			if (m_bIsoOddFrame)
 				OutEPCtrl.Or (DWHCI_DEV_EP_CTRL_SET_ODD_FRAME);
 			else
 				OutEPCtrl.Or (DWHCI_DEV_EP_CTRL_SET_EVEN_FRAME);
