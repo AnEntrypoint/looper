@@ -134,10 +134,10 @@ struct TMIDIOutSlot
 	CUSBMIDIHostDevice *pOwner;
 	volatile boolean    bBusy;
 	unsigned            nErrors;
-	u8                  Buffer[USBMIDI_OUT_BUFSIZE] __attribute__((aligned(64)));
 };
 
 static TMIDIOutSlot s_MIDIOutSlots[USBMIDI_OUT_SLOTS] = {};
+DMA_BUFFER (u8, s_MIDIOutBuffers, USBMIDI_OUT_SLOTS * USBMIDI_OUT_BUFSIZE);
 volatile unsigned g_midiOutDropped = 0;
 volatile unsigned g_midiOutErrors  = 0;
 
@@ -196,10 +196,12 @@ boolean CUSBMIDIHostDevice::SendEventsHandler (const u8 *pData, unsigned nLength
 		return TRUE;
 	}
 
+	int nSlotIdx = pSlot - s_MIDIOutSlots;
+	u8 *pBuf = s_MIDIOutBuffers + nSlotIdx * USBMIDI_OUT_BUFSIZE;
 	pSlot->bBusy = TRUE;
-	memcpy (pSlot->Buffer, pData, nLength);
+	memcpy (pBuf, pData, nLength);
 
-	CUSBRequest *pURB = new CUSBRequest (pThis->m_pEndpointOut, pSlot->Buffer, nLength);
+	CUSBRequest *pURB = new CUSBRequest (pThis->m_pEndpointOut, pBuf, nLength);
 	if (!pURB)
 	{
 		pSlot->bBusy = FALSE;
