@@ -140,6 +140,8 @@ struct TMIDIOutSlot
 static TMIDIOutSlot s_MIDIOutSlots[USBMIDI_OUT_SLOTS] = {};
 volatile unsigned g_midiOutDropped = 0;
 volatile unsigned g_midiOutErrors  = 0;
+static volatile unsigned s_MIDIOutInFlight = 0;
+#define USBMIDI_OUT_MAX_INFLIGHT 1
 
 static TMIDIOutSlot *AllocSlot (CUSBMIDIHostDevice *pOwner)
 {
@@ -176,6 +178,7 @@ static void MIDIOutCompletion (CUSBRequest *pURB, void *pParam, void *pContext)
 	}
 	delete pURB;
 	pSlot->bBusy = FALSE;
+	if (s_MIDIOutInFlight > 0) s_MIDIOutInFlight--;
 }
 
 boolean CUSBMIDIHostDevice::SendEventsHandler (const u8 *pData, unsigned nLength, void *pParam)
@@ -193,6 +196,12 @@ boolean CUSBMIDIHostDevice::SendEventsHandler (const u8 *pData, unsigned nLength
 	{
 		g_midiOutDropped++;
 		return FALSE;
+	}
+
+	if (s_MIDIOutInFlight >= USBMIDI_OUT_MAX_INFLIGHT)
+	{
+		g_midiOutDropped++;
+		return TRUE;
 	}
 
 	TMIDIOutSlot *pSlot = AllocSlot (pThis);
@@ -213,8 +222,10 @@ boolean CUSBMIDIHostDevice::SendEventsHandler (const u8 *pData, unsigned nLength
 		return FALSE;
 	}
 	pURB->SetCompletionRoutine (MIDIOutCompletion, 0, pSlot);
+	s_MIDIOutInFlight++;
 	if (!pThis->GetHost ()->SubmitAsyncRequest (pURB))
 	{
+		if (s_MIDIOutInFlight > 0) s_MIDIOutInFlight--;
 		delete pURB;
 		pSlot->bBusy = FALSE;
 		g_midiOutDropped++;
