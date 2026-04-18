@@ -63,11 +63,9 @@ public:
   }
 
   void setFormant(float norm) {
-    // norm 0-1: maps to tonalityLimit 0-0.08
-    // At 48kHz: tonalityLimit 0.08 → freqTonalityLimit ~3.8kHz cutoff
-    // Below cutoff: pitch shifts. Above cutoff: passes through (preserves formants)
-    // 0 = no preservation (uniform shift), 1 = strong preservation
-    m_formant = norm * 0.03f;
+    // tonalityLimit: higher = more formant preservation (more spectrum stays put).
+    // 0.1 ≈ 4.8kHz cutoff at 48k — well into vowel formant territory (F1/F2).
+    m_formant = norm * 0.12f;
     m_stretch.setTransposeFactor(m_pitchScale, m_formant);
   }
 
