@@ -49,8 +49,9 @@ class apcEffectsProcessor {
     float maxFreq = (float)m_sampleRate * 0.45f;
     if (freq > maxFreq) freq = maxFreq;
     float g = tanf(3.14159265f * freq / (float)m_sampleRate);
-    // Q range 0.5 -> 25 (high resonance available for classic filter sweeps)
-    float Q = 0.5f + res * 24.5f;
+    // Log-curve res for pronounced sweep at top of knob: 0->0.5, 0.5->~0.85, 1.0->1.0
+    float resCurve = res * res;
+    float Q = 0.5f + resCurve * 29.5f;
     float k = 1.0f / Q;
     float a1 = 1.0f / (1.0f + g * (g + k));
     float a2 = g * a1;
@@ -61,7 +62,13 @@ class apcEffectsProcessor {
     float v2 = ic2eq + a2 * ic1eq + a3 * v3;
     ic1eq = 2.0f * v1 - ic1eq;
     ic2eq = 2.0f * v2 - ic2eq;
-    out = v2;
+    // Mix lowpass + bandpass (resonance peak) — formant-like emphasis at cutoff
+    float bpMix = res * 1.5f;
+    float y = v2 + v1 * bpMix;
+    // Soft-clip to keep resonance peak from blowing up on loud input
+    if (y > 1.2f) y = 1.2f - (y - 1.2f) * 0.3f;
+    else if (y < -1.2f) y = -1.2f + (-y - 1.2f) * 0.3f;
+    out = y;
   }
 
   // Ableton-style SVF highpass: cutoff 0-1 (normalized)
