@@ -34,6 +34,7 @@ void usbMidiProcess(bool bPlugAndPlayUpdated)
         s_registered[i] = true;
         CLogger::Get()->Write(log_name, LogNotice, "USB MIDI device connected: %s", (const char *)name);
         pDev->RegisterPacketHandler(packetHandler);
+        if (pTheAPC) pTheAPC->invalidateLedCache();
     }
 }
 

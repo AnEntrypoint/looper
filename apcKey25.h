@@ -43,6 +43,7 @@ public:
     void handleFilterCC(u8 cc, u8 data2);
     void handleEffectsCC(u8 cc, u8 data2);
     void update();
+    void invalidateLedCache();
 
     struct DebugState {
         bool transposeLocked;
@@ -77,6 +78,11 @@ private:
     unsigned long m_col1HoldStart[LOOPER_NUM_TRACKS];
     bool          m_col1Held[LOOPER_NUM_TRACKS];
     bool          m_col1EraseTriggered[LOOPER_NUM_TRACKS];
+
+    // Hold tracking for layer pads (cols 2-5): tap=stop/play toggle, hold=clear layer
+    unsigned long m_layerHoldStart[LOOPER_NUM_TRACKS][LOOPER_NUM_LAYERS];
+    bool          m_layerHeld[LOOPER_NUM_TRACKS][LOOPER_NUM_LAYERS];
+    bool          m_layerClearTriggered[LOOPER_NUM_TRACKS][LOOPER_NUM_LAYERS];
 
     unsigned long m_nowMs;
     unsigned long m_bootMs;

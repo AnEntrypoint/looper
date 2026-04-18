@@ -18,7 +18,9 @@ void apcKey25::_onPadPress(int row, int col)
     else if (col >= 2 && col <= 5)
     {
         int layer = col - 2;
-        _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_CLEAR_LAYER_BASE + row * LOOPER_NUM_LAYERS + layer);
+        m_layerHeld[row][layer]           = true;
+        m_layerClearTriggered[row][layer] = false;
+        m_layerHoldStart[row][layer]      = m_nowMs;
     }
     else if (col == 6)
     {
@@ -43,6 +45,20 @@ void apcKey25::_onPadRelease(int row, int col)
                 _queueCmd(ApcCmd::ERASE_TRACK, row);
         }
         m_col1Held[row] = false;
+    }
+    else if (col >= 2 && col <= 5 && row < LOOPER_NUM_TRACKS)
+    {
+        int layer = col - 2;
+        if (m_layerHeld[row][layer] && !m_layerClearTriggered[row][layer])
+        {
+            // Tap: toggle stop/play for this track
+            publicTrack *pTrack = pTheLooper->getPublicTrack(row);
+            if (pTrack->getNumRunningClips())
+                _queueCmd(ApcCmd::STOP_TRACK, row);
+            else
+                _queueCmd(ApcCmd::TRACK, row);
+        }
+        m_layerHeld[row][layer] = false;
     }
 }
 

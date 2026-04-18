@@ -98,14 +98,19 @@ apcKey25::EffectsState apcKey25::getEffectsState() const
     };
 }
 
-static u8 s_lastLedState[128] = {0};
-static bool s_lastLedInit = false;
+static u8 s_lastLedState[128];
+static bool s_ledCacheValid = false;
+
+void apcKey25::invalidateLedCache()
+{
+    s_ledCacheValid = false;
+}
 
 static void sendLedCoalesced(u8 note, u8 vel)
 {
-    if (!s_lastLedInit) {
+    if (!s_ledCacheValid) {
         for (int i = 0; i < 128; i++) s_lastLedState[i] = 0xFF;
-        s_lastLedInit = true;
+        s_ledCacheValid = true;
     }
     if (s_lastLedState[note] == vel) return;
     s_lastLedState[note] = vel;

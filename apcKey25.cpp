@@ -23,6 +23,12 @@ apcKey25::apcKey25()
         m_col1HoldStart[i]      = 0;
         m_col1Held[i]           = false;
         m_col1EraseTriggered[i] = false;
+        for (int j = 0; j < LOOPER_NUM_LAYERS; j++)
+        {
+            m_layerHoldStart[i][j]      = 0;
+            m_layerHeld[i][j]           = false;
+            m_layerClearTriggered[i][j] = false;
+        }
     }
 }
 
@@ -165,6 +171,18 @@ void apcKey25::update()
                 m_col1EraseTriggered[row] = true;
                 m_col1Held[row] = false;
                 pTheLooper->command(LOOP_COMMAND_ERASE_TRACK_BASE + row);
+            }
+        }
+        for (int layer = 0; layer < LOOPER_NUM_LAYERS; layer++)
+        {
+            if (m_layerHeld[row][layer] && !m_layerClearTriggered[row][layer])
+            {
+                if (m_nowMs - m_layerHoldStart[row][layer] >= APC_HOLD_ERASE_MS)
+                {
+                    m_layerClearTriggered[row][layer] = true;
+                    m_layerHeld[row][layer] = false;
+                    pTheLooper->command(LOOP_COMMAND_CLEAR_LAYER_BASE + row * LOOPER_NUM_LAYERS + layer);
+                }
             }
         }
     }
