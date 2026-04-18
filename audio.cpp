@@ -202,15 +202,7 @@ void loop()
 		s_lastStatTicks = now;
 		unsigned inAv = AudioInputUSB_inAvail();
 		unsigned outAv = AudioOutputUSB_outAvail();
-		if (g_inUnderruns || g_outUnderruns || g_inResyncs || g_otgResyncs || s_watchdogForces || g_midiOutDropped || g_midiOutErrors)
-		{
-			int in_ppm = ((g_inLastRateStep - 65536) * 1000000) / 65536;
-			int otg_ppm = ((g_otgLastRateStep - 65536) * 1000000) / 65536;
-			CLogger::Get()->Write("usbaudio", LogNotice,
-				"in_av=%u out_av=%u in_ur=%u out_ur=%u in_rs=%u otg_rs=%u wd=%u in_ppm=%d otg_ppm=%d midi_drop=%u midi_err=%u",
-				inAv, outAv, g_inUnderruns, g_outUnderruns, g_inResyncs, g_otgResyncs,
-				s_watchdogForces, in_ppm, otg_ppm, g_midiOutDropped, g_midiOutErrors);
-		}
+		(void)inAv; (void)outAv;
 	}
 #endif
 	if (pTheAPC) pTheAPC->update();

@@ -46,8 +46,8 @@ class apcEffectsProcessor {
     // Map cutoff 0-1 to frequency: 20Hz at 0, ~20kHz at 1 (exponential)
     float freq = 20.0f * powf(1000.0f, cutoff);
     float g = tanf(3.14159265f * freq / (float)m_sampleRate);
-    // Resonance: Q from 0.5 (no res) to 20 (max res)
-    float Q = 0.5f + res * 19.5f;
+    // Gentle Q range (no more ringing): 0.5 -> 3.0
+    float Q = 0.5f + res * 2.5f;
     float k = 1.0f / Q;
     float a1 = 1.0f / (1.0f + g * (g + k));
     float a2 = g * a1;
@@ -58,7 +58,9 @@ class apcEffectsProcessor {
     float v2 = ic2eq + a2 * ic1eq + a3 * v3;
     ic1eq = 2.0f * v1 - ic1eq;
     ic2eq = 2.0f * v2 - ic2eq;
-    out = v2; // lowpass output
+    // Low-shelf boost: lowpass + res-scaled lowpass drive for bass emphasis
+    float bassBoost = 1.0f + res * 1.5f;
+    out = v2 * bassBoost;
   }
 
   // Ableton-style SVF highpass: cutoff 0-1 (normalized)
@@ -153,8 +155,8 @@ public:
       float delayL = readDelayInterp(0, m_delayReadPos);
       float delayR = readDelayInterp(1, m_delayReadPos);
 
-      // Feedback coefficient: scales with delay amount for musical behavior
-      float feedback = m_delayAmount * 0.7f;
+      // Feedback coefficient: scales with delay amount. Max 1.05 allows self-oscillating runaway for feedback FX.
+      float feedback = m_delayAmount * 1.05f;
 
       // Write to delay buffer: input + feedback
       m_delayBuffer[0][m_delayWritePos] = l + delayL * feedback;
@@ -168,8 +170,8 @@ public:
       // Reverb: parallel comb filters with lowpass damping
       if (m_reverbAmount > 0.001f) {
         float revL = 0.0f, revR = 0.0f;
-        // Time controls reverb decay: maps to feedback 0.7-0.95
-        float revFeedback = 0.7f + m_time * 0.25f;
+        // Time controls reverb decay: maps to feedback 0.7-1.02 (runaway at max for freeze/infinity FX)
+        float revFeedback = 0.7f + m_time * 0.32f;
 
         for (int line = 0; line < REVERB_LINES; line++) {
           float lineOut = m_reverbLines[line][m_reverbPos[line]];
