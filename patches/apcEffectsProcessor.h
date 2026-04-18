@@ -44,10 +44,13 @@ class apcEffectsProcessor {
   void svfLowpass(float input, float &ic1eq, float &ic2eq,
                   float cutoff, float res, float &out) {
     // Map cutoff 0-1 to frequency: 20Hz at 0, ~20kHz at 1 (exponential)
+    // Clamp frequency below Nyquist/2 to keep tanf prewarp stable (prevents ring-mod IM artifacts)
     float freq = 20.0f * powf(1000.0f, cutoff);
+    float maxFreq = (float)m_sampleRate * 0.45f;
+    if (freq > maxFreq) freq = maxFreq;
     float g = tanf(3.14159265f * freq / (float)m_sampleRate);
-    // Gentle Q range (no more ringing): 0.5 -> 3.0
-    float Q = 0.5f + res * 2.5f;
+    // Q range 0.5 -> 25 (high resonance available for classic filter sweeps)
+    float Q = 0.5f + res * 24.5f;
     float k = 1.0f / Q;
     float a1 = 1.0f / (1.0f + g * (g + k));
     float a2 = g * a1;
@@ -58,9 +61,7 @@ class apcEffectsProcessor {
     float v2 = ic2eq + a2 * ic1eq + a3 * v3;
     ic1eq = 2.0f * v1 - ic1eq;
     ic2eq = 2.0f * v2 - ic2eq;
-    // Low-shelf boost: lowpass + res-scaled lowpass drive for bass emphasis
-    float bassBoost = 1.0f + res * 1.5f;
-    out = v2 * bassBoost;
+    out = v2;
   }
 
   // Ableton-style SVF highpass: cutoff 0-1 (normalized)
