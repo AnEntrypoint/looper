@@ -94,7 +94,7 @@ When patching Circle's `lib/usb/gadget/` to add `CUSBAudioGadget`:
 ## Live pitch shifting via MIDI
 
 - **`pLivePitchWrapper`** allocated unconditionally in `audio.cpp::setup()`. In `loopMachine::update()`, audio bypasses wrapper when `pTheAPC->getDebugState().liveEngaged == false` (zero latency).
-- **signalsmith-stretch**: blockSamples=192, intervalSamples=64. inputLatency+outputLatency = windowSize = 192 samples = 4ms at 48kHz. Tuned for minimum pitch-shift latency; accepts some timbre/quality loss (user prefers "bendy crazy sounds" over fidelity).
+- **signalsmith-stretch**: blockSamples=384, intervalSamples=96. Latency = windowSize = 384 samples = 8ms at 48kHz. Window sized to resolve guitar low-E fundamental (~82Hz, 585-sample period) for clean -12 octave down (guitar→bass). Interval=96 keeps formant shift responsive (2ms update rate). Pitch/formant smoothness driven by per-block `setTransposeFactor` calls (1.3ms), not window size.
 - **Pitch scale**: `_applyLivePitch()` calls `setPitchScale(pow(2, semitones / 12))`.
 - **CC1 (mod wheel)**: deadzone 59-69 disengages. Outside: ±6 semitones by `((data2 - 64) * 6 / 63)`.
 - **CC52**: linear 0-127 → ±6 semitones.

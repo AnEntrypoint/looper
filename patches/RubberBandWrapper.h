@@ -24,8 +24,8 @@ public:
     : m_pitchScale(1.0f), m_formant(0.0f), m_channels(channels),
       m_processedFrames(0), m_retrievedFrames(0)
   {
-    int blockSamples = 192;
-    int intervalSamples = 64;
+    int blockSamples = 384;
+    int intervalSamples = 96;
     m_stretch.configure((int)channels, blockSamples, intervalSamples);
     memset(m_feed_L, 0, sizeof(m_feed_L));
     memset(m_feed_R, 0, sizeof(m_feed_R));
