@@ -1,3 +1,8 @@
+## 2026-04-20b — Dual-engine pitch shift: time-domain octaver + signalsmith
+
+- feat: patches/RubberBandWrapper.h — when pitch scale is exact ±12 (0.5x or 2.0x ±1%), route through time-domain granular octaver (2-tap crossfading delay line, 512-sample Hann crossfade, ~3ms latency). All other ratios route to signalsmith. Clean guitar→bass with low latency; continuous bends + formant still use signalsmith.
+- tune: signalsmith window 384/96 → 192/64 (~4ms latency). Clean low-octave no longer depends on signalsmith FFT resolution.
+
 ## 2026-04-20 — UCA222 min-latency tuning
 
 - tune: patches/input_usb.cpp — IN_TARGET_LAG 256→128 (5.3ms→2.7ms), IN_DEADBAND 128→64. Halves UCA IN ring buffering. Resyncs may rise under clock drift; Q16 fractional read still absorbs steady-state drift inaudibly.
