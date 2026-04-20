@@ -22,7 +22,7 @@ Project notes for agents working on Lanmower's Looper. Supersedes CLAUDE.md — 
 - **USB audio runs at 48000Hz** (UCA222 native). `AUDIO_SAMPLE_RATE=44100` in AudioTypes.h is the internal system rate.
 - **AUDIO_BLOCK_SAMPLES=64** for low latency (~1.3ms at 48kHz).
 - **Ring buffers decouple USB from audio chain.** USB IN writes to a 512-sample SPSC ring (`patches/input_usb.cpp`). USB OUT to a 2048-sample SPSC ring (`patches/output_usb.cpp`).
-- **Drift correction: Q16 fractional read + linear interpolation.** Both IN and OTG-tap read positions are fractional (u32 int + u16 frac). Rate step = `FRAC_ONE + (band_dev * FRAC_ONE) / RATE_GAIN` with wide deadband (IN target=256, DB=128; OTG target=768, DB=192). Inaudible on tonal content. Catastrophic-deviation clause resets read position. Rate clamped to ±256/16384 (≈1.5%).
+- **Drift correction: Q16 fractional read + linear interpolation.** Both IN and OTG-tap read positions are fractional (u32 int + u16 frac). Rate step = `FRAC_ONE + (band_dev * FRAC_ONE) / RATE_GAIN` with wide deadband (IN target=128, DB=64 — tuned for min UCA222 latency; OTG target=768, DB=192). Inaudible on tonal content. Catastrophic-deviation clause resets read position. Rate clamped to ±256/16384 (≈1.5%).
 - **Underrun fallback repeats last sample**, not zero. Eliminates clicks on brief starvation.
 - **Watchdog**: if USB IN hasn't delivered in >5ms, `loop()` force-fires `AudioSystem::startUpdate()`.
 - **`startUpdate()` is driven by USB IN ring position**, not a timer.
@@ -94,7 +94,7 @@ When patching Circle's `lib/usb/gadget/` to add `CUSBAudioGadget`:
 ## Live pitch shifting via MIDI
 
 - **`pLivePitchWrapper`** allocated unconditionally in `audio.cpp::setup()`. In `loopMachine::update()`, audio bypasses wrapper when `pTheAPC->getDebugState().liveEngaged == false` (zero latency).
-- **signalsmith-stretch**: blockSamples=512, intervalSamples=192, ~5.3ms latency at 48kHz.
+- **signalsmith-stretch**: blockSamples=192, intervalSamples=64. inputLatency+outputLatency = windowSize = 192 samples = 4ms at 48kHz. Tuned for minimum pitch-shift latency; accepts some timbre/quality loss (user prefers "bendy crazy sounds" over fidelity).
 - **Pitch scale**: `_applyLivePitch()` calls `setPitchScale(pow(2, semitones / 12))`.
 - **CC1 (mod wheel)**: deadzone 59-69 disengages. Outside: ±6 semitones by `((data2 - 64) * 6 / 63)`.
 - **CC52**: linear 0-127 → ±6 semitones.

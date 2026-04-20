@@ -1,3 +1,9 @@
+## 2026-04-20 — UCA222 min-latency tuning
+
+- tune: patches/input_usb.cpp — IN_TARGET_LAG 256→128 (5.3ms→2.7ms), IN_DEADBAND 128→64. Halves UCA IN ring buffering. Resyncs may rise under clock drift; Q16 fractional read still absorbs steady-state drift inaudibly.
+- tune: patches/RubberBandWrapper.h — signalsmith-stretch configure 512/192 → 192/64. Pitch-shift latency ~10.6ms → ~4ms (inputLatency+outputLatency = windowSize). Smaller FFT trades timbre fidelity for latency; user prioritizes "bendy/weird" sound over clarity.
+- docs: AGENTS.md latency figures updated to match.
+
 ## 2026-04-17b — USB audio sync: fractional Q16 read + linear interp (eliminate drift-correction crackle/smear)
 
 - feat: patches/input_usb.cpp — replace integer skip/repeat drift correction with Q16 fractional read position + 2-sample linear interpolation. Wider deadband (target=256, DB=128) + 16k rate gain means corrections spread smoothly across many blocks instead of producing 1-sample discontinuities. Rate clamped to ±256/16384 (~1.5%) to bound the worst case.

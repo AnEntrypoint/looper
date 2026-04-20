@@ -13,8 +13,8 @@ bool           AudioInputUSB::s_update_responsibility = false;
 volatile u32   AudioInputUSB::s_peakLevel = 0;
 
 #define IN_RING_SIZE 512
-#define IN_TARGET_LAG   256
-#define IN_DEADBAND     128
+#define IN_TARGET_LAG   128
+#define IN_DEADBAND     64
 #define IN_RATE_GAIN    16384
 #define IN_RATE_MAX_DEV 256
 #define IN_FRAC_ONE     65536
