@@ -5,6 +5,7 @@
 #include "Looper.h"
 #include "patches/RubberBandWrapper.h"
 #include "usbMidi.h"
+#include <circle/logger.h>
 #include <circle/util.h>
 
 extern apcKey25 *pTheAPC;
@@ -70,6 +71,11 @@ void apcKey25::_applyLivePitch()
     float scale = m_liveEngaged ? powf(2.0f, m_livePitchSemitones / 12.0f) : 1.0f;
     pLivePitchWrapper->setPitchScale(scale);
     m_liveLedDirty = true;
+    CLogger::Get()->Write(log_name, LogNotice,
+        "livePitch engaged=%d semis=%.2f scale=%.4f",
+        m_liveEngaged ? 1 : 0,
+        m_livePitchSemitones,
+        scale);
 }
 
 apcKey25::DebugState apcKey25::getDebugState() const
