@@ -20,8 +20,12 @@ class RubberBandWrapper {
   float m_retr_L[MAX_BLOCK];
   float m_retr_R[MAX_BLOCK];
 
-  static constexpr size_t OCT_DELAY = 2048;
-  static constexpr size_t OCT_GRAIN = 512;
+  static constexpr size_t OCT_DELAY = 4096;
+  static constexpr size_t OCT_GRAIN_UP   = 256;   // 5.3ms — fast sweep, short grain fine
+  static constexpr size_t OCT_GRAIN_DOWN = 1536;  // 32ms grain — covers low-E period (1166 smp)
+                                                  // at rate=0.5 latency stays ~grainHalf/SR but
+                                                  // crossfade now spans a full source cycle so
+                                                  // low fundamentals reconstruct cleanly
   float m_oct_dl_L[OCT_DELAY];
   float m_oct_dl_R[OCT_DELAY];
   uint32_t m_oct_wr;
@@ -47,7 +51,8 @@ class RubberBandWrapper {
   void processOctave(const float *inL, const float *inR, float *outL, float *outR, size_t n) {
     float rate = octaveRate();
     uint32_t mask = OCT_DELAY - 1;
-    float grainHalf = (float)(OCT_GRAIN / 2);
+    size_t grain = (rate < 1.0f) ? OCT_GRAIN_DOWN : OCT_GRAIN_UP;
+    float grainHalf = (float)(grain / 2);
     for (size_t i = 0; i < n; i++) {
       m_oct_dl_L[m_oct_wr & mask] = inL[i];
       m_oct_dl_R[m_oct_wr & mask] = inR[i];
@@ -66,7 +71,7 @@ class RubberBandWrapper {
 
       m_oct_rd_a += rate;
       m_oct_rd_b += rate;
-      m_oct_fade += 1.0f / (float)OCT_GRAIN;
+      m_oct_fade += 1.0f / (float)grain;
 
       float gap_a = (float)m_oct_wr - m_oct_rd_a;
       float gap_b = (float)m_oct_wr - m_oct_rd_b;
@@ -86,8 +91,8 @@ public:
   RubberBandWrapper(size_t sampleRate, size_t channels)
     : m_pitchScale(1.0f), m_formant(0.0f), m_channels(channels),
       m_processedFrames(0), m_retrievedFrames(0),
-      m_oct_wr(OCT_DELAY), m_oct_rd_a(OCT_DELAY - 256.0f),
-      m_oct_rd_b(OCT_DELAY - 256.0f - 128.0f), m_oct_fade(0.0f)
+      m_oct_wr(OCT_DELAY), m_oct_rd_a(OCT_DELAY - (float)(OCT_GRAIN_DOWN / 2)),
+      m_oct_rd_b(OCT_DELAY - (float)(OCT_GRAIN_DOWN / 2) - (float)(OCT_GRAIN_DOWN / 4)), m_oct_fade(0.0f)
   {
     int blockSamples = 192;
     int intervalSamples = 64;
@@ -111,7 +116,12 @@ public:
   }
 
   size_t retrieveAudio(int16_t *left, int16_t *right, size_t samples) {
-    if (octaveActive()) {
+    // Zero-latency passthrough when pitch within ±0.1% of unity (mod-wheel deadzone).
+    // Skips signalsmith STFT (~4ms) entirely.
+    if (m_pitchScale > 0.999f && m_pitchScale < 1.001f) {
+      memcpy(m_retr_L, m_feed_L, samples * sizeof(float));
+      memcpy(m_retr_R, m_feed_R, samples * sizeof(float));
+    } else if (octaveActive()) {
       processOctave(m_feed_L, m_feed_R, m_retr_L, m_retr_R, samples);
     } else {
       const float *in[2]  = { m_feed_L, m_feed_R };
