@@ -60,7 +60,7 @@ Project notes for agents working on Lanmower's Looper. Supersedes CLAUDE.md — 
 ## Logging
 
 - `LOOPER_LOG(fmt, ...)` macro is **currently a no-op** (`Looper.h` #else branch). Both queued-log and immediate-CLogger paths disabled. The `logString_t` queue, `getNextLogString()`, drain loops in `audio.cpp::loop()` and `uiWindow::updateFrame()` exist but dormant. Do not re-enable the queued path without first making `LogUpdate()` ISR-safe (currently `new logString_t` and `new CString()` are not — will corrupt the heap under audio-ISR log load).
-- **Observability now**: `audio.cpp::loop()` emits 1Hz `CLogger::Write` (UDP syslog) of ring stats — only when anomalies exist. Fields: `in_av`, `out_av`, `in_ur`, `out_ur`, `in_rs`, `otg_rs`, `wd` (watchdog fires), `in_ppm`/`otg_ppm` (rate deviation PPM), `midi_drop`, `midi_err`.
+- **Observability now**: ISR-safe lock-free event ring (`patches/audioTelemetry.{h,cpp}`, 256-slot SPSC). ISR sites push `(code, ticks, arg)` triplets — no allocs, no UDP. `audio.cpp::loop()` (main thread) drains up to 32 events per call and emits one `CLogger::Write` per event; producers also bump counters that a 0.5Hz summary line reports as deltas (only when nonzero). Event codes: `IN_UR`, `IN_RS`, `OUT_UR`, `OTG_RS`, `WD`, `LAG`. Drops counted in `g_telemDropped`.
 
 ## WiFi and Ableton Link
 

@@ -2,6 +2,7 @@
 #include "output_usb.h"
 #include "usbaudiodevice.h"
 #include "AudioSystem.h"
+#include "audioTelemetry.h"
 #include <circle/logger.h>
 #include <circle/synchronize.h>
 #include <circle/timer.h>
@@ -13,8 +14,8 @@ bool           AudioInputUSB::s_update_responsibility = false;
 volatile u32   AudioInputUSB::s_peakLevel = 0;
 
 #define IN_RING_SIZE 512
-#define IN_TARGET_LAG   128
-#define IN_DEADBAND     64
+#define IN_TARGET_LAG   96
+#define IN_DEADBAND     48
 #define IN_RATE_GAIN    16384
 #define IN_RATE_MAX_DEV 256
 #define IN_FRAC_ONE     65536
@@ -115,6 +116,7 @@ void AudioInputUSB::update (void)
 
         if (avail >= (int)(IN_RING_SIZE * 3 / 4) || avail < (int)AUDIO_BLOCK_SAMPLES)
         {
+            audioTelemetryPush (TELEM_IN_RESYNC, (u32)avail);
             rd = wr_snap - IN_TARGET_LAG;
             rd_frac = 0;
             g_inResyncs++;
@@ -153,6 +155,7 @@ void AudioInputUSB::update (void)
                 l = s_in_last_left;
                 r = s_in_last_right;
                 g_inUnderruns++;
+                audioTelemetryPush (TELEM_IN_UNDERRUN, (u32)(s_in_ring_wr - rd));
             }
             if (otg_rd != s_otg_ring_wr)
             {

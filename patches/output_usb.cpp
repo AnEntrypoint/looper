@@ -1,13 +1,14 @@
 #include "output_usb.h"
 #include "usbaudiodevice.h"
 #include "AudioSystem.h"
+#include "audioTelemetry.h"
 #include <circle/synchronize.h>
 #include <circle/util.h>
 
 audio_block_t *AudioOutputUSB::s_block_left  = 0;
 audio_block_t *AudioOutputUSB::s_block_right = 0;
 
-#define OUT_RING_SIZE     2048
+#define OUT_RING_SIZE     1024
 #define OUT_RING_MASK     (OUT_RING_SIZE - 1)
 static s16 s_ring_left [OUT_RING_SIZE];
 static s16 s_ring_right[OUT_RING_SIZE];
@@ -31,8 +32,8 @@ unsigned AudioOutputUSB_outAvail (void) { return s_ring_wr - s_ring_rd; }
 // Deadband=48 > block-write oscillation (~32), so oscillation doesn't
 // trigger spurious corrections. At 300ppm=14 samples/sec drift:
 // ~14 corrections/sec, spaced ~69 calls (69ms) apart uniformly.
-#define OTG_LAG_TARGET    768   // headroom: 768/48000 = 16ms lag
-#define OTG_DEADBAND      192   // wider band — smoother drift response
+#define OTG_LAG_TARGET    384   // headroom: 384/48000 = 8ms lag (halved with ring shrink)
+#define OTG_DEADBAND      96    // proportionally narrower for tighter ring
 #define OTG_RATE_GAIN     16384
 #define OTG_RATE_MAX_DEV  256
 #define OTG_FRAC_ONE      65536
@@ -66,6 +67,7 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 
     if (avail >= (int)(OUT_RING_SIZE - 64) || avail <= (int)nSamples)
     {
+        audioTelemetryPush (TELEM_OTG_RESYNC, (u32)avail);
         rd      = wr - OTG_LAG_TARGET;
         rd_frac = 0;
         avail   = OTG_LAG_TARGET;
@@ -152,6 +154,7 @@ void AudioOutputUSB::outHandler (s16 *pLeft, s16 *pRight, unsigned nSamples)
             pLeft[i]  = s_out_last_left;
             pRight[i] = s_out_last_right;
             g_outUnderruns++;
+            audioTelemetryPush (TELEM_OUT_UNDERRUN, 0);
         }
     }
     s_ring_rd = rd;

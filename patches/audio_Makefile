@@ -9,6 +9,7 @@ EXTRAINCLUDE += -I $(PRH_HOME)
 
 OBJS = \
 	analyze_peak.o \
+	audioTelemetry.o \
 	analyze_rms.o \
 	arm_q15_to_q31.o \
 	arm_shift_q31.o \

@@ -14,6 +14,7 @@
 #include <circle/timer.h>
 #include "patches/RubberBandWrapper.h"
 #include "patches/apcEffectsProcessor.h"
+#include "patches/audioTelemetry.h"
 
 #define log_name "audio"
 
@@ -193,16 +194,56 @@ void loop()
 	unsigned now = CTimer::GetClockTicks();
 	if (g_inLastTicks && (now - g_inLastTicks) > USB_WATCHDOG_TICKS)
 	{
+		audioTelemetryPush(TELEM_WATCHDOG, now - g_inLastTicks);
 		AudioSystem::startUpdate();
 		g_inLastTicks = now;
 		s_watchdogForces++;
 	}
-	if ((now - s_lastStatTicks) > USB_STAT_TICKS)
+
+	// Drain ISR-safe event ring on main thread. Events are timestamped at
+	// push time; logging happens here where CLogger UDP send is safe.
+	AudioTelemEvent ev;
+	unsigned drained = 0;
+	while (drained < 32 && audioTelemetryPop(&ev))
+	{
+		const char *name = "?";
+		switch (ev.code) {
+			case TELEM_IN_UNDERRUN:   name = "IN_UR";   break;
+			case TELEM_IN_RESYNC:     name = "IN_RS";   break;
+			case TELEM_OUT_UNDERRUN:  name = "OUT_UR";  break;
+			case TELEM_OTG_RESYNC:    name = "OTG_RS";  break;
+			case TELEM_WATCHDOG:      name = "WD";      break;
+			case TELEM_LAG_SAMPLE:    name = "LAG";     break;
+			default: break;
+		}
+		CLogger::Get()->Write(log_name, LogNotice, "telem t=%u %s arg=%u",
+			ev.ticks, name, ev.arg);
+		drained++;
+	}
+
+	if ((now - s_lastStatTicks) > USB_STAT_TICKS * 2)   // 2 Hz summary
 	{
 		s_lastStatTicks = now;
-		unsigned inAv = AudioInputUSB_inAvail();
+		static unsigned prev_inUR=0, prev_outUR=0, prev_inRS=0, prev_otgRS=0;
+		static unsigned prev_wd=0, prev_drop=0;
+		unsigned inAv  = AudioInputUSB_inAvail();
 		unsigned outAv = AudioOutputUSB_outAvail();
-		(void)inAv; (void)outAv;
+		unsigned d_inUR  = g_inUnderruns - prev_inUR;
+		unsigned d_outUR = g_outUnderruns - prev_outUR;
+		unsigned d_inRS  = g_inResyncs - prev_inRS;
+		unsigned d_otgRS = g_otgResyncs - prev_otgRS;
+		unsigned d_wd    = s_watchdogForces - prev_wd;
+		unsigned d_drop  = g_telemDropped - prev_drop;
+		bool any = d_inUR | d_outUR | d_inRS | d_otgRS | d_wd | d_drop;
+		if (any)
+		{
+			CLogger::Get()->Write(log_name, LogNotice,
+				"stat in_av=%u out_av=%u in_ur+%u out_ur+%u in_rs+%u otg_rs+%u wd+%u drop+%u",
+				inAv, outAv, d_inUR, d_outUR, d_inRS, d_otgRS, d_wd, d_drop);
+		}
+		prev_inUR=g_inUnderruns; prev_outUR=g_outUnderruns;
+		prev_inRS=g_inResyncs;   prev_otgRS=g_otgResyncs;
+		prev_wd=s_watchdogForces; prev_drop=g_telemDropped;
 	}
 #endif
 	if (pTheAPC) pTheAPC->update();
