@@ -20,12 +20,8 @@ class RubberBandWrapper {
   float m_retr_L[MAX_BLOCK];
   float m_retr_R[MAX_BLOCK];
 
-  static constexpr size_t OCT_DELAY = 4096;
-  static constexpr size_t OCT_GRAIN_UP   = 256;   // 5.3ms — fast sweep, short grain fine
-  static constexpr size_t OCT_GRAIN_DOWN = 1536;  // 32ms grain — covers low-E period (1166 smp)
-                                                  // at rate=0.5 latency stays ~grainHalf/SR but
-                                                  // crossfade now spans a full source cycle so
-                                                  // low fundamentals reconstruct cleanly
+  static constexpr size_t OCT_DELAY = 2048;
+  static constexpr size_t OCT_GRAIN = 256;  // 5.3ms grain, up-shift only (rate=2.0)
   float m_oct_dl_L[OCT_DELAY];
   float m_oct_dl_R[OCT_DELAY];
   uint32_t m_oct_wr;
@@ -41,9 +37,12 @@ class RubberBandWrapper {
     return ring[i0] + (ring[i1] - ring[i0]) * frac;
   }
 
+  // Granular octaver only used for UP-shift (rate=2.0). Down-shift would need
+  // PSOLA to avoid inter-head beat artifacts; signalsmith at 192/64 (~3.3ms)
+  // is lower latency than the 16ms grain-half this would cost anyway.
   inline bool octaveActive() const {
     float s = m_pitchScale;
-    return (s > 0.495f && s < 0.505f) || (s > 1.98f && s < 2.02f);
+    return (s > 1.98f && s < 2.02f);
   }
 
   inline float octaveRate() const { return m_pitchScale; }
@@ -51,8 +50,7 @@ class RubberBandWrapper {
   void processOctave(const float *inL, const float *inR, float *outL, float *outR, size_t n) {
     float rate = octaveRate();
     uint32_t mask = OCT_DELAY - 1;
-    size_t grain = (rate < 1.0f) ? OCT_GRAIN_DOWN : OCT_GRAIN_UP;
-    float grainHalf = (float)(grain / 2);
+    float grainHalf = (float)(OCT_GRAIN / 2);
     for (size_t i = 0; i < n; i++) {
       m_oct_dl_L[m_oct_wr & mask] = inL[i];
       m_oct_dl_R[m_oct_wr & mask] = inR[i];
@@ -71,7 +69,7 @@ class RubberBandWrapper {
 
       m_oct_rd_a += rate;
       m_oct_rd_b += rate;
-      m_oct_fade += 1.0f / (float)grain;
+      m_oct_fade += 1.0f / (float)OCT_GRAIN;
 
       float gap_a = (float)m_oct_wr - m_oct_rd_a;
       float gap_b = (float)m_oct_wr - m_oct_rd_b;
@@ -91,8 +89,8 @@ public:
   RubberBandWrapper(size_t sampleRate, size_t channels)
     : m_pitchScale(1.0f), m_formant(0.0f), m_channels(channels),
       m_processedFrames(0), m_retrievedFrames(0),
-      m_oct_wr(OCT_DELAY), m_oct_rd_a(OCT_DELAY - (float)(OCT_GRAIN_DOWN / 2)),
-      m_oct_rd_b(OCT_DELAY - (float)(OCT_GRAIN_DOWN / 2) - (float)(OCT_GRAIN_DOWN / 4)), m_oct_fade(0.0f)
+      m_oct_wr(OCT_DELAY), m_oct_rd_a(OCT_DELAY - (float)(OCT_GRAIN / 2)),
+      m_oct_rd_b(OCT_DELAY - (float)(OCT_GRAIN / 2) - (float)(OCT_GRAIN / 4)), m_oct_fade(0.0f)
   {
     int blockSamples = 192;
     int intervalSamples = 64;
