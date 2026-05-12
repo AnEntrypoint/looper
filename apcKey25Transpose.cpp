@@ -4,6 +4,8 @@
 #include "input_usb.h"
 #include "Looper.h"
 #include "patches/RubberBandWrapper.h"
+#include "patches/paramSnapshot.h"
+#include "abletonLink.h"
 #include "usbMidi.h"
 #include <circle/logger.h>
 #include <circle/util.h>
@@ -66,16 +68,19 @@ u8 apcKey25::_muteLedColor(int track)
 
 void apcKey25::_applyLivePitch()
 {
-    extern RubberBandWrapper *pLivePitchWrapper;
-    if (!pLivePitchWrapper) return;
-    float scale = m_liveEngaged ? powf(2.0f, m_livePitchSemitones / 12.0f) : 1.0f;
-    pLivePitchWrapper->setPitchScale(scale);
+    // Publish to snapshot; Core 1 DSP applies pitch via setPitchScale to keep
+    // signalsmith state single-writer. Cross-core safe.
+    LiveParams p = paramSnapshotLoad();
+    p.liveEngaged        = m_liveEngaged;
+    p.livePitchSemitones = m_livePitchSemitones;
+    p.linkSynced         = linkIsSynced();
+    p.linkBPM            = (float)linkGetBPM();
+    paramSnapshotPublish(p);
     m_liveLedDirty = true;
     CLogger::Get()->Write(log_name, LogNotice,
-        "livePitch engaged=%d semis=%.2f scale=%.4f",
+        "livePitch engaged=%d semis=%.2f",
         m_liveEngaged ? 1 : 0,
-        m_livePitchSemitones,
-        scale);
+        m_livePitchSemitones);
 }
 
 apcKey25::DebugState apcKey25::getDebugState() const

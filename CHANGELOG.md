@@ -1,3 +1,16 @@
+## 2026-05-12 — 4-core re-architecture: hard-RT dispatch / DSP worker / control plane / reserved idle
+
+- feat: patches/coreDispatch.{h,cpp} — 64-slot SPSC ring + DSB+SEV/WFE primitive. Producer-side allocation-free; ISR-safe. New g_dispatchDropped counter for backpressure observability.
+- feat: patches/paramSnapshot.{h,cpp} — double-buffered atomic-swap publish for control→DSP shared state (liveEngaged, livePitchSemitones, formantNorm, linkSynced, linkBPM, masterLoopBlocks). Single writer (Core 2), multi-reader (Core 1 audio path), no torn reads.
+- refactor: patches/multicore.cpp — Core 0 = hard-RT dispatch (USB ISRs + reboot poll), Core 1 = DSP worker (WFE-blocked drain → AudioSystem::doUpdate), Core 2 = control plane (USB plug-and-play, Net.Process, usbMidiProcess, audio.cpp::loop, linkProcess, WiFi DHCP, scheduler yield, APC update), Core 3 = reserved idle (WFE forever — claimable later). All cores 1-3 were while(1); spinning before this commit.
+- refactor: patches/AudioSystem.cpp::startUpdate — replaced inline doUpdate (which ran the entire signalsmith STFT in USB ISR context on Core 0) with coreDispatchPush(DISPATCH_AUDIO). DSP now runs on Core 1 outside any ISR.
+- refactor: patches/kernel.cpp::Run — Core 0 main loop trimmed to socket poll + WFE; control-plane calls (USBHCI/AudioGadget plug-poll, Net.Process, usbMidiProcess, loop, wlanDhcp, linkProcess, Scheduler.Yield) hoisted into patches/kernel_run.cpp::coreControlPlaneTick run on Core 2.
+- refactor: loopMachine.cpp::update — pTheAPC->getDebugState() + linkIsSynced/linkGetBPM reads inside DSP path replaced with paramSnapshotLoad(). pLivePitchWrapper->setPitchScale moved to Core 1 to keep signalsmith state single-writer.
+- refactor: apcKey25.cpp + apcKey25Transpose.cpp — _applyLivePitch and update() now publish to paramSnapshot instead of calling setPitchScale directly. Cross-core safe.
+- handshake: g_coreAudioReady flag + WFE/SEV — Cores 1+2 spin in WFE during Core 0's hardware init, released after setup() returns.
+- invariants preserved: LOOPER_LOG queued path stays no-op; DWC2 OTG iso software toggle untouched; UCA222 IN/OTG ring deadbands untouched; phase-lock invariant untouched; per-clip RubberBandWrapper memory layout untouched; CUSBCDCGadget link order untouched.
+- IPC discipline: SPSC lock-free rings only, no mutexes in audio path, atomic snapshot for shared state. SEV from producers, WFE on consumers — no busy-spin idle.
+
 ## 2026-04-20b — Dual-engine pitch shift: time-domain octaver + signalsmith
 
 - feat: patches/RubberBandWrapper.h — when pitch scale is exact ±12 (0.5x or 2.0x ±1%), route through time-domain granular octaver (2-tap crossfading delay line, 512-sample Hann crossfade, ~3ms latency). All other ratios route to signalsmith. Clean guitar→bass with low latency; continuous bends + formant still use signalsmith.

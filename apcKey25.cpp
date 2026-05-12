@@ -3,6 +3,8 @@
 #include "apcKey25.h"
 #include "input_usb.h"
 #include "usbMidi.h"
+#include "abletonLink.h"
+#include "patches/paramSnapshot.h"
 #include <circle/logger.h>
 #include <circle/timer.h>
 
@@ -127,6 +129,19 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
 void apcKey25::update()
 {
     if (!pTheLooper) return;
+
+    // Re-publish snapshot every tick so Core 1 DSP sees fresh link tempo
+    // and any externally-mutated state without depending on MIDI handlers.
+    {
+        LiveParams p;
+        p.liveEngaged        = m_liveEngaged;
+        p.livePitchSemitones = m_livePitchSemitones;
+        p.formantNorm        = m_formant;
+        p.linkSynced         = linkIsSynced();
+        p.linkBPM            = (float)linkGetBPM();
+        p.masterLoopBlocks   = pTheLooper->m_masterLoopBlocks;
+        paramSnapshotPublish(p);
+    }
 
     if (m_liveLedDirty)
     {

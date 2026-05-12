@@ -51,6 +51,7 @@ public:
 private:
 	static CCoreTask *s_pThis;
 };
+void coreSignalAudioReady(void);
 #endif
 
 class CKernel
@@ -64,6 +65,8 @@ public:
 
 #ifdef ARM_ALLOW_MULTI_CORE
 	friend class CCoreTask;
+	friend void coreControlPlaneTick(void);
+	friend void coreControlPlaneSetKernel(class CKernel *);
 #endif
 private:
 	TShutdownMode pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *pMidi);

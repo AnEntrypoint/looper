@@ -175,15 +175,33 @@ TShutdownMode CKernel::Run(void)
 
 	setup();
 
-	m_Logger.Write(log_name, LogNotice, "entering main loop");
-
-	bool bPlugAndPlayUpdated = FALSE;
-	bool bDhcpDone = !s_wlanJoined || s_wlanIsAP;
 	if (s_wlanJoined && !s_wlanIsAP) {
 		u8 mac[6];
 		m_WLAN.GetMACAddress()->CopyTo(mac);
 		wlanDhcpSendDiscover(&m_WLAN, mac);
 	}
+
+#ifdef ARM_ALLOW_MULTI_CORE
+	// Hand off control plane to Core 2. Only socket polling + reboot return
+	// stay on Core 0; USB completion ISRs target Core 0 via GIC.
+	extern void coreControlPlaneSetKernel(CKernel *pKernel);
+	coreControlPlaneSetKernel(this);
+
+	m_Logger.Write(log_name, LogNotice, "audio ready, releasing cores 1+2");
+	coreSignalAudioReady();
+	m_Logger.Write(log_name, LogNotice, "core 0 idle dispatch loop");
+
+	while (TRUE)
+	{
+		TShutdownMode mode = pollSockets(pRebootSocket, pDebugSocket, pMidiSocket);
+		if (mode != ShutdownNone) return mode;
+		asm volatile ("wfe" ::: "memory");
+	}
+#else
+	m_Logger.Write(log_name, LogNotice, "entering single-core main loop");
+
+	bool bPlugAndPlayUpdated = FALSE;
+	bool bDhcpDone = !s_wlanJoined || s_wlanIsAP;
 	while (TRUE)
 	{
 		bPlugAndPlayUpdated = m_USBHCI.UpdatePlugAndPlay();
@@ -199,6 +217,7 @@ TShutdownMode CKernel::Run(void)
 		TShutdownMode mode = pollSockets(pRebootSocket, pDebugSocket, pMidiSocket);
 		if (mode != ShutdownNone) return mode;
 	}
+#endif
 
 	return ShutdownHalt;
 }

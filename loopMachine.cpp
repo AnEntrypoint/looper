@@ -4,6 +4,7 @@
 #include "abletonLink.h"
 #include "patches/RubberBandWrapper.h"
 #include "patches/apcEffectsProcessor.h"
+#include "patches/paramSnapshot.h"
 #include "apcKey25.h"
 extern RubberBandWrapper *pLivePitchWrapper;
 extern apcEffectsProcessor *pEffectsProcessor;
@@ -527,10 +528,20 @@ void loopMachine::update(void)
 
 	}
 
-	if (pLivePitchWrapper && pTheAPC)
+	LiveParams lp = paramSnapshotLoad();
+	if (pLivePitchWrapper)
 	{
-		auto dbg = pTheAPC->getDebugState();
-		if (dbg.liveEngaged)
+		// Apply pitch on Core 1 only — keeps signalsmith state single-writer.
+		static float s_lastSemis = 0.0f;
+		static bool  s_lastEngaged = false;
+		float wantSemis = lp.liveEngaged ? lp.livePitchSemitones : 0.0f;
+		if (wantSemis != s_lastSemis || lp.liveEngaged != s_lastEngaged) {
+			float scale = lp.liveEngaged ? powf(2.0f, wantSemis / 12.0f) : 1.0f;
+			pLivePitchWrapper->setPitchScale(scale);
+			s_lastSemis   = wantSemis;
+			s_lastEngaged = lp.liveEngaged;
+		}
+		if (lp.liveEngaged)
 		{
 			s16 tmp_L[AUDIO_BLOCK_SAMPLES], tmp_R[AUDIO_BLOCK_SAMPLES];
 			for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
@@ -569,12 +580,12 @@ void loopMachine::update(void)
 		}
 	}
 
-	if (linkIsSynced())
+	if (lp.linkSynced)
 	{
-		double bpm = linkGetBPM();
+		float bpm = lp.linkBPM;
 		if (bpm > 0)
 		{
-			u32 raw = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0 * 16.0) / bpm + 0.5);
+			u32 raw = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0f * 16.0f) / bpm + 0.5f);
 			u32 blocks = ((raw + 4) / 8) * 8;
 			if (blocks != m_masterLoopBlocks)
 			{

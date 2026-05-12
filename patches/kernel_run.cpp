@@ -1,5 +1,6 @@
 #include "kernel.h"
 #include "abletonLink.h"
+#include "wlanDHCP.h"
 #include <circle/util.h>
 #include <circle/string.h>
 #include <circle/devicenameservice.h>
@@ -7,9 +8,46 @@
 #include <circle/net/socket.h>
 
 extern void usbMidiInjectMidi(u8 status, u8 data1, u8 data2);
+extern void usbMidiProcess(bool bPlugAndPlayUpdated);
+extern void loop(void);
 
 static const char kCDCDev[] = "utty1";
 static const char kLog[]    = "kernel";
+
+#ifdef ARM_ALLOW_MULTI_CORE
+
+// Core 2 control plane. Owns USB plug-and-play poll, network stack,
+// usbMidi update, audio.cpp::loop (telemetry+watchdog+APC update),
+// Ableton Link RX/TX, WiFi DHCP, scheduler yield. Reboot socket poll
+// stays on Core 0 (CKernel::Run) so the shutdown return path still
+// works without IPC.
+
+static CKernel *s_pKernel = nullptr;
+static bool     s_dhcpDone = false;
+static bool     s_dhcpDiscoverSent = false;
+
+void coreControlPlaneSetKernel(CKernel *pKernel)
+{
+	s_pKernel = pKernel;
+}
+
+void coreControlPlaneTick(void)
+{
+	CKernel *k = s_pKernel;
+	if (!k) return;
+
+	bool bPnP = k->m_USBHCI.UpdatePlugAndPlay();
+	k->m_AudioGadget.UpdatePlugAndPlay();
+	k->m_Net.Process();
+	usbMidiProcess(bPnP);
+	loop();
+	if (!s_dhcpDone) s_dhcpDone = wlanDhcpPoll(&k->m_WLAN);
+	wlanDhcpServe();
+	linkProcess();
+	k->m_Scheduler.Yield();
+}
+
+#endif
 
 TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *pMidi)
 {

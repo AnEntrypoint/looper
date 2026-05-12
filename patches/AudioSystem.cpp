@@ -2,6 +2,11 @@
 #include "Audio.h"
 #include <circle/logger.h>
 #include <circle/alloc.h>
+#ifdef ARM_ALLOW_MULTI_CORE
+#include <circle/types.h>
+extern void coreDispatchPush (u32 code);
+#define DISPATCH_AUDIO 1u
+#endif
 
 #define log_name "audio"
 
@@ -407,10 +412,12 @@ void AudioSystem::startUpdate()
 	if (s_nInUpdate++)
 		s_numOverflows++;
 
-	#if CORE_FOR_AUDIO_SYSTEM == 0
-		doUpdate();
+	#ifdef ARM_ALLOW_MULTI_CORE
+		// Hand off DSP to Core 1 worker. Producer may be Core 0 ISR or
+		// Core 2 watchdog. Push is allocation-free + DSB + SEV.
+		coreDispatchPush(DISPATCH_AUDIO);
 	#else
-		CCoreTask::Get()->SendIPI(CORE_FOR_AUDIO_SYSTEM, IPI_AUDIO_UPDATE);
+		doUpdate();
 	#endif
 }
 
