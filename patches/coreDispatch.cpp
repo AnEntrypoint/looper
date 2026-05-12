@@ -1,4 +1,5 @@
 #include "coreDispatch.h"
+#include "audioTelemetry.h"
 #include <circle/synchronize.h>
 
 #define DISPATCH_RING_SIZE 64
@@ -16,6 +17,7 @@ void coreDispatchPush (u32 code)
     unsigned rd = s_rd;
     if ((wr - rd) >= DISPATCH_RING_SIZE) {
         g_dispatchDropped++;
+        audioTelemetryPush (TELEM_DISPATCH_FULL, 0);
         return;
     }
     s_ring[wr & DISPATCH_RING_MASK] = code;

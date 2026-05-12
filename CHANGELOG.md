@@ -1,3 +1,9 @@
+## 2026-05-12b — Residual scan: doc drift + cross-core dispatch observability
+
+- doc: AGENTS.md — removed stale CORE_FOR_AUDIO_SYSTEM=0 claim (doUpdate no longer runs in USB ISR), spelled out 4-core partition + IPC primitives in Audio architecture, located telemetry drain on Core 2 in Logging section.
+- feat: TELEM_DISPATCH_FULL telem code (audioTelemetry.h) — coreDispatchPush emits on overflow so Core 1 backpressure surfaces in the same event ring as IN/OUT underruns.
+- feat: audio.cpp stat summary line gained `disp+N` field (delta of g_dispatchDropped) under ARM_ALLOW_MULTI_CORE — periodic summary now covers cross-core handoff health.
+
 ## 2026-05-12 — 4-core re-architecture: hard-RT dispatch / DSP worker / control plane / reserved idle
 
 - feat: patches/coreDispatch.{h,cpp} — 64-slot SPSC ring + DSB+SEV/WFE primitive. Producer-side allocation-free; ISR-safe. New g_dispatchDropped counter for backpressure observability.

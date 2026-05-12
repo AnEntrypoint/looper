@@ -173,6 +173,9 @@ extern unsigned AudioInputUSB_inAvail (void);
 extern unsigned AudioOutputUSB_outAvail (void);
 extern volatile unsigned g_midiOutDropped;
 extern volatile unsigned g_midiOutErrors;
+#ifdef ARM_ALLOW_MULTI_CORE
+extern volatile unsigned g_dispatchDropped;
+#endif
 
 static unsigned s_watchdogForces  = 0;
 static unsigned s_lastStatTicks   = 0;
@@ -214,6 +217,7 @@ void loop()
 			case TELEM_OTG_RESYNC:    name = "OTG_RS";  break;
 			case TELEM_WATCHDOG:      name = "WD";      break;
 			case TELEM_LAG_SAMPLE:    name = "LAG";     break;
+			case TELEM_DISPATCH_FULL: name = "DISP_FULL"; break;
 			default: break;
 		}
 		CLogger::Get()->Write(log_name, LogNotice, "telem t=%u %s arg=%u",
@@ -226,6 +230,9 @@ void loop()
 		s_lastStatTicks = now;
 		static unsigned prev_inUR=0, prev_outUR=0, prev_inRS=0, prev_otgRS=0;
 		static unsigned prev_wd=0, prev_drop=0;
+#ifdef ARM_ALLOW_MULTI_CORE
+		static unsigned prev_disp=0;
+#endif
 		unsigned inAv  = AudioInputUSB_inAvail();
 		unsigned outAv = AudioOutputUSB_outAvail();
 		unsigned d_inUR  = g_inUnderruns - prev_inUR;
@@ -234,16 +241,24 @@ void loop()
 		unsigned d_otgRS = g_otgResyncs - prev_otgRS;
 		unsigned d_wd    = s_watchdogForces - prev_wd;
 		unsigned d_drop  = g_telemDropped - prev_drop;
-		bool any = d_inUR | d_outUR | d_inRS | d_otgRS | d_wd | d_drop;
+#ifdef ARM_ALLOW_MULTI_CORE
+		unsigned d_disp  = g_dispatchDropped - prev_disp;
+#else
+		unsigned d_disp  = 0;
+#endif
+		bool any = d_inUR | d_outUR | d_inRS | d_otgRS | d_wd | d_drop | d_disp;
 		if (any)
 		{
 			CLogger::Get()->Write(log_name, LogNotice,
-				"stat in_av=%u out_av=%u in_ur+%u out_ur+%u in_rs+%u otg_rs+%u wd+%u drop+%u",
-				inAv, outAv, d_inUR, d_outUR, d_inRS, d_otgRS, d_wd, d_drop);
+				"stat in_av=%u out_av=%u in_ur+%u out_ur+%u in_rs+%u otg_rs+%u wd+%u drop+%u disp+%u",
+				inAv, outAv, d_inUR, d_outUR, d_inRS, d_otgRS, d_wd, d_drop, d_disp);
 		}
 		prev_inUR=g_inUnderruns; prev_outUR=g_outUnderruns;
 		prev_inRS=g_inResyncs;   prev_otgRS=g_otgResyncs;
 		prev_wd=s_watchdogForces; prev_drop=g_telemDropped;
+#ifdef ARM_ALLOW_MULTI_CORE
+		prev_disp=g_dispatchDropped;
+#endif
 	}
 #endif
 	if (pTheAPC) pTheAPC->update();

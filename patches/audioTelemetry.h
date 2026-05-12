@@ -21,6 +21,7 @@ enum AudioTelemCode : u32 {
     TELEM_MIDI_OUT_DROP   = 6,   // arg = unused
     TELEM_MIDI_OUT_ERR    = 7,   // arg = unused
     TELEM_LAG_SAMPLE      = 8,   // arg = (in_avail<<16)|out_avail (periodic snapshot)
+    TELEM_DISPATCH_FULL   = 9,   // arg = unused — coreDispatch ring overflow (Core 1 not draining)
 };
 
 struct AudioTelemEvent {
