@@ -15,9 +15,6 @@
 #include "patches/RubberBandWrapper.h"
 #include "patches/apcEffectsProcessor.h"
 #include "patches/audioTelemetry.h"
-#ifdef ARM_ALLOW_MULTI_CORE
-#include "patches/coreBusy.h"
-#endif
 
 #define log_name "audio"
 
@@ -261,25 +258,6 @@ void loop()
 		prev_wd=s_watchdogForces; prev_drop=g_telemDropped;
 #ifdef ARM_ALLOW_MULTI_CORE
 		prev_disp=g_dispatchDropped;
-		// Per-core busy% over the 2Hz interval. busy / (busy+idle) * 100.
-		// Confirms (a) Core 1 not saturated, (b) Core 3 truly idle (should ~0%),
-		// (c) DSP work isn't leaking to Core 2 control plane.
-		static u64 prev_busy[4] = {0,0,0,0};
-		static u64 prev_idle[4] = {0,0,0,0};
-		u64 d_b1 = g_coreBusyTicks[1] - prev_busy[1];
-		u64 d_i1 = g_coreIdleTicks[1] - prev_idle[1];
-		u64 d_b2 = g_coreBusyTicks[2] - prev_busy[2];
-		u64 d_b3 = g_coreBusyTicks[3] - prev_busy[3];
-		u64 d_i3 = g_coreIdleTicks[3] - prev_idle[3];
-		unsigned c1pct = (d_b1+d_i1) ? (unsigned)((d_b1 * 100) / (d_b1+d_i1)) : 0;
-		unsigned c2act = d_b2 ? 1u : 0u;       // control plane is Yield-cooperative; report active
-		unsigned c3pct = (d_b3+d_i3) ? (unsigned)((d_b3 * 100) / (d_b3+d_i3)) : 0;
-		CLogger::Get()->Write(log_name, LogNotice,
-			"cores c1=%u%% c2=%s c3=%u%% (c3 should be 0; c1 low when idle)",
-			c1pct, c2act ? "active" : "idle", c3pct);
-		prev_busy[1]=g_coreBusyTicks[1]; prev_idle[1]=g_coreIdleTicks[1];
-		prev_busy[2]=g_coreBusyTicks[2];
-		prev_busy[3]=g_coreBusyTicks[3]; prev_idle[3]=g_coreIdleTicks[3];
 #endif
 	}
 #endif

@@ -82,8 +82,6 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/multicore.cpp circle/_prh/_apps/Looper/multicore.cpp
           cp circle/_prh/_apps/Looper/patches/coreDispatch.h circle/_prh/_apps/Looper/coreDispatch.h
           cp circle/_prh/_apps/Looper/patches/coreDispatch.cpp circle/_prh/_apps/Looper/coreDispatch.cpp
-          cp circle/_prh/_apps/Looper/patches/coreBusy.h circle/_prh/_apps/Looper/coreBusy.h
-          cp circle/_prh/_apps/Looper/patches/coreBusy.cpp circle/_prh/_apps/Looper/coreBusy.cpp
           cp circle/_prh/_apps/Looper/patches/paramSnapshot.h circle/_prh/_apps/Looper/paramSnapshot.h
           cp circle/_prh/_apps/Looper/patches/paramSnapshot.cpp circle/_prh/_apps/Looper/paramSnapshot.cpp
           cp circle/_prh/_apps/Looper/patches/main.cpp circle/_prh/_apps/Looper/main.cpp

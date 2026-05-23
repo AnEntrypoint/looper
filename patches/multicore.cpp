@@ -4,7 +4,6 @@
 #include <circle/synchronize.h>
 #include <circle/timer.h>
 #include "coreDispatch.h"
-#include "coreBusy.h"
 #include "paramSnapshot.h"
 
 // 4-core partition for rPi4:
@@ -17,8 +16,7 @@
 //   Core 2 — control plane: USB plug-and-play, Net.Process, usbMidiProcess,
 //            audio.cpp::loop (telemetry drain + watchdog), pTheAPC->update,
 //            linkProcess, WiFi DHCP, pollSockets, m_Scheduler.Yield.
-//   Core 3 — reserved idle (WFE forever) + busy/idle accounting hook so we can
-//            verify "truly idle" via per-core busy% telemetry from Core 2.
+//   Core 3 — reserved idle (WFE forever).
 //
 // IPC: SPSC lock-free rings only. No mutexes in audio path.
 // Atomic-snapshot publish/load for control→DSP shared params (paramSnapshot).
@@ -26,12 +24,7 @@
 //
 // Audio readiness handshake:
 //   Core 0 calls coreSignalAudioReady() once setup() returns from CKernel::Run.
-//   Cores 1/2/3 spin on g_coreAudioReady before entering their work loops.
-//
-// Telemetry: each core's loop bookends doWork() / wfe() with CTimer::GetClockTicks()
-// reads to accumulate busy/idle totals. Core 2's control plane samples these at
-// 0.5Hz and emits a log line showing busy% per core. Confirms (a) Core 1 isn't
-// saturated, (b) Core 3 is truly idle, (c) DSP work isn't leaking to Core 2.
+//   Cores 1/2 spin on g_coreAudioReady before entering their work loops.
 
 CCoreTask *CCoreTask::s_pThis = 0;
 
@@ -73,18 +66,13 @@ void CCoreTask::Run(unsigned nCore)
 		coreWaitAudioReady();
 		while (1)
 		{
-			u64 t0 = CTimer::GetClockTicks();
 			u32 code;
 			while (coreDispatchPop(&code))
 			{
 				if (code == DISPATCH_AUDIO)
 					AudioSystem::doUpdate();
 			}
-			u64 t1 = CTimer::GetClockTicks();
-			g_coreBusyTicks[1] += t1 - t0;
-			coreDispatchWait();          // WFE — blocks until SEV
-			u64 t2 = CTimer::GetClockTicks();
-			g_coreIdleTicks[1] += t2 - t1;
+			coreDispatchWait();
 		}
 	}
 	else if (nCore == 2)
@@ -92,21 +80,13 @@ void CCoreTask::Run(unsigned nCore)
 		coreWaitAudioReady();
 		while (1)
 		{
-			u64 t0 = CTimer::GetClockTicks();
 			coreControlPlaneTick();
-			u64 t1 = CTimer::GetClockTicks();
-			g_coreBusyTicks[2] += t1 - t0;
-			// coreControlPlaneTick() yields internally; the time between
-			// returning and the next call is logically idle.
 		}
 	}
-	else  // Core 3 — reserved idle
+	else
 	{
 		while (1) {
-			u64 t0 = CTimer::GetClockTicks();
 			asm volatile ("wfe" ::: "memory");
-			u64 t1 = CTimer::GetClockTicks();
-			g_coreIdleTicks[3] += t1 - t0;
 		}
 	}
 }
