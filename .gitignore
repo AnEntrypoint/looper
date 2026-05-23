@@ -39,6 +39,8 @@ syslog.log
 *.stackdump
 *.wav
 *.prd
+scripts/measure-results/
+scripts/*.exe
 
 # Dev tools
 .env

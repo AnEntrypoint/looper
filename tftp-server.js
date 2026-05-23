@@ -47,6 +47,7 @@ function downloadFile(url,dest){
 }
 
 async function checkAndUpdate(){
+  if(process.env.LOOPER_NO_AUTO_UPDATE==='1'){return;}
   try{
     if(Date.now()<rateLimitedUntil){console.log('[UPDATE] rate-limited');return;}
     const r=await httpsGet('https://api.github.com/repos/'+REPO+'/releases/latest');
