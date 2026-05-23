@@ -24,7 +24,7 @@ Project notes for agents working on Lanmower's Looper. Supersedes CLAUDE.md — 
 - **USB audio runs at 48000Hz** (UCA222 native). `AUDIO_SAMPLE_RATE=44100` in AudioTypes.h is the internal system rate.
 - **AUDIO_BLOCK_SAMPLES=64** for low latency (~1.3ms at 48kHz).
 - **Ring buffers decouple USB from audio chain.** USB IN writes to a 512-sample SPSC ring (`patches/input_usb.cpp`). USB OUT to a 2048-sample SPSC ring (`patches/output_usb.cpp`).
-- **Drift correction: Q16 fractional read + linear interpolation.** Both IN and OTG-tap read positions are fractional (u32 int + u16 frac). Rate step = `FRAC_ONE + (band_dev * FRAC_ONE) / RATE_GAIN` with wide deadband (IN target=128, DB=64 — tuned for min UCA222 latency; OTG target=768, DB=192). Inaudible on tonal content. Catastrophic-deviation clause resets read position. Rate clamped to ±256/16384 (≈1.5%).
+- **Drift correction: Q16 fractional read + linear interpolation.** Both IN and OTG-tap read positions are fractional (u32 int + u16 frac). Rate step = `FRAC_ONE + (band_dev * FRAC_ONE) / RATE_GAIN`. IN target=96, DB=48 (`patches/input_usb.cpp:17-18`) — derived from physics: UCA222 IN delivers 48 samples per 1ms USB SOF, so target = 1 packet (48) + 1-packet safety margin (48) = 96; DB = ±1 packet protects against single-SOF jitter without triggering rate adjust. OTG target=768, DB=192 — derived: OTG isochronous DMA needs deeper margin to absorb DWC2 frame-parity slips. Inaudible on tonal content. Catastrophic-deviation clause resets read position. Rate clamped to ±256/16384 (≈1.5%).
 - **Underrun fallback repeats last sample**, not zero. Eliminates clicks on brief starvation.
 - **Watchdog**: if USB IN hasn't delivered in >5ms, `loop()` (Core 2 control plane) force-fires `AudioSystem::startUpdate()` which enqueues a `DISPATCH_AUDIO` job onto Core 1.
 - **`startUpdate()` is driven by USB IN ring position** (push from Core 0 ISR), not a timer. Under `ARM_ALLOW_MULTI_CORE` it pushes onto `coreDispatch` + SEV; the legacy inline `doUpdate()` branch only runs in single-core builds.
@@ -99,10 +99,11 @@ When patching Circle's `lib/usb/gadget/` to add `CUSBAudioGadget`:
 ## Live pitch shifting via MIDI
 
 - **`pLivePitchWrapper`** allocated unconditionally in `audio.cpp::setup()`. In `loopMachine::update()`, audio bypasses wrapper when `pTheAPC->getDebugState().liveEngaged == false` (zero latency).
-- **Pitch shift path (RubberBandWrapper.h)**: dual-engine.
-  - When `m_pitchScale ≈ 0.5 or 2.0` (within ±1%): **time-domain granular octaver** (2-tap crossfading delay-line, OCT_GRAIN=512, Hann crossfade). ~3ms latency, clean on guitar→bass.
-  - All other ratios: **signalsmith-stretch** at blockSamples=192, intervalSamples=64. ~4ms latency. Used for continuous CC bends and formant mangling.
-  - Octaver activation hysteresis is ±1% so mod-wheel near -12 snaps to clean mode.
+- **Pitch shift path (RubberBandWrapper.h)**: triple-engine, selected by `m_pitchScale`:
+  - `≈ 2.0` (up +12, within ±1%): **fixed-grain granular octaver** (2-tap crossfading delay-line, OCT_GRAIN=256, Hann crossfade). ~3ms latency. Up-shift only — read taps advance faster than write, snap-back reset is phase-safe.
+  - `< 0.7` (down ≤ -6 semitones): **PsolaOctaver** (`patches/psolaOctaver.h`) — autocorrelation pitch tracker (range 30Hz-1kHz, ACF window 2048 samples) + time-domain resampling on 16384-sample circular delay buffer. Read pointer advances at `scale × write` rate; period-aligned resync when gap nears buffer wrap. Stable down to low-E -12 (41.2Hz). Host-tested via `scripts/test-psola.cpp` against 82.4/110/220/440Hz sustained sines, all PASS with <0.5Hz frequency error and <5% THD. Warm-up = 1 ACF window (~43ms cold); steady-state latency ≈ 1 period (~24ms at 41.2Hz, ~12ms at 82.4Hz). Falls back to signalsmith for this block when detector hasn't yet locked.
+  - All other ratios (continuous CC bends, formant mangling): **signalsmith-stretch** at blockSamples=192, intervalSamples=64. ~3.3ms latency. Provides formant-preserving STFT shift (`setTransposeFactor(scale, formant)`).
+  - Engine choice is per-block, no runtime configuration — the wrapper picks based on `m_pitchScale` and `PsolaOctaver::ready()`. Octaver activation hysteresis ±1% (up) and 0.7 threshold (down) prevent rapid engine flapping on CC bends.
 - **Pitch scale**: `_applyLivePitch()` calls `setPitchScale(pow(2, semitones / 12))`.
 - **CC1 (mod wheel)**: deadzone 59-69 disengages. Outside: ±6 semitones by `((data2 - 64) * 6 / 63)`.
 - **CC52**: linear 0-127 → ±6 semitones.
