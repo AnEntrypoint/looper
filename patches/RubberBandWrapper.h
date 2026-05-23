@@ -5,9 +5,12 @@
 #include <string.h>
 #include <math.h>
 #include "signalsmith/signalsmith-stretch.h"
+#include "psolaOctaver.h"
 
 class RubberBandWrapper {
   signalsmith::stretch::SignalsmithStretch<float> m_stretch;
+  PsolaOctaver m_psolaL;
+  PsolaOctaver m_psolaR;
   float m_pitchScale;
   float m_formant;
   size_t m_channels;
@@ -87,7 +90,8 @@ class RubberBandWrapper {
 
 public:
   RubberBandWrapper(size_t sampleRate, size_t channels)
-    : m_pitchScale(1.0f), m_formant(0.0f), m_channels(channels),
+    : m_psolaL((int)sampleRate), m_psolaR((int)sampleRate),
+      m_pitchScale(1.0f), m_formant(0.0f), m_channels(channels),
       m_processedFrames(0), m_retrievedFrames(0),
       m_oct_wr(OCT_DELAY), m_oct_rd_a(OCT_DELAY - (float)(OCT_GRAIN / 2)),
       m_oct_rd_b(OCT_DELAY - (float)(OCT_GRAIN / 2) - (float)(OCT_GRAIN / 4)), m_oct_fade(0.0f)
@@ -120,8 +124,24 @@ public:
       memcpy(m_retr_L, m_feed_L, samples * sizeof(float));
       memcpy(m_retr_R, m_feed_R, samples * sizeof(float));
     } else if (octaveActive()) {
+      // Up-shift: existing fixed-grain granular octaver.
       processOctave(m_feed_L, m_feed_R, m_retr_L, m_retr_R, samples);
+    } else if (m_pitchScale < 0.7f) {
+      // Down-shift below ~-6 semitones: try the PSOLA-style resampling
+      // octaver, which is stable on low fundamental content (low-E -12).
+      // Always feed the engine so it tracks pitch; bypass to signalsmith
+      // only if the detector hasn't locked yet (warm-up) or material is
+      // non-tonal.
+      bool readyL = m_psolaL.process(m_feed_L, m_retr_L, samples);
+      bool readyR = m_psolaR.process(m_feed_R, m_retr_R, samples);
+      if (!readyL || !readyR) {
+        // Fall back to signalsmith for this block — PSOLA still warming.
+        const float *in[2]  = { m_feed_L, m_feed_R };
+        float       *out[2] = { m_retr_L, m_retr_R };
+        m_stretch.process(in, (int)samples, out, (int)samples);
+      }
     } else {
+      // All other ratios: signalsmith STFT (≈3.3ms latency).
       const float *in[2]  = { m_feed_L, m_feed_R };
       float       *out[2] = { m_retr_L, m_retr_R };
       m_stretch.process(in, (int)samples, out, (int)samples);
@@ -139,6 +159,8 @@ public:
   void setPitchScale(float scale) {
     m_pitchScale = scale;
     m_stretch.setTransposeFactor(scale, m_formant);
+    m_psolaL.setPitchScale(scale);
+    m_psolaR.setPitchScale(scale);
   }
 
   void setFormant(float norm) {
