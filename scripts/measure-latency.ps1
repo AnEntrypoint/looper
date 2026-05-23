@@ -18,12 +18,14 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet('full','impulse','chirp','sine','silence')]
+    [ValidateSet('full','impulse','chirp','sine','silence','wav')]
     [string]$Mode = 'full',
     [double]$Freq = 1000.0,
     [int]$DurationMs = 2000,
     [int]$SampleRate = 48000,
-    [string]$OutDir = ""
+    [string]$OutDir = "",
+    [string]$WavPath = "",
+    [double]$ExpectedFund = 0.0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -302,11 +304,92 @@ function Run-Silence {
     return @{ ok = $true; rms = $rms; dbfs = $dbfs }
 }
 
+function Read-Wav([string]$path) {
+    $b = [IO.File]::ReadAllBytes($path)
+    if ($b.Length -lt 44) { throw "wav too short: $path" }
+    $ch = [BitConverter]::ToInt16($b, 22)
+    $sr = [BitConverter]::ToInt32($b, 24)
+    $bps = [BitConverter]::ToInt16($b, 34)
+    if ($bps -ne 16) { throw "only 16-bit WAVs: $path bps=$bps" }
+    # Find 'data' chunk
+    $off = 12
+    while ($off -lt $b.Length - 8) {
+        $tag = [System.Text.Encoding]::ASCII.GetString($b, $off, 4)
+        $sz = [BitConverter]::ToInt32($b, $off + 4)
+        if ($tag -eq 'data') { $off += 8; break }
+        $off += 8 + $sz
+    }
+    $nFrames = ($b.Length - $off) / ($ch * 2)
+    $samples = New-Object 'Int16[]' $nFrames    # interleaved->mono mixdown for play
+    for ($i = 0; $i -lt $nFrames; $i++) {
+        $acc = 0
+        for ($c = 0; $c -lt $ch; $c++) {
+            $acc += [BitConverter]::ToInt16($b, $off + ($i * $ch + $c) * 2)
+        }
+        $samples[$i] = [Int16]([Math]::Round($acc / $ch))
+    }
+    return @{ samples = $samples; sample_rate = $sr; original_channels = $ch }
+}
+
+function Run-Wav {
+    if (-not $WavPath) { throw "-WavPath required for Mode=wav" }
+    if (-not (Test-Path $WavPath)) { throw "WavPath not found: $WavPath" }
+    Write-Host ('[wav] loading {0}' -f $WavPath)
+    $w = Read-Wav $WavPath
+    if ($w.sample_rate -ne $SampleRate) {
+        Write-Host ('[wav] WARNING: file SR={0} differs from harness SR={1}; playing as-is (will be wrong pitch unless resampled)' -f $w.sample_rate, $SampleRate)
+    }
+    $durMs = [int]($w.samples.Length * 1000 / $SampleRate)
+    Write-Host ('[wav] playing {0} samples ({1} ms) through Pi loopback' -f $w.samples.Length, $durMs)
+    $cap = [AudioIO]::PlayAndCapture($w.samples, $SampleRate, $durMs + 300)
+    $outName = ('wav_' + [IO.Path]::GetFileNameWithoutExtension($WavPath) + '_capture.wav')
+    [AudioIO]::WriteWav((Join-Path $OutDir $outName), $cap, $SampleRate, 2)
+
+    # Goertzel at expected fundamental, expected -12 (half), expected +12 (double), harmonics
+    function G([Int16[]]$cap, [int]$stride, [int]$startIdx, [int]$endIdx, [double]$freq) {
+        $coef = 2.0 * [Math]::Cos(2.0 * [Math]::PI * $freq / $SampleRate)
+        $p = 0.0; $p2 = 0.0
+        for ($i = $startIdx; $i -lt $endIdx; $i++) {
+            $x = $cap[$i * $stride] / 32768.0
+            $s = $x + $coef * $p - $p2
+            $p2 = $p; $p = $s
+        }
+        return [Math]::Sqrt($p2 * $p2 + $p * $p - $coef * $p * $p2)
+    }
+    $n = $cap.Length / 2
+    $startIdx = [int]($n * 0.3)
+    $endIdx   = [int]($n * 0.9)
+    $fund = if ($ExpectedFund -gt 0) { $ExpectedFund } else { 100.0 }
+    $half = $fund / 2.0
+    $dbl  = $fund * 2.0
+    $a_fund = G $cap 2 $startIdx $endIdx $fund
+    $a_half = G $cap 2 $startIdx $endIdx $half
+    $a_dbl  = G $cap 2 $startIdx $endIdx $dbl
+    $a_h2   = G $cap 2 $startIdx $endIdx ($half * 2)
+    $a_h3   = G $cap 2 $startIdx $endIdx ($half * 3)
+    $a_h4   = G $cap 2 $startIdx $endIdx ($half * 4)
+    $thd_at_half = if ($a_half -gt 1e-9) {
+        [Math]::Sqrt($a_h2*$a_h2 + $a_h3*$a_h3 + $a_h4*$a_h4) / $a_half * 100.0
+    } else { -1.0 }
+    Write-Host ('[wav] fund@{0:F1}Hz={1:F4}  -12@{2:F1}Hz={3:F4}  +12@{4:F1}Hz={5:F4}  THD@-12={6:F1}%%' -f $fund, $a_fund, $half, $a_half, $dbl, $a_dbl, $thd_at_half)
+    return @{
+        ok = $true
+        wav = $WavPath
+        capture = $outName
+        expected_fund = $fund
+        amp_at_fund = $a_fund
+        amp_at_minus12 = $a_half
+        amp_at_plus12 = $a_dbl
+        thd_at_minus12_pct = $thd_at_half
+    }
+}
+
 switch ($Mode) {
     'impulse' { $report.results.impulse = Run-Impulse }
     'sine'    { $report.results.sine = Run-Sine }
     'chirp'   { $report.results.chirp = Run-Chirp }
     'silence' { $report.results.silence = Run-Silence }
+    'wav'     { $report.results.wav = Run-Wav }
     'full' {
         $report.results.silence = Run-Silence
         Start-Sleep -Milliseconds 200

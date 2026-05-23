@@ -41,6 +41,9 @@ syslog.log
 *.prd
 scripts/measure-results/
 scripts/*.exe
+# Generated WAVs (gen-tones.ps1 + ffmpeg resamples). Track the generator
+# script, not the (large, binary, reproducible) outputs.
+scripts/samples/*.wav
 
 # Dev tools
 .env
