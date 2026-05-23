@@ -92,8 +92,14 @@ public:
       m_oct_wr(OCT_DELAY), m_oct_rd_a(OCT_DELAY - (float)(OCT_GRAIN / 2)),
       m_oct_rd_b(OCT_DELAY - (float)(OCT_GRAIN / 2) - (float)(OCT_GRAIN / 4)), m_oct_fade(0.0f)
   {
-    int blockSamples = 192;
-    int intervalSamples = 64;
+    // Minimum-latency signalsmith config. blockSamples = group delay;
+    // intervalSamples = analysis hop. 64/32 → group delay ~64/48000 = 1.3ms
+    // + STFT overlap-add ramp ~3ms = ~4-5ms total engine latency, fitting
+    // the live-transpose 3-8ms budget. Spectral resolution suffers below
+    // ~750Hz fundamental (block-period at 64 samples) but is the only
+    // configuration in budget for sub-block-period content like low-E -12.
+    int blockSamples = 64;
+    int intervalSamples = 32;
     m_stretch.configure((int)channels, blockSamples, intervalSamples);
     memset(m_feed_L, 0, sizeof(m_feed_L));
     memset(m_feed_R, 0, sizeof(m_feed_R));
