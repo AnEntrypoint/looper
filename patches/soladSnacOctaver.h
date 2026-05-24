@@ -113,10 +113,22 @@ public:
                     xWarped += m_preBuf[(uint32_t)idx & PRE_MASK] * (float)(s * w);
                 }
                 m_preRd += (double)m_preRate;
-                // Drift management on pre-buffer.
+                // Drift management on pre-buffer. Hard-snap only when we
+                // genuinely cannot recover (gap < 4 or > PRE_DL-16) —
+                // those are emergency cases where read would alias write.
+                // Within recoverable band, nudge the read rate slightly
+                // toward the target gap (= PRE_DL/2) over the next ~10ms
+                // so we glide back instead of clicking.
                 double pgap = (double)m_preWr - m_preRd;
-                if (pgap > (double)(PRE_DL - 32) || pgap < 8.0)
-                    m_preRd = (double)m_preWr - (double)(PRE_DL / 2);
+                const double pgapTarget = (double)(PRE_DL / 2);
+                if (pgap < 4.0 || pgap > (double)(PRE_DL - 16)) {
+                    m_preRd = (double)m_preWr - pgapTarget;
+                } else if (pgap < pgapTarget * 0.5 || pgap > pgapTarget * 1.5) {
+                    // Drift bias — preRate slightly off target so gap walks
+                    // back toward pgapTarget. Inaudible <0.1% rate shift.
+                    float bias = (pgap < pgapTarget) ? -1e-4f : +1e-4f;
+                    m_preRate += bias;
+                }
             }
 
             // ---- 1. Ingest the pre-warped sample ----

@@ -531,39 +531,42 @@ void loopMachine::update(void)
 	LiveParams lp = paramSnapshotLoad();
 	if (pLivePitchWrapper)
 	{
-		// ALWAYS feed + retrieve so the wrapper's internal delay-line stays
-		// continuous. Engaged state drives the wrapper's wet/dry crossfade
-		// (~30 ms) and pitch-scale smoothing (~10 ms) — no clicks on toggle.
-		// Latency is constant (~4 ms) whether the user is shifting or not,
-		// so engaging/disengaging never causes a perceptual "time jump".
+		// Gated engine — wrapper only runs when transpose is actively
+		// engaged. When disengaged, the audio path bypasses the wrapper
+		// entirely: zero added latency, zero engine CPU cost, zero risk of
+		// pre-resample drift snaps producing periodic clicks. The
+		// "constant-latency on engage/disengage" experiment regressed
+		// passthrough stability (periodic ring-mod cuts when disengaged);
+		// any smooth-engage feel needed lives inside the wrapper, not by
+		// running the engine on silence.
 		static float s_lastSemis = 0.0f;
 		static bool  s_lastEngaged = false;
-		float wantSemis = lp.livePitchSemitones;
-		if (wantSemis != s_lastSemis) {
-			float scale = powf(2.0f, wantSemis / 12.0f);
+		float wantSemis = lp.liveEngaged ? lp.livePitchSemitones : 0.0f;
+		if (wantSemis != s_lastSemis || lp.liveEngaged != s_lastEngaged) {
+			float scale = lp.liveEngaged ? powf(2.0f, wantSemis / 12.0f) : 1.0f;
 			pLivePitchWrapper->setPitchScale(scale);
-			s_lastSemis = wantSemis;
-		}
-		if (lp.liveEngaged != s_lastEngaged) {
-			pLivePitchWrapper->setEngaged(lp.liveEngaged);
+			s_lastSemis   = wantSemis;
 			s_lastEngaged = lp.liveEngaged;
 		}
-
-		s16 tmp_L[AUDIO_BLOCK_SAMPLES], tmp_R[AUDIO_BLOCK_SAMPLES];
-		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+		if (lp.liveEngaged)
 		{
-			tmp_L[i] = (s16)m_input_buffer[i];
-			tmp_R[i] = (s16)m_input_buffer[AUDIO_BLOCK_SAMPLES + i];
-		}
-		pLivePitchWrapper->feedAudio(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES);
-		s16 out_L[AUDIO_BLOCK_SAMPLES], out_R[AUDIO_BLOCK_SAMPLES];
-		size_t got = pLivePitchWrapper->retrieveAudio(out_L, out_R, AUDIO_BLOCK_SAMPLES);
-		if (got == AUDIO_BLOCK_SAMPLES)
-		{
+			s16 tmp_L[AUDIO_BLOCK_SAMPLES], tmp_R[AUDIO_BLOCK_SAMPLES];
 			for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
 			{
-				m_input_buffer[i] = out_L[i];
-				m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = out_R[i];
+				tmp_L[i] = (s16)m_input_buffer[i];
+				tmp_R[i] = (s16)m_input_buffer[AUDIO_BLOCK_SAMPLES + i];
+			}
+
+			pLivePitchWrapper->feedAudio(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES);
+			s16 out_L[AUDIO_BLOCK_SAMPLES], out_R[AUDIO_BLOCK_SAMPLES];
+			size_t got = pLivePitchWrapper->retrieveAudio(out_L, out_R, AUDIO_BLOCK_SAMPLES);
+			if (got == AUDIO_BLOCK_SAMPLES)
+			{
+				for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+				{
+					m_input_buffer[i] = out_L[i];
+					m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = out_R[i];
+				}
 			}
 		}
 	}
