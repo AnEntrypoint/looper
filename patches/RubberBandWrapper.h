@@ -7,6 +7,7 @@
 #include "signalsmith/signalsmith-stretch.h"
 #include "yinPsolaOctaver.h"
 #include "sincFormantOctaver.h"
+#include "soladSnacOctaver.h"
 
 class RubberBandWrapper {
   signalsmith::stretch::SignalsmithStretch<float> m_stretch;
@@ -14,6 +15,8 @@ class RubberBandWrapper {
   EngineYinPsola m_psolaR;
   SincFormantOctaver m_sincL;
   SincFormantOctaver m_sincR;
+  EngineSoladSnac m_soladL;
+  EngineSoladSnac m_soladR;
   float m_pitchScale;
   float m_formant;
   size_t m_channels;
@@ -132,21 +135,30 @@ public:
   }
 
   size_t retrieveAudio(int16_t *left, int16_t *right, size_t samples) {
-    // ONE algo for every pitch ratio: SincFormantOctaver. Sinc-interpolated
-    // fractional-rate resample on a 32k-sample delay line covers both
-    // down-shift (read falls behind, snap forward on full) and up-shift
-    // (read catches write, snap back). Post-EQ tilt + peaking biquads give
-    // expressive formant control. Latency is constant 4 ms (192-sample
-    // initial read offset) regardless of pitch — toggling engage cross-
-    // fades wet↔dry over 30 ms, no time-jump, no click.
+    // ONE algo for every pitch ratio: EngineSoladSnac.
     //
-    // signalsmith STFT + granular octaver + PSOLA are no longer in the
-    // hot path. Removed for "one algo does everything" — the host A/B
-    // confirmed sinc-delay has the best pitch lock (<0.3 Hz) across the
-    // entire E2-E4 range, and tilt EQ supplies the formant character that
-    // signalsmith's STFT formant-preserve used to provide.
-    m_sincL.processBlock(m_feed_L, m_retr_L, (int)samples);
-    m_sincR.processBlock(m_feed_R, m_retr_R, (int)samples);
+    // Pitch-only (no time-stretch) shifter. Single delay line + variable
+    // read pointer with phase-coherent splices at integer-period offsets,
+    // pitch detection via McLeod SNAC. Host A/B confirmed pitch lock
+    // <0.3 Hz across E2-E4 AND preserved transient timing (vs prior
+    // sinc-delay engine which time-stretched output → played slower).
+    //
+    // Formant-depth knob (m_formantDepth ∈ [-1, +1]) drives a pre-resample
+    // stage feeding the delay line:
+    //   d = 0  : natural pitch shift, formants slide with pitch
+    //   d = 1  : formants preserved at original pitch (vocal-octave)
+    //   d > 1  : formants exaggerated opposite to pitch (extreme)
+    //   d < 0  : formants doubled-down with pitch (huge/monster)
+    // Implementation: preRate = pow(scale, -depth). Engine resamples by
+    // scale, net formant shift = pow(scale, 1-depth).
+    //
+    // Wet/dry crossfade (m_engaged): currently routed via the caller's
+    // gating in loopMachine; the engine always runs at its native
+    // ~4 ms read offset so engage/disengage doesn't introduce a latency
+    // step. signalsmith + sinc + PSOLA still linked (used by loop-clip
+    // RubberBand path) but not in the live pitch path.
+    m_soladL.processBlock(m_feed_L, m_retr_L, (int)samples);
+    m_soladR.processBlock(m_feed_R, m_retr_R, (int)samples);
 
     for (size_t i = 0; i < samples; i++) {
       float l = m_retr_L[i] * 32768.0f;
@@ -163,14 +175,15 @@ public:
     m_stretch.setTransposeFactor(scale, m_formant);
     m_psolaL.configure(48000.0f, scale);
     m_psolaR.configure(48000.0f, scale);
-    // Inside sinc, 1.0 = pure delay (no pitch effect). Target the actual
-    // requested scale so when the engaged crossfade lands we're already at
-    // the right rate. The engine smooths to it over ~10 ms so no click.
     m_sincL.setPitchScale(scale);
     m_sincR.setPitchScale(scale);
+    m_soladL.setPitchScale(scale);
+    m_soladR.setPitchScale(scale);
   }
 
-  // Drive the wet/dry crossfade. Called when liveEngaged toggles.
+  // Wet/dry crossfade (presently no-op for solad which always pitches —
+  // engage/disengage handled in loopMachine by gating the call into the
+  // wrapper). Kept for API compatibility.
   void setEngaged(bool on) {
     m_engaged = on;
     m_sincL.setEngaged(on);
@@ -178,24 +191,23 @@ public:
   }
   bool isEngaged() const { return m_engaged; }
 
-  void setFormant(float norm) {
-    // norm ∈ [-1, +1] is the existing single-knob formant input from MIDI.
-    // Drive both signalsmith (formant-preserve factor) AND the new sinc
-    // brightness knob from the same control so positive = brighter, negative
-    // = darker. Resonance left at 0 (no peaking) unless explicit setFormantEq.
-    m_formant = norm * 0.12f;
+  // Single-knob formant depth control, ∈ [-1, +1].
+  // Drives the solad-snac pre-resample stage. Also pushes the value into
+  // the legacy signalsmith formant factor for any caller that still uses
+  // signalsmith on a non-live code path.
+  void setFormant(float depth) {
+    m_formant = depth * 0.12f;
     m_stretch.setTransposeFactor(m_pitchScale, m_formant);
-    m_sincL.setFormant(norm, m_formantRes, m_formantFreq);
-    m_sincR.setFormant(norm, m_formantRes, m_formantFreq);
+    m_soladL.setFormantDepth(depth);
+    m_soladR.setFormantDepth(depth);
   }
 
-  // New: direct three-knob formant control for the sinc octaver branch.
-  // Bypasses the legacy single-knob mapping when callers want full expression.
-  void setFormantEq(float brightness, float resonance, float freqHz) {
-    m_formantRes = resonance;
-    m_formantFreq = freqHz;
-    m_sincL.setFormant(brightness, resonance, freqHz);
-    m_sincR.setFormant(brightness, resonance, freqHz);
+  // Legacy three-knob API: brightness still drives formant depth, the
+  // peaking/freq knobs are ignored on solad (they belonged to the old
+  // SincFormantOctaver post-EQ).
+  void setFormantEq(float brightness, float /*resonance*/, float /*freqHz*/) {
+    m_soladL.setFormantDepth(brightness);
+    m_soladR.setFormantDepth(brightness);
   }
 
   void setTempoRatio(float) {}

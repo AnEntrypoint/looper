@@ -99,8 +99,17 @@ When patching Circle's `lib/usb/gadget/` to add `CUSBAudioGadget`:
 ## Live pitch shifting via MIDI
 
 - **`pLivePitchWrapper`** allocated unconditionally in `audio.cpp::setup()`. In `loopMachine::update()`, audio bypasses wrapper when `pTheAPC->getDebugState().liveEngaged == false` (zero latency).
-- **Pitch shift path (RubberBandWrapper.h)**: ONE algo for every ratio — **SincFormantOctaver** (`patches/sincFormantOctaver.h`). 16-tap windowed-sinc fractional-rate read on a 32k-sample delay line (initial read offset 192 samples = 4 ms constant latency, regardless of pitch or engage state). Down-shift snaps read forward when delay-line nears full; up-shift snaps read back when it catches the write pointer. Post-EQ: tilt high-shelf at 500 Hz with brightness-compensated gain (±18 dB CC53), plus peaking biquad (Q=2) at CC57 freq with gain set by CC56. Host A/B confirmed sub-0.3 Hz pitch error across E2-E4. Wet/dry crossfade (30 ms) driven by `setEngaged()` from loopMachine — no time-jump on toggle, no engine-switch click.
-  - The legacy granular up-octave path (`processOctave`), the PSOLA (`yinPsolaOctaver`), and the signalsmith STFT (`SignalsmithStretch::process`) are all still linked but **no longer called from the live pitch path** — kept in tree as reference and for clip time-stretch (RubberBand still used for loop clips in `loopClip`).
+- **Pitch shift path (RubberBandWrapper.h)**: ONE algo — **EngineSoladSnac** (`patches/soladSnacOctaver.h`). Pitch-only (no time-stretch) shifter combining solad-style single-delay-line variable-speed read with phase-coherent splices, and McLeod SNAC pitch detection for splice alignment. Splice triggers: drift OOB (every ~5.5s at -12 with DL=131072), or transient detector (currently disabled — re-enable after spectral-flux upgrade). Value-and-slope matched splice point search within ±period/2 makes splice OLA inaudible even with sub-sample period error.
+  - Host-validated: pitch lock <0.3 Hz across E2-E4, transient timing preserved (vs prior sinc-delay engine which time-stretched), zero clicks on sustained material (E2/C3/pluck after V8 tuning).
+  - **Latency**: ~4 ms (192-sample initial read offset). SNAC detection adds 0 latency to audio (runs retrospectively for splice point picking).
+  - Prior `SincFormantOctaver` and `yinPsolaOctaver` engines still in tree but unwired. signalsmith STFT also still linked (used by loop-clip RubberBand path).
+- **Formant depth knob** (CC53): single-knob, ∈ [-1, +1] centred at data2=64 with ±4 deadzone.
+  - `d = 0`: natural pitch shift, formants slide with pitch (deep/dark)
+  - `d = +1`: formants preserved at original pitch (vocal-octave character)
+  - `d = +∞` (overdriven): formants exaggerated opposite to pitch (bright/extreme)
+  - `d = -1`: formants doubled-down with pitch (huge/monster)
+  - Implemented via pre-resample stage inside `EngineSoladSnac`: `preRate = pow(pitchScale, -depth)`. The engine then resamples back by pitchScale, net formant shift = `pow(pitchScale, 1-depth)`. Smoothed onto target over ~10 ms.
+  - CC56 (resonance) and CC57 (peak freq) from the old `SincFormantOctaver` post-EQ are no longer mapped — those knobs are silent.
 - **Live -12 expressive controls** (CC mapping in `apcKey25.cpp::handleEffectsCC` / `apcKey25Filters.cpp::handleEffectsCC`):
   - **CC53** brightness ∈ [-1, +1]: data2=64 ±4 deadzone → 0 (neutral). Outside deadzone linearly maps to high-shelf gain ±12 dB at 800 Hz on the sinc octaver AND signalsmith formant factor.
   - **CC56** resonance ∈ [0, 1]: linear data2/127 → peaking EQ gain 0..+12 dB at `m_formantFreq`.

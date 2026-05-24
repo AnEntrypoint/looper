@@ -58,25 +58,19 @@ void apcKey25::handleEffectsCC(u8 cc, u8 data2)
     }
     else if (cc == 53)
     {
-        // Brightness ∈ [-1, +1] centred at data2=64 (mod-wheel deadzone behavior).
+        // Formant depth ∈ [-1, +1]. Center deadzone (data2 60-68) snaps to
+        // 0 (natural pitch shift: formants slide with pitch). Above center
+        // → formants preserved at original pitch (vocal-octave character).
+        // Below center → formants doubled-down with pitch (huge/monster).
+        // ±deep extremes overdrive the formant warp for special-effect use.
         bool inDeadzone = (data2 >= 60 && data2 <= 68);
         m_formant = inDeadzone ? 0.0f : (((float)((int)data2 - 64)) / 63.0f);
         _applyFormant();
     }
-    else if (cc == 56)
-    {
-        // Resonance ∈ [0, 1] linear from data2.
-        m_formantResonance = norm;
-        _applyFormant();
-    }
-    else if (cc == 57)
-    {
-        // Peak frequency 300..3000 Hz log-mapped from data2 ∈ [0, 127].
-        // f = 300 * (3000/300)^(data2/127) = 300 * 10^(data2/127)
-        float t = (float)data2 / 127.0f;
-        m_formantFreq = 300.0f * powf(10.0f, t);
-        _applyFormant();
-    }
+    // CC56/57 (formant resonance + peak freq) were used by the prior
+    // SincFormantOctaver post-EQ — solad-snac uses formant DEPTH instead,
+    // so those knobs are unmapped now. They remain on the APC hardware
+    // but produce no audio change.
 }
 
 void apcKey25::_applyEffects()
