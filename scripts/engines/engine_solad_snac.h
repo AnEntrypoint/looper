@@ -209,15 +209,30 @@ public:
             m_snacBuf[m_snacWr] = x;
             m_snacWr = (m_snacWr + 1) % SNAC_WIN;
 
-            // ---- 2. Pitch detect periodically ----
-            // Always run SNAC at HOP cadence (matches host engine).
-            // The earlier unity-skip optimisation was based on the
-            // mistaken assumption that engine compute was causing the
-            // glitch; with dispatch over-scheduling fixed (c4b58ad),
-            // SNAC fits in budget and the parity with host matters more.
-            if (++m_sinceDetect >= SNAC_HOP) {
-                m_sinceDetect = 0;
-                detectPitch();
+            // ---- 2. Pitch detect — only when a splice is approaching ----
+            // SNAC is an O(W·P)=~800k-op burst. Running it every HOP stalls
+            // one audio block per HOP → IN ring overfills → resync (~100/s
+            // = the audible glitch). The detected period is ONLY consumed by
+            // triggerSplice's phase-coherent snap. So only run SNAC when the
+            // reader gap is within one detection-window of the drift-splice
+            // threshold — i.e. a splice is actually imminent. At -12 the gap
+            // grows slowly (0.5/sample) so splices are ~5s apart; SNAC then
+            // runs a handful of times just before each splice instead of
+            // 188×/sec continuously. Eliminates the per-HOP burst stall.
+            {
+                double g = (double)m_wr - (m_useA ? m_rdA : m_rdB);
+                double hi = (double)(DL - m_driftHighHead);
+                double lo = (double)m_driftLowBand;
+                bool spliceSoon = (g > hi - (double)SNAC_WIN) ||
+                                  (g < lo + (double)SNAC_WIN);
+                if (spliceSoon) {
+                    if (++m_sinceDetect >= SNAC_HOP) {
+                        m_sinceDetect = 0;
+                        detectPitch();
+                    }
+                } else {
+                    m_sinceDetect = SNAC_HOP;  // detect immediately when splice nears
+                }
             }
 
             // ---- 3. Transient detector ----
