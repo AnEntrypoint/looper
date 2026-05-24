@@ -190,6 +190,7 @@ static double estLatencyMs(const std::vector<float> &in, const std::vector<float
 #include "engines/engine_downsample.h"
 #include "engines/engine_sinc_delay.h"
 #include "engines/engine_yin_psola.h"
+#include "engines/engine_sinc_formant.h"
 
 static void runEngine(const std::string &name, const std::vector<float> &in,
                       std::vector<float> &out, int sr, float scale) {
@@ -216,6 +217,14 @@ static void runEngine(const std::string &name, const std::vector<float> &in,
     else if (name == "sinc-delay-256")      engine_sinc_delay(in, out, sr, scale, 256);
     else if (name == "sinc-delay-384")      engine_sinc_delay(in, out, sr, scale, 384);
     else if (name == "yin-psola")           EngineYinPsola::run(in, out, sr, scale);
+    else if (name == "sinc-formant-neutral")  engine_sinc_formant(in, out, sr, scale, 192, 0.0f, 0.0f, 800.0f);
+    else if (name == "sinc-formant-dark")     engine_sinc_formant(in, out, sr, scale, 192, -0.7f, 0.0f, 800.0f);
+    else if (name == "sinc-formant-bright")   engine_sinc_formant(in, out, sr, scale, 192, +0.7f, 0.0f, 800.0f);
+    else if (name == "sinc-formant-vocal-A")  engine_sinc_formant(in, out, sr, scale, 192, 0.0f, 0.8f, 700.0f);
+    else if (name == "sinc-formant-vocal-O")  engine_sinc_formant(in, out, sr, scale, 192, -0.3f, 0.8f, 500.0f);
+    else if (name == "sinc-formant-vocal-E")  engine_sinc_formant(in, out, sr, scale, 192, +0.3f, 0.8f, 2000.0f);
+    else if (name == "sinc-formant-growl")    engine_sinc_formant(in, out, sr, scale, 192, -0.5f, 1.0f, 300.0f);
+    else if (name == "sinc-formant-airy")     engine_sinc_formant(in, out, sr, scale, 192, +0.5f, 0.6f, 1800.0f);
     else { fprintf(stderr, "unknown engine: %s\n", name.c_str()); std::exit(4); }
 }
 
