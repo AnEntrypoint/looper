@@ -23,15 +23,17 @@ apcKey25::apcKey25()
     pTheAPC = this;
     for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
     {
-        m_col1HoldStart[i]      = 0;
-        m_col1Held[i]           = false;
-        m_col1EraseTriggered[i] = false;
-        for (int j = 0; j < LOOPER_NUM_LAYERS; j++)
-        {
-            m_layerHoldStart[i][j]      = 0;
-            m_layerHeld[i][j]           = false;
-            m_layerClearTriggered[i][j] = false;
-        }
+        m_looperHoldStart[i]       = 0;
+        m_looperHeld[i]            = false;
+        m_looperClearTriggered[i]  = false;
+    }
+    for (int i = 0; i < LOOPER_NUM_PRESETS; i++)
+    {
+        m_presetHoldStart[i]   = 0;
+        m_presetHeld[i]        = false;
+        m_presetCaptured[i]    = false;
+        m_presetMask[i]        = 0;
+        m_presetUsed[i]        = false;
     }
 }
 
@@ -172,33 +174,43 @@ void apcKey25::update()
         {
             pTheLooper->command(LOOP_COMMAND_ERASE_TRACK_BASE + arg);
         }
+        else if (type == ApcCmd::CLEAR_LAYER)
+        {
+            pTheLooper->command(LOOP_COMMAND_CLEAR_LAYER_BASE + arg);
+        }
+        else if (type == ApcCmd::PRESET_RESTORE)
+        {
+            _applyPreset(arg);
+        }
         else if (type == ApcCmd::LOOPER)
         {
             pTheLooper->command(arg);
         }
     }
     _updateDrift();
-    for (int row = 0; row < LOOPER_NUM_TRACKS; row++)
+    // Per-looper long-hold → clear-layer (also clears recording state).
+    for (int n = 0; n < LOOPER_NUM_TRACKS; n++)
     {
-        if (m_col1Held[row] && !m_col1EraseTriggered[row])
+        if (m_looperHeld[n] && !m_looperClearTriggered[n])
         {
-            if (m_nowMs - m_col1HoldStart[row] >= APC_HOLD_ERASE_MS)
+            if (m_nowMs - m_looperHoldStart[n] >= APC_HOLD_ERASE_MS)
             {
-                m_col1EraseTriggered[row] = true;
-                m_col1Held[row] = false;
-                pTheLooper->command(LOOP_COMMAND_ERASE_TRACK_BASE + row);
+                m_looperClearTriggered[n] = true;
+                m_looperHeld[n] = false;
+                pTheLooper->command(LOOP_COMMAND_CLEAR_LAYER_BASE + n);
             }
         }
-        for (int layer = 0; layer < LOOPER_NUM_LAYERS; layer++)
+    }
+    // Per-preset long-hold → capture current play-state mask.
+    for (int p = 0; p < LOOPER_NUM_PRESETS; p++)
+    {
+        if (m_presetHeld[p] && !m_presetCaptured[p])
         {
-            if (m_layerHeld[row][layer] && !m_layerClearTriggered[row][layer])
+            if (m_nowMs - m_presetHoldStart[p] >= APC_HOLD_ERASE_MS)
             {
-                if (m_nowMs - m_layerHoldStart[row][layer] >= APC_HOLD_ERASE_MS)
-                {
-                    m_layerClearTriggered[row][layer] = true;
-                    m_layerHeld[row][layer] = false;
-                    pTheLooper->command(LOOP_COMMAND_CLEAR_LAYER_BASE + row * LOOPER_NUM_LAYERS + layer);
-                }
+                m_presetCaptured[p] = true;
+                m_presetHeld[p] = false;
+                _capturePreset(p);
             }
         }
     }

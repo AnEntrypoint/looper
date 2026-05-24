@@ -30,7 +30,8 @@
 // Col 1 = track presence (tap to erase, hold to erase)
 
 struct ApcCmd {
-    enum Type { NONE, TRACK, ERASE_TRACK, STOP_TRACK, LOOPER } type;
+    enum Type { NONE, TRACK, ERASE_TRACK, STOP_TRACK, LOOPER,
+                CLEAR_LAYER, PRESET_RESTORE } type;
     int arg;
 };
 
@@ -74,15 +75,25 @@ private:
     volatile ApcCmd::Type m_cmdType;
     volatile int  m_cmdArg;
 
-    // Hold tracking for col1 (mute/erase)
-    unsigned long m_col1HoldStart[LOOPER_NUM_TRACKS];
-    bool          m_col1Held[LOOPER_NUM_TRACKS];
-    bool          m_col1EraseTriggered[LOOPER_NUM_TRACKS];
+    // Per-pad hold tracking for the 20 looper pads (cols 2-5, rows 0-4).
+    // Index = row*4 + (col-2) ∈ [0,20). Tap = press cycle (rec/play/pause).
+    // Long-hold (>= APC_HOLD_ERASE_MS) = clear that looper.
+    unsigned long m_looperHoldStart[LOOPER_NUM_TRACKS];
+    bool          m_looperHeld[LOOPER_NUM_TRACKS];
+    bool          m_looperClearTriggered[LOOPER_NUM_TRACKS];
 
-    // Hold tracking for layer pads (cols 2-5): tap=stop/play toggle, hold=clear layer
-    unsigned long m_layerHoldStart[LOOPER_NUM_TRACKS][LOOPER_NUM_LAYERS];
-    bool          m_layerHeld[LOOPER_NUM_TRACKS][LOOPER_NUM_LAYERS];
-    bool          m_layerClearTriggered[LOOPER_NUM_TRACKS][LOOPER_NUM_LAYERS];
+    // Per-pad hold tracking for the 10 preset pads (cols 0-1, rows 0-4).
+    // Index = row*2 + col ∈ [0,10). Tap = restore preset (mute all non-set
+    // loopers, unmute set loopers). Long-hold = capture: snapshot which
+    // loopers are currently playing into this preset slot.
+    unsigned long m_presetHoldStart[LOOPER_NUM_PRESETS];
+    bool          m_presetHeld[LOOPER_NUM_PRESETS];
+    bool          m_presetCaptured[LOOPER_NUM_PRESETS];
+
+    // Stored presets: each is a bit-mask of which loopers should be playing.
+    // bit n = looper n plays when this preset is recalled.
+    u32           m_presetMask[LOOPER_NUM_PRESETS];
+    bool          m_presetUsed[LOOPER_NUM_PRESETS];
 
     unsigned long m_nowMs;
     unsigned long m_bootMs;
@@ -113,6 +124,10 @@ private:
     void _applyFilters();
     void _applyEffects();
     void _applyFormant();
+    void _capturePreset(int p);
+    void _applyPreset(int p);
+    int  _looperFromPad(int row, int col) const;  // returns 0..19 or -1
+    int  _presetFromPad(int row, int col) const;  // returns 0..9 or -1
     void _queueCmd(ApcCmd::Type type, int arg);
     void _onPadPress(int row, int col);
     void _onPadRelease(int row, int col);

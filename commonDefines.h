@@ -4,10 +4,14 @@
 
 #pragma once
 
-#define LOOPER_NUM_TRACKS     5
-#define LOOPER_NUM_LAYERS     4
-	// the CC's spaces limit these practially to
-	// 32 when multipled, i.e. 8 tracks of 4 layers or 4 tracks of 8 layers
+// 20 flat loopers on the APC's 4-col × 5-row pad area (cols 2-5). The buffer
+// pool is sized by (TRACKS × LAYERS × LOOP_TRACK_SECONDS-per-clip seconds);
+// 20×1 keeps the total identical to the previous 5×4 layout, so SDRAM use
+// is unchanged. Each pad maps to one (track,layer=0) pair, fully independent.
+// Cols 0-1 are repurposed as 10 preset slots (see apcKey25Notes.cpp).
+#define LOOPER_NUM_TRACKS     20
+#define LOOPER_NUM_LAYERS     1
+#define LOOPER_NUM_PRESETS    10
 
 #define TRACK_STATE_EMPTY               0x0000
 #define TRACK_STATE_RECORDING           0x0001
@@ -27,8 +31,8 @@
 #define LOOP_COMMAND_LOOP_IMMEDIATE     0x08      // immediatly loop back to all clip starts ...
 #define LOOP_COMMAND_SET_LOOP_START     0x09      // immediatly set the "restart point" for the clips in the track
 #define LOOP_COMMAND_CLEAR_LOOP_START   0x0A      // immediatly set the "restart point" for the clips in the track
-#define LOOP_COMMAND_TRACK_BASE         0x10      // there are 16 possible "track" buttons but CLIP CC's spaces limit it
-#define LOOP_COMMAND_ERASE_TRACK_BASE   0x20      // erase the given track (stops it if playing)
+#define LOOP_COMMAND_TRACK_BASE         0x20      // 20 slots: 0x20-0x33 (per-track rec/play toggle)
+#define LOOP_COMMAND_ERASE_TRACK_BASE   0x60      // 20 slots: 0x60-0x73 (whole-track erase)
 #define LOOP_COMMAND_GET_STATE			0x30	  // NEW the looper will dump all state
 	// dumping the state will send
 	//      LOOP_STOP_CMD_STATE_CC
@@ -40,10 +44,10 @@
 	//		LOOP_CONTROL_BASE for LOOPER_NUM_CONTROLS(6)
 	// Because TE just always pushes the volume controls
 
-#define LOOP_COMMAND_STOP_TRACK_BASE     0x48
-#define LOOP_COMMAND_CLEAR_LAYER_BASE    0x50
-#define LOOP_COMMAND_HALVE_TRACK_BASE   0x60
-#define LOOP_COMMAND_DOUBLE_TRACK_BASE  0x70
+#define LOOP_COMMAND_STOP_TRACK_BASE     0x40    // 20 slots: 0x40-0x53 (pause-at-cycle)
+#define LOOP_COMMAND_CLEAR_LAYER_BASE    0xA0    // 20 slots: 0xA0-0xB3 (arm-rec when empty / clear-layer when filled)
+#define LOOP_COMMAND_HALVE_TRACK_BASE    0xC0    // 20 slots: 0xC0-0xD3 (vestigial, kept for now)
+#define LOOP_COMMAND_DOUBLE_TRACK_BASE   0xE0    // 20 slots: 0xE0-0xF3
 
 #define LOOP_COMMAND_RECORD             0x80
 #define LOOP_COMMAND_PLAY               0x81

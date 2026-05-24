@@ -135,42 +135,60 @@ static void sendLedCoalesced(u8 note, u8 vel)
 
 void apcKey25::_updateGridLeds()
 {
-    for (int row = 0; row < LOOPER_NUM_TRACKS; row++)
+    // Cols 0-1: 10 preset slots, idx = row*2 + col.
+    //   blank: never captured
+    //   green: captured + currently the "active" preset (last restored)
+    //   yellow: captured but not the latest restore
+    //   (we don't track "active" yet — for now: blank if unused, green if used)
+    for (int row = 0; row < APC_ROWS; row++)
     {
-        u8 col0 = _trackLedColor(row);
-        u8 col1 = _muteLedColor(row);
-        sendLedCoalesced(_padNote(row, 0), col0);
-        sendLedCoalesced(_padNote(row, 1), col1);
+        for (int col = 0; col < 2; col++)
+        {
+            int p = _presetFromPad(row, col);
+            u8 color = APC_VEL_LED_OFF;
+            if (p >= 0 && m_presetUsed[p])
+                color = APC_VEL_LED_YELLOW;
+            sendLedCoalesced(_padNote(row, col), color);
+        }
     }
 
-    // Per-clip VU grid: cols 2..5 (4 layers) × rows 0..4 (5 tracks).
-    // Each pad shows its OWN clip's level as blank/green/yellow/red.
-    // Drains m_clipPeakLevel on read so it tracks peaks-since-last-update.
-    for (int track = 0; track < LOOPER_NUM_TRACKS; track++)
+    // Cols 2-5: 20 loopers. Color encodes BOTH per-clip VU and state.
+    // Empty looper: blank. Recording: red blink. Pending: yellow. Playing
+    // (idle): green dim. Playing + audio: green→yellow→red by clip peak.
+    for (int n = 0; n < LOOPER_NUM_TRACKS; n++)
     {
-        publicTrack *pTrack = pTheLooper->getPublicTrack(track);
-        // Track-level peak still drained here to keep its accumulator bounded
-        // even though we're not painting a track-VU bar anymore.
-        pTrack->m_peakLevel = 0;
-        for (int layer = 0; layer < LOOPER_NUM_LAYERS; layer++)
-        {
-            int col = 2 + layer;
-            if (col >= APC_COLS) break;
-            publicClip *pClip = pTrack->getPublicClip(layer);
-            u8 color = APC_VEL_LED_OFF;
-            if (pClip) {
-                u32 cpeak = pClip->m_clipPeakLevel;
-                pClip->m_clipPeakLevel = 0;
-                if      (cpeak > 8000) color = APC_VEL_LED_RED;
-                else if (cpeak > 1500) color = APC_VEL_LED_YELLOW;
-                else if (cpeak > 200)  color = APC_VEL_LED_GREEN;
-            }
-            sendLedCoalesced(_padNote(track, col), color);
+        publicTrack *pTrack = pTheLooper->getPublicTrack(n);
+        if (!pTrack) continue;
+        pTrack->m_peakLevel = 0;  // drain accumulator to bound it
+        publicClip *pClip = pTrack->getPublicClip(0);
+        u32 cpeak = 0;
+        if (pClip) { cpeak = pClip->m_clipPeakLevel; pClip->m_clipPeakLevel = 0; }
+        int ts = pTrack->getTrackState();
+
+        u8 color = APC_VEL_LED_OFF;
+        if (ts & TRACK_STATE_RECORDING) {
+            color = APC_VEL_LED_RED;
+        } else if (ts & (TRACK_STATE_PENDING_RECORD | TRACK_STATE_PENDING_PLAY | TRACK_STATE_PENDING_STOP)) {
+            color = APC_VEL_LED_YELLOW;
+        } else if (ts & TRACK_STATE_PLAYING) {
+            if      (cpeak > 8000) color = APC_VEL_LED_RED;
+            else if (cpeak > 1500) color = APC_VEL_LED_YELLOW;
+            else                   color = APC_VEL_LED_GREEN;
+        } else if (pTrack->getNumRecordedClips() > 0) {
+            // Stopped/paused but has content — show dim presence. APC25 has
+            // no dim green so use yellow to mean "captured but not playing".
+            color = APC_VEL_LED_OFF;  // pure blank when paused/stopped
         }
-        // Cols 6,7 explicitly cleared so stale LED state never lingers there.
-        for (int col = 2 + LOOPER_NUM_LAYERS; col < APC_COLS; col++) {
-            sendLedCoalesced(_padNote(track, col), APC_VEL_LED_OFF);
-        }
+
+        int row = n / 4;
+        int col = 2 + (n % 4);
+        sendLedCoalesced(_padNote(row, col), color);
+    }
+
+    // Cols 6,7 explicitly cleared every tick — no stale halve/double LEDs.
+    for (int row = 0; row < APC_ROWS; row++) {
+        sendLedCoalesced(_padNote(row, 6), APC_VEL_LED_OFF);
+        sendLedCoalesced(_padNote(row, 7), APC_VEL_LED_OFF);
     }
 
     u32 peak = AudioInputUSB::s_peakLevel;
