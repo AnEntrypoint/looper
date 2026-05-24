@@ -209,13 +209,17 @@ public:
             m_snacBuf[m_snacWr] = x;
             m_snacWr = (m_snacWr + 1) % SNAC_WIN;
 
-            // ---- 2. Pitch detect — SNAC runs ONLY at splice time ----
-            // Per-HOP SNAC (188 bursts/sec) was proven to stall audio
-            // blocks → IN ring resync ~100/sec = the glitch. SNAC is now
-            // invoked solely from the splice path (~12/sec at -12), where
-            // a fresh period is actually needed. The per-sample SNAC ring
-            // mirror is still maintained (cheap) so the window is ready
-            // whenever the splice path calls detectPitch().
+            // ---- 2. Pitch detect — slow refresh timer ----
+            // SNAC refreshes the cached period at a relaxed rate (every
+            // SNAC_HOP). The micro-splice path reuses the cached period
+            // between refreshes, so the heavy autocorrelation runs at the
+            // HOP cadence only, NOT per-splice. At SNAC_HOP=2048 (43ms)
+            // that's ~23 bursts/sec — well below the level that stalls
+            // audio blocks, while still tracking guitar pitch changes.
+            if (++m_sinceDetect >= SNAC_HOP) {
+                m_sinceDetect = 0;
+                detectPitch();
+            }
 
             // ---- 3. Transient detector ----
             // Fire only on RISING envelope edge: envFast must (a) exceed
@@ -290,11 +294,22 @@ public:
             // RESPLICE_GAP ≈ 4096 (85ms) splices fire ~12×/sec at -12 —
             // frequent enough that each only re-uses 85ms of audio (no
             // audible repeat), phase-aligned so the crossfade is seamless.
+            // True-PSOLA resplice: jump the reader forward by EXACTLY ONE
+            // detected period whenever it has drifted one period behind the
+            // target. Adjacent periods of a quasi-periodic signal are nearly
+            // identical, so a 1-period jump with a 1-period Hann overlap is
+            // seamless — no audible chunk. This fires often (~100/sec at
+            // 200Hz) but each is a micro-splice, not the 85ms macro-jump
+            // that caused the audible "quantized chunks several times/sec".
+            //
+            // SNAC is NOT run here (that's the ring-resync cost). We reuse
+            // the cached m_periodF, refreshed on a slow timer below.
             double driftFromTarget = gap - (double)m_initialReadOffset;
-            if (driftFromTarget > (double)RESPLICE_GAP && m_envSlow > 0.003f) {
-                // Run a fresh SNAC right now so the splice is period-aligned.
-                if (!m_periodValid) detectPitch();
-                triggerSplice(/*toLive=*/false);
+            double per = (m_periodValid && m_periodF >= (float)MIN_PERIOD)
+                         ? (double)m_periodF : 240.0;
+            if (driftFromTarget > per && m_envSlow > 0.003f && m_xfadeRemain == 0) {
+                // Jump reader forward by one period, crossfade over one period.
+                triggerSpliceByPeriod(per);
             }
             // Emergency hard-escape (buffer wrap protection only).
             if (gap > (double)(DL - 16) || gap < 16.0) {
@@ -360,11 +375,13 @@ private:
     // — that sweep's "best at 64" conclusion is invalid.
     static const int INITIAL_READ_OFFSET_DEFAULT = 192;
     static const int SNAC_WIN = 1024;
-    static const int SNAC_HOP = 256;   // 5.3ms — original good cadence.
-                                       // Earlier widened to 1024 on CPU
-                                       // theory which turned out wrong
-                                       // (glitches were buffer
-                                       // misalignment, not CPU).
+    static const int SNAC_HOP = 2048;  // 43ms period-refresh cadence. The
+                                       // micro-splice path reuses the cached
+                                       // period between refreshes, so SNAC's
+                                       // heavy autocorrelation runs ~23/sec
+                                       // (not per-splice ~100/sec) — gentle
+                                       // enough not to stall audio blocks /
+                                       // trigger IN-ring resync.
     static const int MIN_PERIOD = 48;     // 1 kHz
     static const int MAX_PERIOD = 800;    // 60 Hz
     // Reader drifts this far past the read-offset before a phase-aligned
@@ -461,6 +478,27 @@ private:
             v += m_dl[(uint32_t)idx & MASK] * coef[k];
         }
         return v;
+    }
+
+    // Micro-splice: jump the new reader forward by exactly ONE period
+    // from the active reader and crossfade over one period. Because
+    // consecutive periods of a quasi-periodic tone are near-identical,
+    // this is seamless — the textbook PSOLA period-repeat. No SNAC here
+    // (uses the passed cached period), so it can fire ~100/sec cheaply.
+    void triggerSpliceByPeriod(double per) {
+        if (m_xfadeRemain > 0) return;
+        m_spliceCount++;
+        double &rdActive  = m_useA ? m_rdA : m_rdB;
+        double &rdPassive = m_useA ? m_rdB : m_rdA;
+        // New reader = active + one period (forward jump = skip ahead,
+        // shrinking the gap by exactly one period). Phase-identical point.
+        rdPassive = rdActive + per;
+        int len = (int)per;
+        if (len < 32) len = 32;
+        if (len > 2048) len = 2048;
+        m_xfadeLen = len;
+        m_xfadeRemain = len;
+        m_useA = !m_useA;
     }
 
     void triggerSplice(bool toLive) {
