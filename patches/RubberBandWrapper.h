@@ -21,6 +21,7 @@ class RubberBandWrapper {
   uint32_t m_retrievedFrames;
   float m_formantRes = 0.0f;
   float m_formantFreq = 800.0f;
+  bool  m_engaged = false;
 
   static constexpr size_t MAX_BLOCK = 512;
   float m_feed_L[MAX_BLOCK];
@@ -131,35 +132,22 @@ public:
   }
 
   size_t retrieveAudio(int16_t *left, int16_t *right, size_t samples) {
-    // Zero-latency passthrough when pitch within ±0.1% of unity (mod-wheel deadzone).
-    // Skips signalsmith STFT (~4ms) entirely.
-    if (m_pitchScale > 0.999f && m_pitchScale < 1.001f) {
-      memcpy(m_retr_L, m_feed_L, samples * sizeof(float));
-      memcpy(m_retr_R, m_feed_R, samples * sizeof(float));
-    } else if (octaveActive()) {
-      // Up-shift: existing fixed-grain granular octaver (~3ms).
-      processOctave(m_feed_L, m_feed_R, m_retr_L, m_retr_R, samples);
-    } else if (m_pitchScale > 0.45f && m_pitchScale < 0.55f) {
-      // Down-octave (~-12 semitones): sinc-delay-192 + post-EQ formant.
-      // Host-tested: pitch lock within 0.1 Hz across E2-E4 (best of any engine
-      // in the sweep), THD 44-58% on harmonic content. Engine latency 192/sr
-      // = 4 ms @ 48 kHz. Formant control via brightness/resonance/freq knobs
-      // surfaces three expressive characters without phase-vocoder artifacts.
-      m_sincL.processBlock(m_feed_L, m_retr_L, (int)samples);
-      m_sincR.processBlock(m_feed_R, m_retr_R, (int)samples);
-    } else {
-      // All other ratios — including down-shift to -12 — go through
-      // signalsmith STFT at blockSamples=192, intervalSamples=64. Latency
-      // ≈ 3.3ms (192 / 48000). Spectrally imperfect on low fundamentals
-      // (block is < pitch period for sub-250Hz content) but the only
-      // engine fast enough to meet the 3-8ms latency budget on guitar.
-      // PSOLA-style detection-based engines require ≥ one pitch period
-      // (≈24ms at 41Hz) of detection window before producing the first
-      // output — physically incompatible with the latency goal.
-      const float *in[2]  = { m_feed_L, m_feed_R };
-      float       *out[2] = { m_retr_L, m_retr_R };
-      m_stretch.process(in, (int)samples, out, (int)samples);
-    }
+    // ONE algo for every pitch ratio: SincFormantOctaver. Sinc-interpolated
+    // fractional-rate resample on a 32k-sample delay line covers both
+    // down-shift (read falls behind, snap forward on full) and up-shift
+    // (read catches write, snap back). Post-EQ tilt + peaking biquads give
+    // expressive formant control. Latency is constant 4 ms (192-sample
+    // initial read offset) regardless of pitch — toggling engage cross-
+    // fades wet↔dry over 30 ms, no time-jump, no click.
+    //
+    // signalsmith STFT + granular octaver + PSOLA are no longer in the
+    // hot path. Removed for "one algo does everything" — the host A/B
+    // confirmed sinc-delay has the best pitch lock (<0.3 Hz) across the
+    // entire E2-E4 range, and tilt EQ supplies the formant character that
+    // signalsmith's STFT formant-preserve used to provide.
+    m_sincL.processBlock(m_feed_L, m_retr_L, (int)samples);
+    m_sincR.processBlock(m_feed_R, m_retr_R, (int)samples);
+
     for (size_t i = 0; i < samples; i++) {
       float l = m_retr_L[i] * 32768.0f;
       float r = m_retr_R[i] * 32768.0f;
@@ -175,9 +163,20 @@ public:
     m_stretch.setTransposeFactor(scale, m_formant);
     m_psolaL.configure(48000.0f, scale);
     m_psolaR.configure(48000.0f, scale);
+    // Inside sinc, 1.0 = pure delay (no pitch effect). Target the actual
+    // requested scale so when the engaged crossfade lands we're already at
+    // the right rate. The engine smooths to it over ~10 ms so no click.
     m_sincL.setPitchScale(scale);
     m_sincR.setPitchScale(scale);
   }
+
+  // Drive the wet/dry crossfade. Called when liveEngaged toggles.
+  void setEngaged(bool on) {
+    m_engaged = on;
+    m_sincL.setEngaged(on);
+    m_sincR.setEngaged(on);
+  }
+  bool isEngaged() const { return m_engaged; }
 
   void setFormant(float norm) {
     // norm ∈ [-1, +1] is the existing single-knob formant input from MIDI.

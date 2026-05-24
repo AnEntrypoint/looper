@@ -98,7 +98,7 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             m_liveEngaged = false;
             m_livePitchSemitones = 0.0f;
         } else {
-            m_livePitchSemitones = ((float)((int)data2 - 64)) * 6.0f / 63.0f;
+            m_livePitchSemitones = ((float)((int)data2 - 64)) * 12.0f / 63.0f;
             m_liveEngaged = true;
         }
         _applyLivePitch();
@@ -107,7 +107,7 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
 
     if (msgType == 0xB0 && data1 == 52)
     {
-        m_livePitchSemitones = (data2 / 127.0f) * 12.0f - 6.0f;
+        m_livePitchSemitones = (data2 / 127.0f) * 24.0f - 12.0f;
         m_liveEngaged = true;
         _applyLivePitch();
         return;

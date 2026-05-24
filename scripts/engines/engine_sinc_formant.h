@@ -47,17 +47,20 @@ struct Biquad {
 inline void designHighShelf(Biquad& bq, float sr, float fc, float gainDb) {
     float A = std::pow(10.0f, gainDb / 40.0f);
     float w0 = 2.0f * (float)M_PI * fc / sr;
-    float S = 1.0f;
-    float alpha = std::sin(w0) / 2.0f * std::sqrt((A + 1.0f/A) * (1.0f/S - 1.0f) + 2.0f);
     float cos_w0 = std::cos(w0);
+    float sin_w0 = std::sin(w0);
+    float alpha = sin_w0 * 0.5f * 1.41421356f;  // S = 1
     float beta = 2.0f * std::sqrt(A) * alpha;
-    float b0 = A*((A+1) + (A-1)*cos_w0 + beta);
-    float b1 = -2*A*((A-1) + (A+1)*cos_w0);
-    float b2 = A*((A+1) + (A-1)*cos_w0 - beta);
-    float a0 = (A+1) - (A-1)*cos_w0 + beta;
-    float a1 = 2*((A-1) - (A+1)*cos_w0);
-    float a2 = (A+1) - (A-1)*cos_w0 - beta;
-    bq.b0 = b0/a0; bq.b1 = b1/a0; bq.b2 = b2/a0;
+    float A_p1 = A + 1.0f, A_m1 = A - 1.0f;
+    float b0 = A*(A_p1 + A_m1*cos_w0 + beta);
+    float b1 = -2*A*(A_m1 + A_p1*cos_w0);
+    float b2 = A*(A_p1 + A_m1*cos_w0 - beta);
+    float a0 = A_p1 - A_m1*cos_w0 + beta;
+    float a1 = 2*(A_m1 - A_p1*cos_w0);
+    float a2 = A_p1 - A_m1*cos_w0 - beta;
+    // Compensate by 1/sqrt(A) so |H(fc)|≈1
+    float comp = 1.0f / std::sqrt(A);
+    bq.b0 = b0/a0*comp; bq.b1 = b1/a0*comp; bq.b2 = b2/a0*comp;
     bq.a1 = a1/a0; bq.a2 = a2/a0;
 }
 
@@ -106,7 +109,7 @@ inline void engine_sinc_formant(const std::vector<float>& in,
     // Design post-EQ biquads once (could be re-designed each block at run-time
     // for expressive modulation).
     Biquad shelf, peak;
-    designHighShelf(shelf, (float)sr, 800.0f, formantBrightness * 12.0f);
+    designHighShelf(shelf, (float)sr, 500.0f, formantBrightness * 18.0f);
     designPeaking(peak, (float)sr, formantFreq, 2.0f, formantResonance * 12.0f);
 
     for (int n = 0; n < N; n++) {
