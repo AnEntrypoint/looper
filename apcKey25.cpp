@@ -77,6 +77,15 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             _applyLivePitch();
             return;
         }
+        if (channel == 2) {
+            // 0x92 (MIDI ch 3): always-engaged pitch set from note.
+            // Used by UDP-MIDI inject from host harness for repeatable
+            // engage-at-pitch testing. Per AGENTS.md spec.
+            m_livePitchSemitones = (float)((int)data1 - 60);
+            m_liveEngaged = true;
+            _applyLivePitch();
+            return;
+        }
         if (data1 < APC_ROWS * APC_COLS)
         {
             _onPadPress(data1 / APC_COLS, data1 % APC_COLS);
