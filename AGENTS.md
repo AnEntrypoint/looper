@@ -112,7 +112,53 @@ When patching Circle's `lib/usb/gadget/` to add `CUSBAudioGadget`:
 - **Channel 1 note-on (0x91)**: toggles engage; pitch = note - 60.
 - **Channel 2 note-on (0x92)**: pitch = note - 60, always engages.
 
+## Looper grid + presets (simplified UI)
+
+The APC25 grid is the only operator surface. 20 flat loopers + 10 preset
+slots. NUM_TRACKS=20, NUM_LAYERS=1 (each pad = one independent looper).
+
+**Pad layout:**
+- **Cols 0-1** (10 pads, rows 0-4): preset slots. `_presetFromPad(row, col)` returns `row*2 + col` ∈ [0, 10).
+- **Cols 2-5** (20 pads, rows 0-4): loopers. `_looperFromPad(row, col)` returns `row*4 + (col-2)` ∈ [0, 20).
+- **Cols 6-7**: explicitly blanked each LED tick (`HALVE/DOUBLE_TRACK` commands kept as harmless press handlers; LEDs always OFF).
+
+**Looper pad gestures** (apcKey25Notes.cpp::_onPadRelease):
+- empty pad tap → `LOOP_COMMAND_CLEAR_LAYER_BASE + n` (arms record on first clip)
+- recording tap → `LOOP_COMMAND_TRACK_BASE + n` (finish + play)
+- playing tap → `LOOP_COMMAND_STOP_TRACK_BASE + n` (pause-at-cycle)
+- paused/stopped tap → `LOOP_COMMAND_TRACK_BASE + n` (resume play)
+- long-hold ≥ `APC_HOLD_ERASE_MS` (1000 ms) → `LOOP_COMMAND_CLEAR_LAYER_BASE + n` (full erase)
+
+**Preset pad gestures**:
+- tap → `_applyPreset(p)`: for each looper, play if bit set in stored mask, pause if not. Empty loopers ignored. No-op if preset never captured.
+- long-hold → `_capturePreset(p)`: snapshot 32-bit `m_presetMask[p]` of which loopers are currently playing or pending-play. Sets `m_presetUsed[p] = true`.
+
+**Looper LED encoding** (apcKey25Transpose.cpp::_updateGridLeds):
+- empty + no content: OFF
+- RECORDING: solid RED
+- PENDING_RECORD/PLAY/STOP: solid YELLOW
+- PLAYING + clip peak >8000 (≈-12 dBFS): solid RED (clip-light)
+- PLAYING + clip peak >1500: solid YELLOW
+- PLAYING + clip peak >200: solid GREEN
+- PLAYING + silence: solid GREEN
+- has-content + paused: blink YELLOW (visible "loaded but silent" marker)
+
+**Preset LED encoding**:
+- never captured: OFF
+- captured: solid YELLOW
+
+**Per-clip VU**: `publicClip::m_clipPeakLevel` populated each block in `loopClipUpdate.cpp` from the clip's own tmp_L/tmp_R contribution (not the track sum). Drained on read by `_updateGridLeds`.
+
+**Stuck-LED prevention**: `sendLedCoalesced` only commits to `s_lastLedState` cache when `usbMidiSendNoteOn` returns true. Dropped MIDI OUT frames are retried automatically on the next tick.
+
+**Command-CC base layout** (commonDefines.h) — renumbered to fit 20 slots without overlap:
+- `LOOP_COMMAND_TRACK_BASE`        0x20 (20 slots)
+- `LOOP_COMMAND_STOP_TRACK_BASE`   0x40
+- `LOOP_COMMAND_ERASE_TRACK_BASE`  0x60 (still in `loopMachine`, no longer reached from APC)
+- `LOOP_COMMAND_CLEAR_LAYER_BASE`  0xA0
+- `LOOP_COMMAND_HALVE_TRACK_BASE`  0xC0
+- `LOOP_COMMAND_DOUBLE_TRACK_BASE` 0xE0
+
 ## Planned architecture (not yet implemented)
 
 - **3-minute rolling recording buffer**: continuous circular fill, record marks in/out, deep-copies into clip. Eliminates start/stop clicks.
-- **Independent track controls**: per-track stop instead of `LOOP_COMMAND_STOP_IMMEDIATE` (which stops all).

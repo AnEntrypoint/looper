@@ -170,10 +170,6 @@ void apcKey25::update()
         {
             pTheLooper->command(LOOP_COMMAND_STOP_TRACK_BASE + arg);
         }
-        else if (type == ApcCmd::ERASE_TRACK)
-        {
-            pTheLooper->command(LOOP_COMMAND_ERASE_TRACK_BASE + arg);
-        }
         else if (type == ApcCmd::CLEAR_LAYER)
         {
             pTheLooper->command(LOOP_COMMAND_CLEAR_LAYER_BASE + arg);

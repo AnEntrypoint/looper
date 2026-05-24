@@ -33,8 +33,7 @@
 // Col 1 = track presence (tap to erase, hold to erase)
 
 struct ApcCmd {
-    enum Type { NONE, TRACK, ERASE_TRACK, STOP_TRACK, LOOPER,
-                CLEAR_LAYER, PRESET_RESTORE } type;
+    enum Type { NONE, TRACK, STOP_TRACK, LOOPER, CLEAR_LAYER, PRESET_RESTORE } type;
     int arg;
 };
 
@@ -139,8 +138,6 @@ private:
     void _updateComputedRatio();
     void _updateDrift();
     void _updateGridLeds();
-    u8   _trackLedColor(int track);
-    u8   _muteLedColor(int track);
     u8   _padNote(int row, int col);
 };
 

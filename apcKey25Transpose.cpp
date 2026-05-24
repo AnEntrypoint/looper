@@ -37,34 +37,10 @@ void apcKey25::_updateDrift()
     }
 }
 
-u8 apcKey25::_trackLedColor(int track)
-{
-    if (track >= LOOPER_NUM_TRACKS) return APC_VEL_LED_OFF;
-    publicTrack *pTrack = pTheLooper->getPublicTrack(track);
-    u16 ts = pTrack->getTrackState();
-
-    if (ts & TRACK_STATE_RECORDING)
-        return pTrack->getNumRecordedClips() > 0 ? APC_VEL_LED_YELLOW : APC_VEL_LED_RED;
-    if (ts & (TRACK_STATE_PENDING_RECORD | TRACK_STATE_PENDING_PLAY | TRACK_STATE_PENDING_STOP))
-        return APC_VEL_LED_YELLOW;
-    if (ts & TRACK_STATE_PLAYING)
-        return APC_VEL_LED_GREEN;
-    return APC_VEL_LED_OFF;
-}
-
-u8 apcKey25::_muteLedColor(int track)
-{
-    if (track >= LOOPER_NUM_TRACKS) return APC_VEL_LED_OFF;
-    publicTrack *pTrack = pTheLooper->getPublicTrack(track);
-    int layers = pTrack->getNumRecordedClips();
-    if (layers == 0) return APC_VEL_LED_OFF;
-    bool stopped = (pTrack->getTrackState() & TRACK_STATE_STOPPED) != 0;
-    u8 color = APC_VEL_LED_GREEN;
-    if (layers >= 3) color = APC_VEL_LED_RED;
-    else if (layers >= 2) color = APC_VEL_LED_YELLOW;
-    if (stopped) color++;
-    return color;
-}
+// _trackLedColor / _muteLedColor removed — the simplified UI (20 flat
+// loopers + 10 preset slots) no longer has a per-track state column or
+// per-track mute column. All looper state encoding now lives in the
+// looper-pad LED logic in _updateGridLeds.
 
 void apcKey25::_applyLivePitch()
 {
@@ -77,10 +53,9 @@ void apcKey25::_applyLivePitch()
     p.linkBPM            = (float)linkGetBPM();
     paramSnapshotPublish(p);
     m_liveLedDirty = true;
-    CLogger::Get()->Write(log_name, LogNotice,
-        "livePitch engaged=%d semis=%.2f",
-        m_liveEngaged ? 1 : 0,
-        m_livePitchSemitones);
+    // No syslog per CC — knob sweeps generate ~100 CCs/sec and each
+    // CLogger::Write blocks long enough to cause USB-IN ring underruns =
+    // audible clicks. State is observable via the periodic stat block.
 }
 
 apcKey25::DebugState apcKey25::getDebugState() const
