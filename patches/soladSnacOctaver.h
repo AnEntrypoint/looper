@@ -200,8 +200,12 @@ public:
             if (m_warmup > 0) {
                 m_warmup--;
                 out[i] = 0.0f;
-                if (m_useA) m_rdA = (double)(m_wr - m_initialReadOffset);
-                else        m_rdB = (double)(m_wr - m_initialReadOffset);
+                // Both readers parked at the same offset behind write —
+                // ensures that when the first splice flips active/passive,
+                // the formerly-passive reader is already at a valid position
+                // pointing at real audio, not at delay-line[0] silence.
+                m_rdA = (double)(m_wr - m_initialReadOffset);
+                m_rdB = (double)(m_wr - m_initialReadOffset);
                 continue;
             }
 
@@ -285,12 +289,14 @@ private:
     // doesn't trigger splice resonance on low-fundamental input.
     static const int INITIAL_READ_OFFSET_DEFAULT = 64;
     static const int SNAC_WIN = 1024;
-    static const int SNAC_HOP = 512;   // 10.7ms — Pi4 CPU budget. Was 128
-                                       // (2.7ms) which overran Core 1's
-                                       // 1.33ms-per-audio-block budget,
-                                       // causing IN ring overflow + dispatch
-                                       // drop. Guitar pitch doesn't change
-                                       // fast enough to need <10ms updates.
+    static const int SNAC_HOP = 256;   // 5.3ms — comfortable cadence for
+                                       // guitar pitch tracking. Was 128
+                                       // (2.7ms, too tight) and briefly
+                                       // 512 (10.7ms — overcorrected on
+                                       // suspected CPU exhaustion that
+                                       // turned out to be 2× dispatch
+                                       // over-scheduling in AudioSystem,
+                                       // fixed separately).
     static const int MIN_PERIOD = 48;     // 1 kHz
     static const int MAX_PERIOD = 800;    // 60 Hz
     static const int TRANS_REFRACTORY = 14400;  // 300 ms — keeps transient splice rare
@@ -430,12 +436,11 @@ private:
         for (int i = 0; i < W; i++) energy += win[i] * win[i];
         if (energy < 0.001f) { m_periodValid = false; return; }
 
-        // Direct autocorrelation + norm. Per-tau inner loop is O(W-tau);
-        // total O(W*P). Use stride=2 in the inner loop (skip every other
-        // sample pair) — halves CPU at the cost of ~3dB lower autocorr
-        // SNR. For monophonic guitar with strong fundamentals this is
-        // imperceptible in pitch detection accuracy but recovers the
-        // Core 1 cycles needed to hit our 1.33ms-per-block budget.
+        // Direct autocorrelation + norm. Per-tau inner loop O(W-tau).
+        // Was using stride=2 to halve CPU when we thought engine cost was
+        // the cause of dispatch overflow — actual cause was 2× scheduling
+        // in AudioSystem::startUpdate (now idempotent per audio cycle).
+        // Reverted to full SNR for best pitch accuracy.
         int maxTau = MAX_PERIOD;
         if (maxTau > W - 32) maxTau = W - 32;
         m_r[0] = energy;
@@ -443,9 +448,8 @@ private:
         for (int k = 1; k <= maxTau; k++) {
             float sum = 0;
             int limit = W - k;
-            // Stride-2 inner loop
-            for (int n = 0; n < limit; n += 2) sum += win[n] * win[n + k];
-            m_r[k] = sum * 2.0f;   // compensate stride
+            for (int n = 0; n < limit; n++) sum += win[n] * win[n + k];
+            m_r[k] = sum;
             float removed = win[W - k] * win[W - k] + win[k - 1] * win[k - 1];
             m_normK[k] = m_normK[k - 1] - removed;
             if (m_normK[k] < 1e-12f) m_normK[k] = 1e-12f;

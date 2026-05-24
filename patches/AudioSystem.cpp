@@ -409,8 +409,21 @@ bool AudioSystem::takeUpdateResponsibility()
 
 void AudioSystem::startUpdate()
 {
-	if (s_nInUpdate++)
-		s_numOverflows++;
+	// Idempotent per audio cycle: if a doUpdate is already in flight OR
+	// queued, drop this push. USB IN and OUT URB completions fire at
+	// the same 750 Hz rate (one per AUDIO_BLOCK_SAMPLES), but each one
+	// used to queue a fresh doUpdate — burning Core 1 doing 2× the
+	// necessary DSP work and overflowing the dispatch ring at ~1000
+	// drops/sec during transpose. One doUpdate per audio cycle is all
+	// that's needed; whichever ISR fires first does the scheduling.
+	//
+	// Atomic check+set: disable IRQ briefly to defeat ISR-vs-Core-2
+	// race. The check is dirt cheap so the IRQ window is sub-µs.
+	__disable_irq();
+	bool already = (s_nInUpdate != 0);
+	if (!already) s_nInUpdate++;
+	__enable_irq();
+	if (already) { s_numOverflows++; return; }
 
 	#ifdef ARM_ALLOW_MULTI_CORE
 		// Hand off DSP to Core 1 worker. Producer may be Core 0 ISR or
