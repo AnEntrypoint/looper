@@ -104,6 +104,18 @@ void loopClip::update(s32 *ip, s32 *op)
         }
     }
 
+    // Per-clip peak level for grid VU LEDs. Use the abs-max of the L+R
+    // tmp buffer (= this clip's own contribution this block) so each pad's
+    // LED reflects only its own audio, not the whole track sum.
+    u32 clipPeak = 0;
+    for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+        s16 l = tmp_L[i]; if (l < 0) l = -l;
+        s16 r = tmp_R[i]; if (r < 0) r = -r;
+        if ((u32)l > clipPeak) clipPeak = (u32)l;
+        if ((u32)r > clipPeak) clipPeak = (u32)r;
+    }
+    if (clipPeak > m_clipPeakLevel) m_clipPeakLevel = clipPeak;
+
     for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
         op[i*LOOPER_NUM_CHANNELS] += (s32)tmp_L[i];
         op[i*LOOPER_NUM_CHANNELS+1] += (s32)tmp_R[i];

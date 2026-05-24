@@ -183,7 +183,13 @@ class publicClip
 
         int getVolume()             { return m_volume * 100.00; }
         void setVolume(int vol)     { m_volume = ((float)vol)/100.00; }
-            
+
+        // Per-clip peak level, reset by reader (apcKey25 grid refresh).
+        // Audio path samples |s16| and OR-merges into this; reader reads and
+        // zeroes. Lock-free single-writer/single-reader; the worst race is a
+        // 1-frame stale max which is invisible at 30 Hz UI tick.
+        volatile u32 m_clipPeakLevel;
+
     protected:
 
         void init()
@@ -203,6 +209,7 @@ class publicClip
             m_volume = 1.0;
             m_mark_point = -1;
             m_mark_point_active = false;
+            m_clipPeakLevel = 0;
         }
 
         u16  m_track_num;

@@ -38,11 +38,16 @@ void usbMidiProcess(bool bPlugAndPlayUpdated)
     }
 }
 
-void usbMidiSendNoteOn(u8 note, u8 velocity)
+bool usbMidiSendNoteOn(u8 note, u8 velocity)
 {
     u8 msg[3] = { 0x90, note, velocity };
-    for (int i = 1; i <= 8; i++)
-        if (s_pDevices[i]) s_pDevices[i]->SendPlainMIDI(0, msg, 3);
+    bool any = false;
+    for (int i = 1; i <= 8; i++) {
+        if (s_pDevices[i]) {
+            if (s_pDevices[i]->SendPlainMIDI(0, msg, 3)) any = true;
+        }
+    }
+    return any;
 }
 
 void usbMidiInjectMidi(u8 status, u8 data1, u8 data2)

@@ -124,8 +124,13 @@ static void sendLedCoalesced(u8 note, u8 vel)
         s_ledCacheValid = true;
     }
     if (s_lastLedState[note] == vel) return;
-    s_lastLedState[note] = vel;
-    usbMidiSendNoteOn(note, vel);
+    // Only commit to cache when the send is actually queued. If MIDI OUT is
+    // full and the frame drops, leave the cache showing the old value so the
+    // next tick retries — otherwise dropped LED updates freeze pads in stale
+    // colors (the "stuck VU LEDs" symptom).
+    if (usbMidiSendNoteOn(note, vel)) {
+        s_lastLedState[note] = vel;
+    }
 }
 
 void apcKey25::_updateGridLeds()
@@ -138,25 +143,33 @@ void apcKey25::_updateGridLeds()
         sendLedCoalesced(_padNote(row, 1), col1);
     }
 
+    // Per-clip VU grid: cols 2..5 (4 layers) × rows 0..4 (5 tracks).
+    // Each pad shows its OWN clip's level as blank/green/yellow/red.
+    // Drains m_clipPeakLevel on read so it tracks peaks-since-last-update.
     for (int track = 0; track < LOOPER_NUM_TRACKS; track++)
     {
-        int col = 2 + track;
-        if (col >= APC_COLS - 1) break;
         publicTrack *pTrack = pTheLooper->getPublicTrack(track);
-        u32 tpeak = pTrack->m_peakLevel;
+        // Track-level peak still drained here to keep its accumulator bounded
+        // even though we're not painting a track-VU bar anymore.
         pTrack->m_peakLevel = 0;
-        int tvu = 0;
-        if (tpeak > 50)    tvu = 1;
-        if (tpeak > 200)   tvu = 2;
-        if (tpeak > 1000)  tvu = 3;
-        if (tpeak > 4000)  tvu = 4;
-        if (tpeak > 10000) tvu = 5;
-        for (int row = 0; row < APC_ROWS; row++)
+        for (int layer = 0; layer < LOOPER_NUM_LAYERS; layer++)
         {
+            int col = 2 + layer;
+            if (col >= APC_COLS) break;
+            publicClip *pClip = pTrack->getPublicClip(layer);
             u8 color = APC_VEL_LED_OFF;
-            if (row < tvu)
-                color = (row >= 4) ? APC_VEL_LED_RED : APC_VEL_LED_GREEN;
-            sendLedCoalesced(_padNote(row, col), color);
+            if (pClip) {
+                u32 cpeak = pClip->m_clipPeakLevel;
+                pClip->m_clipPeakLevel = 0;
+                if      (cpeak > 8000) color = APC_VEL_LED_RED;
+                else if (cpeak > 1500) color = APC_VEL_LED_YELLOW;
+                else if (cpeak > 200)  color = APC_VEL_LED_GREEN;
+            }
+            sendLedCoalesced(_padNote(track, col), color);
+        }
+        // Cols 6,7 explicitly cleared so stale LED state never lingers there.
+        for (int col = 2 + LOOPER_NUM_LAYERS; col < APC_COLS; col++) {
+            sendLedCoalesced(_padNote(track, col), APC_VEL_LED_OFF);
         }
     }
 
