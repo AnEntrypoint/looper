@@ -382,6 +382,13 @@ private:
     int      m_period = 256;
     float    m_periodF = 256.0f;   // sub-sample period for snap precision
     bool     m_periodValid = false;
+public:
+    // Introspection for Pi-side telemetry (read by wrapper → audio.cpp log).
+    unsigned m_spliceCount = 0;
+    float    scaleNow()  const { return m_scale; }
+    int      periodNow() const { return m_period; }
+    bool     periodOk()  const { return m_periodValid; }
+private:
     int      m_sinceDetect = 0;
     int      m_warmup = SNAC_WIN;
     float    m_envSlow = 0.0f;
@@ -439,6 +446,7 @@ private:
         // flight. Without this, two close-together triggers leave
         // discontinuous reader state mid-fade and produce a sharp pop.
         if (m_xfadeRemain > 0) return;
+        m_spliceCount++;   // introspection: how often are we splicing?
 
         double &rdActive  = m_useA ? m_rdA : m_rdB;
         double &rdPassive = m_useA ? m_rdB : m_rdA;

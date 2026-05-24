@@ -325,6 +325,25 @@ void loop()
 		prev_busy[2]=g_coreBusyTicks[2];
 		prev_busy[3]=g_coreBusyTicks[3]; prev_idle[3]=g_coreIdleTicks[3];
 #endif
+		// Engine introspection — only emit when transpose is engaged (so
+		// passthrough stays log-quiet). Shows the actual on-Pi engine state:
+		// is m_scale at the commanded ratio, how many splices fired this
+		// interval, is the period detector locked. Diagnoses the Pi-only
+		// scattered-spectrum issue that doesn't repro on host.
+		extern RubberBandWrapper *pLivePitchWrapper;
+		if (pLivePitchWrapper && pLivePitchWrapper->isEngaged()) {
+			static unsigned prev_splice = 0;
+			unsigned sc = pLivePitchWrapper->engineSpliceCount();
+			unsigned d_splice = sc - prev_splice;
+			prev_splice = sc;
+			int sci = (int)(pLivePitchWrapper->engineScale() * 1000.0f);
+			CLogger::Get()->Write(log_name, LogNotice,
+				"eng scale=%d.%03d period=%d lock=%d splice+%u",
+				sci/1000, sci%1000,
+				pLivePitchWrapper->enginePeriod(),
+				pLivePitchWrapper->enginePeriodOk() ? 1 : 0,
+				d_splice);
+		}
 	}
 #endif
 	if (pTheAPC) pTheAPC->update();

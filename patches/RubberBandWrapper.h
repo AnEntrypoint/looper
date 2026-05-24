@@ -259,6 +259,14 @@ public:
   void setTempoRatio(float) {}
   void updateRatios() {}
 
+  // Pi-side engine introspection — surfaces solad-snac internals to the
+  // audio.cpp telemetry so we can diagnose on hardware: is scale actually
+  // at target, how often are splices firing, is the period locked.
+  float engineScale()    const { return m_soladL.scaleNow(); }
+  int   enginePeriod()   const { return m_soladL.periodNow(); }
+  bool  enginePeriodOk() const { return m_soladL.periodOk(); }
+  unsigned engineSpliceCount() const { return m_soladL.m_spliceCount; }
+
   struct DebugState {
     float pitchScale;
     uint32_t processedFrames;
