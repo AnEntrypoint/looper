@@ -65,6 +65,25 @@ public:
 
     void setPitchScale(float s) { m_targetScale = s; }
 
+    // Re-align readers to a fresh state for re-engage. Called by the
+    // wrapper when liveEngaged toggles false→true. Without this the
+    // readers retain stale positions from the previous engaged session
+    // — at unity scale that means the output is delay-line contents
+    // from N seconds ago, not fresh audio. m_dl is NOT zeroed because
+    // m_wr keeps advancing during disengage gaps would create position
+    // jumps; instead we snap rdA/B to the most-recent valid offset.
+    void reengage() {
+        m_rdA = (double)((int64_t)m_wr - m_initialReadOffset);
+        m_rdB = (double)((int64_t)m_wr - m_initialReadOffset);
+        m_useA = true;
+        m_xfadeRemain = 0;
+        m_xfadeLen = 0;
+        m_scale = m_targetScale;   // skip 1-pole ramp (already at target by re-engage time)
+        m_periodValid = false;
+        m_sinceDetect = 0;
+        // m_warmup stays at 0 — don't re-mute output; just realign.
+    }
+
     // Live-tunable runtime params (sweep-friendly for empirical tuning).
     // initialReadOffset = engine algorithmic delay (samples). Smaller =
     //   lower latency, higher chance of read catching write under drift.
@@ -138,14 +157,10 @@ public:
             // read at preRate to produce formant-warped samples for the
             // delay line. Continuous-rate sinc-interpolated read.
             float xWarped;
-            // Bypass pre-resample stage when explicitly toggled (CC103)
-            // OR when formant depth is 0 (output is identical to feeding
-            // input straight through, but ~10× cheaper on Pi). At
-            // depth=0 preRate = pow(scale, 0) = 1.0, so the sinc-
-            // interpolated read at fractional rate exactly reproduces
-            // the input — bypassing it is a numerical identity, not a
-            // semantic change.
-            if (m_preBypass || m_formantDepth == 0.0f) {
+            // Bypass pre-resample stage only when explicitly toggled
+            // (CC103). Auto-bypass at depth=0 was a CPU hack reverted
+            // because actual glitch cause was buffer misalignment.
+            if (m_preBypass) {
                 xWarped = in[i];
             } else {
                 m_preBuf[m_preWr & PRE_MASK] = in[i];
@@ -318,15 +333,11 @@ private:
     // — that sweep's "best at 64" conclusion is invalid.
     static const int INITIAL_READ_OFFSET_DEFAULT = 192;
     static const int SNAC_WIN = 1024;
-    static const int SNAC_HOP = 1024;  // 21ms — re-detect window. Pi-side
-                                       // screen telem shows Core 1 at 85%
-                                       // during transpose with HOP=256;
-                                       // need 4× less detect frequency to
-                                       // bring Core 1 under 50% with
-                                       // headroom for the rest of the
-                                       // audio graph. Guitar pitch doesn't
-                                       // change at audio rate; 21ms updates
-                                       // are still ~4× faster than perception.
+    static const int SNAC_HOP = 256;   // 5.3ms — original good cadence.
+                                       // Earlier widened to 1024 on CPU
+                                       // theory which turned out wrong
+                                       // (glitches were buffer
+                                       // misalignment, not CPU).
     static const int MIN_PERIOD = 48;     // 1 kHz
     static const int MAX_PERIOD = 800;    // 60 Hz
     static const int TRANS_REFRACTORY = 14400;  // 300 ms — keeps transient splice rare
@@ -496,12 +507,9 @@ private:
         for (int i = 0; i < W; i++) energy += win[i] * win[i];
         if (energy < 0.001f) { m_periodValid = false; return; }
 
-        // Direct autocorrelation + norm. Per-tau inner loop is O(W-tau);
-        // total O(W*P). Stride-4 in the inner loop on Pi to cut SNAC cost
-        // by 4× (Pi screen telem confirmed Core 1 at 85% with stride=1 +
-        // HOP=256; needs both HOP coarsening AND inner-loop coarsening to
-        // get under 50%). For monophonic guitar with strong fundamentals
-        // the autocorrelation SNR is more than enough at stride=4.
+        // Full autocorrelation (stride=1). Earlier stride=4 was a CPU
+        // hack reverted because actual glitch cause was buffer
+        // misalignment on re-engage, not CPU shortage.
         int maxTau = MAX_PERIOD;
         if (maxTau > W - 32) maxTau = W - 32;
         m_r[0] = energy;
@@ -509,8 +517,8 @@ private:
         for (int k = 1; k <= maxTau; k++) {
             float sum = 0;
             int limit = W - k;
-            for (int n = 0; n < limit; n += 4) sum += win[n] * win[n + k];
-            m_r[k] = sum * 4.0f;   // compensate stride
+            for (int n = 0; n < limit; n++) sum += win[n] * win[n + k];
+            m_r[k] = sum;
             float removed = win[W - k] * win[W - k] + win[k - 1] * win[k - 1];
             m_normK[k] = m_normK[k - 1] - removed;
             if (m_normK[k] < 1e-12f) m_normK[k] = 1e-12f;

@@ -184,10 +184,19 @@ public:
   // Wet/dry crossfade (presently no-op for solad which always pitches —
   // engage/disengage handled in loopMachine by gating the call into the
   // wrapper). Kept for API compatibility.
+  // On false→true transition, re-align solad readers to fresh state to
+  // prevent stale-buffer-contents output (buffer kept advancing during
+  // disengage gap, readers stayed at old positions; on re-engage they
+  // would read from N seconds of stale audio).
   void setEngaged(bool on) {
+    bool was = m_engaged;
     m_engaged = on;
     m_sincL.setEngaged(on);
     m_sincR.setEngaged(on);
+    if (on && !was) {
+      m_soladL.reengage();
+      m_soladR.reengage();
+    }
   }
   bool isEngaged() const { return m_engaged; }
 
