@@ -157,10 +157,14 @@ public:
             // read at preRate to produce formant-warped samples for the
             // delay line. Continuous-rate sinc-interpolated read.
             float xWarped;
-            // Bypass pre-resample stage only when explicitly toggled
-            // (CC103). Auto-bypass at depth=0 was a CPU hack reverted
-            // because actual glitch cause was buffer misalignment.
-            if (m_preBypass) {
+            // Auto-bypass pre-resample at depth=0. At depth=0 the stage
+            // should be unity passthrough (preRate = pow(scale, 0) = 1),
+            // but ARM's libm powf may not return exactly 1.0, causing
+            // m_preRate to drift fractionally below 1 → sinc interpolation
+            // with non-zero frac → audible chorus/intermodulation. Bypass
+            // at depth=0 is also free CPU, and numerically equivalent to
+            // unity-rate pre-stage. CC103 forces bypass for A/B testing.
+            if (m_preBypass || m_formantDepth == 0.0f) {
                 xWarped = in[i];
             } else {
                 m_preBuf[m_preWr & PRE_MASK] = in[i];
@@ -237,7 +241,15 @@ public:
             }
 
             // ---- 4. Smooth scale ----
-            m_scale += (m_targetScale - m_scale) * (1.0f / 480.0f);
+            // At target=1.0, force scale to exactly 1.0 to avoid the
+            // 1-pole's asymptotic float-precision drift (which produces
+            // fractional sinc reads at unity → audible chorus). Off-unity
+            // targets ramp normally.
+            if (m_targetScale == 1.0f) {
+                m_scale = 1.0f;
+            } else {
+                m_scale += (m_targetScale - m_scale) * (1.0f / 480.0f);
+            }
 
             // ---- 5. Manage read pointers ----
             if (m_warmup > 0) {
