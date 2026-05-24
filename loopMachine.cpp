@@ -545,6 +545,12 @@ void loopMachine::update(void)
 		if (wantSemis != s_lastSemis || lp.liveEngaged != s_lastEngaged) {
 			float scale = lp.liveEngaged ? powf(2.0f, wantSemis / 12.0f) : 1.0f;
 			pLivePitchWrapper->setPitchScale(scale);
+			// Drive the wrapper's engaged flag — on false→true it triggers
+			// reengage() to realign the engine readers, and it gates the
+			// engine introspection telemetry. Was dropped when the gated
+			// path was restored; without it isEngaged() stays false and
+			// the re-align never fires.
+			pLivePitchWrapper->setEngaged(lp.liveEngaged);
 			s_lastSemis   = wantSemis;
 			s_lastEngaged = lp.liveEngaged;
 		}
