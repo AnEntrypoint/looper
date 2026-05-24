@@ -5,8 +5,11 @@
 #include "usbMidi.h"
 #include "abletonLink.h"
 #include "patches/paramSnapshot.h"
+#include "patches/RubberBandWrapper.h"
 #include <circle/logger.h>
 #include <circle/timer.h>
+
+extern RubberBandWrapper *pLivePitchWrapper;
 
 apcKey25 *pTheAPC = 0;
 
@@ -127,6 +130,38 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
         return;
     }
 
+    // Live engine-tuning CCs (UDP-MIDI inject only — no APC knob assigned).
+    // Use scripts/tune-engine.ps1 or the 3-loopback sweep harness to send
+    // these and observe results in real-time without rebuilding.
+    if (msgType == 0xB0 && data1 == 100)
+    {
+        // CC100: engine initial read offset (= algorithmic latency).
+        // data2 0..127 maps log-ish to 32..2048 samples (0.66..43 ms @ 48k).
+        // Default 192 ≈ data2=48.
+        int samp = 32 + (int)((float)data2 * (float)data2 * 0.125f);
+        if (samp > 2048) samp = 2048;
+        if (pLivePitchWrapper) pLivePitchWrapper->setEngineReadOffset(samp);
+        CLogger::Get()->Write(log_name, LogNotice, "tune readOffset=%d", samp);
+        return;
+    }
+    if (msgType == 0xB0 && data1 == 101)
+    {
+        // CC101: splice xfade scale. data2 0..127 → 0.25..4.0 (log).
+        // Default 1.0 ≈ data2=64.
+        float s = 0.25f * powf(16.0f, (float)data2 / 127.0f);
+        if (pLivePitchWrapper) pLivePitchWrapper->setEngineXfadeScale(s);
+        CLogger::Get()->Write(log_name, LogNotice, "tune xfadeScale=%.3f", s);
+        return;
+    }
+    if (msgType == 0xB0 && data1 == 102)
+    {
+        // CC102: SNAC fidelity threshold. data2 0..127 → 0.30..0.95 linear.
+        // Default 0.7 ≈ data2=88.
+        float f = 0.30f + ((float)data2 / 127.0f) * 0.65f;
+        if (pLivePitchWrapper) pLivePitchWrapper->setEngineFidelity(f);
+        CLogger::Get()->Write(log_name, LogNotice, "tune fidelity=%.3f", f);
+        return;
+    }
 }
 
 void apcKey25::update()

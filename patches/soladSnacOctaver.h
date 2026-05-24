@@ -43,7 +43,7 @@ public:
         m_preRd = 0.0;
         m_preRate = 1.0f;
         m_formantDepth = 0.0f;
-        m_wr = INITIAL_READ_OFFSET;
+        m_wr = (uint32_t)m_initialReadOffset;
         m_rdA = 0.0;                          // primary read pointer
         m_rdB = 0.0;
         m_useA = true;
@@ -63,6 +63,33 @@ public:
     }
 
     void setPitchScale(float s) { m_targetScale = s; }
+
+    // Live-tunable runtime params (sweep-friendly for empirical tuning).
+    // initialReadOffset = engine algorithmic delay (samples). Smaller =
+    //   lower latency, higher chance of read catching write under drift.
+    void setInitialReadOffset(int samples) {
+        if (samples < 32) samples = 32;
+        if (samples > DL - 64) samples = DL - 64;
+        m_initialReadOffset = samples;
+    }
+    int  getInitialReadOffset() const { return m_initialReadOffset; }
+
+    // Splice crossfade scale factor over the per-period default.
+    //   1.0 = 2*period (default), 0.5 = 1*period, 2.0 = 4*period.
+    void setXfadeScale(float s) {
+        if (s < 0.25f) s = 0.25f;
+        if (s > 4.0f) s = 4.0f;
+        m_xfadeScale = s;
+    }
+
+    // SNAC fidelity gate ∈ [0.3, 0.95]. Lower = tracks weaker signals,
+    // higher = only confident lock. Default 0.7.
+    void setFidelityThresh(float f) {
+        if (f < 0.30f) f = 0.30f;
+        if (f > 0.95f) f = 0.95f;
+        m_fidelityThresh = f;
+    }
+
     // Formant depth ∈ [-1, +1]:
     //   d = 0  : natural pitch shift, formants slide with pitch (deep/slow)
     //   d = 1  : formants fully preserved at original pitch (vocal-octave)
@@ -173,8 +200,8 @@ public:
             if (m_warmup > 0) {
                 m_warmup--;
                 out[i] = 0.0f;
-                if (m_useA) m_rdA = (double)(m_wr - INITIAL_READ_OFFSET);
-                else        m_rdB = (double)(m_wr - INITIAL_READ_OFFSET);
+                if (m_useA) m_rdA = (double)(m_wr - m_initialReadOffset);
+                else        m_rdB = (double)(m_wr - m_initialReadOffset);
                 continue;
             }
 
@@ -252,7 +279,7 @@ private:
     static const int MASK = DL - 1;
     static const int SINC_TAPS = 16;
     static const int SINC_HALF = SINC_TAPS / 2;
-    static const int INITIAL_READ_OFFSET = 192;
+    static const int INITIAL_READ_OFFSET_DEFAULT = 192;
     static const int SNAC_WIN = 1024;
     static const int SNAC_HOP = 128;
     static const int MIN_PERIOD = 48;     // 1 kHz
@@ -260,7 +287,7 @@ private:
     static const int TRANS_REFRACTORY = 14400;  // 300 ms — keeps transient splice rare
     static constexpr float ENV_SLOW_TC = 1.0f / 4800.0f;  // 100 ms
     static constexpr float ENV_FAST_TC = 1.0f / 48.0f;    // 1 ms
-    static constexpr float FIDELITY_THRESH = 0.7f;        // relaxed from 0.95 for guitar
+    static constexpr float FIDELITY_THRESH_DEFAULT = 0.7f;  // relaxed from 0.95 for guitar
 
     float    m_dl[DL];
     float    m_preBuf[PRE_DL];
@@ -268,7 +295,10 @@ private:
     double   m_preRd = 0.0;
     float    m_preRate = 1.0f;
     float    m_formantDepth = 0.0f;
-    uint32_t m_wr = INITIAL_READ_OFFSET;
+    int      m_initialReadOffset = INITIAL_READ_OFFSET_DEFAULT;
+    float    m_xfadeScale = 1.0f;
+    float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
+    uint32_t m_wr = INITIAL_READ_OFFSET_DEFAULT;
     double   m_rdA = 0.0;
     double   m_rdB = 0.0;
     bool     m_useA = true;
@@ -322,7 +352,7 @@ private:
             newPos = (double)m_wr - 32.0;
         } else {
             // Drift correction: target middle of safe band.
-            newPos = (double)m_wr - (double)INITIAL_READ_OFFSET;
+            newPos = (double)m_wr - (double)m_initialReadOffset;
         }
         // Snap to integer period offset from current active reader if we
         // have a confident period — phase-coherent splice.
@@ -362,7 +392,9 @@ private:
         // Crossfade length = 2 × period for thorough overlap. Generous
         // window beats a tight one — the splice cooldown caps splice rate
         // so even a long xfade doesn't accumulate.
-        int len = m_periodValid ? m_period * 2 : 512;
+        int len = m_periodValid
+                  ? (int)((float)m_period * 2.0f * m_xfadeScale)
+                  : (int)(512.0f * m_xfadeScale);
         if (len < 256)  len = 256;
         if (len > 2048) len = 2048;
         m_xfadeLen = len;
@@ -416,7 +448,7 @@ private:
             float v  = 2.0f * m_r[k] / m_normK[k];
             float vm = 2.0f * m_r[k-1] / m_normK[k-1];
             float vp = 2.0f * m_r[k+1] / m_normK[k+1];
-            if (v > vm && v > vp && v > FIDELITY_THRESH) {
+            if (v > vm && v > vp && v > m_fidelityThresh) {
                 // McLeod picks first peak above (max * 0.8) within the bunch.
                 if (v > bestVal) { bestVal = v; bestTau = k; }
                 // Don't break — keep looking for higher peaks within MAX_PERIOD.

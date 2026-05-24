@@ -210,6 +210,21 @@ public:
     m_soladR.setFormantDepth(brightness);
   }
 
+  // Live-tunable solad-snac runtime params (CC100-102 via UDP-MIDI inject).
+  // Lets us sweep latency / splice / fidelity in-place without rebuilding.
+  void setEngineReadOffset(int samples) {
+    m_soladL.setInitialReadOffset(samples);
+    m_soladR.setInitialReadOffset(samples);
+  }
+  void setEngineXfadeScale(float s) {
+    m_soladL.setXfadeScale(s);
+    m_soladR.setXfadeScale(s);
+  }
+  void setEngineFidelity(float f) {
+    m_soladL.setFidelityThresh(f);
+    m_soladR.setFidelityThresh(f);
+  }
+
   void setTempoRatio(float) {}
   void updateRatios() {}
 
