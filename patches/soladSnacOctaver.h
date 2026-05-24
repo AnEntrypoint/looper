@@ -137,12 +137,12 @@ public:
             // read at preRate to produce formant-warped samples for the
             // delay line. Continuous-rate sinc-interpolated read.
             float xWarped;
-            if (m_preBypass || m_formantDepth == 0.0f) {
-                // Bypass the pre-resample stage entirely — feed input
-                // straight into the delay line. At depth=0 this is
-                // semantically identical to the sinc-read path but
-                // sidesteps any drift-snap artefact from the pre-buffer
-                // gap-management glide.
+            // Always run pre-resample stage (matches host engine that
+            // tests clean). Bypass kept only when explicitly toggled via
+            // CC103 for A/B comparison — auto-bypass at depth=0 was
+            // changing the audio path timing vs host and may have been
+            // the source of the Pi-only glitching.
+            if (m_preBypass) {
                 xWarped = in[i];
             } else {
                 m_preBuf[m_preWr & PRE_MASK] = in[i];
@@ -188,20 +188,14 @@ public:
             m_snacWr = (m_snacWr + 1) % SNAC_WIN;
 
             // ---- 2. Pitch detect periodically ----
-            // Skip SNAC at unity scale — splice never fires (gap stays
-            // at initial offset), so the detected period is unused. Frees
-            // ~5ms of Core 1 every 5.3ms when the engine is engaged but
-            // not actually pitching. Resume detect as soon as scale
-            // departs unity (so we have a period ready for splices).
-            if (m_scale < 0.999f || m_scale > 1.001f) {
-                if (++m_sinceDetect >= SNAC_HOP) {
-                    m_sinceDetect = 0;
-                    detectPitch();
-                }
-            } else {
-                // Hold detector ready — when scale changes we want a
-                // fresh detect within HOP samples, not wait full HOP.
-                m_sinceDetect = SNAC_HOP - 1;
+            // Always run SNAC at HOP cadence (matches host engine).
+            // The earlier unity-skip optimisation was based on the
+            // mistaken assumption that engine compute was causing the
+            // glitch; with dispatch over-scheduling fixed (c4b58ad),
+            // SNAC fits in budget and the parity with host matters more.
+            if (++m_sinceDetect >= SNAC_HOP) {
+                m_sinceDetect = 0;
+                detectPitch();
             }
 
             // ---- 3. Transient detector ----
@@ -314,11 +308,12 @@ private:
     static const int MASK = DL - 1;
     static const int SINC_TAPS = 16;
     static const int SINC_HALF = SINC_TAPS / 2;
-    // 64 samples = 1.33 ms @ 48 kHz. Empirically validated via CC100 sweep
-    // on OTG↔OTG loopback (scripts/measure-results/sweep-cc100-*): 0.13%
-    // THD at this offset vs 0.32% at 192. The smallest stable offset that
-    // doesn't trigger splice resonance on low-fundamental input.
-    static const int INITIAL_READ_OFFSET_DEFAULT = 64;
+    // 192 samples = 4 ms @ 48 kHz. Matches host engine default which has
+    // been tested clean (0.06% THD, 41Hz lock from 82Hz input). The 64-
+    // sample setting from the earlier sweep was measuring passthrough
+    // (engine never actually engaged because ch2 MIDI handler was missing)
+    // — that sweep's "best at 64" conclusion is invalid.
+    static const int INITIAL_READ_OFFSET_DEFAULT = 192;
     static const int SNAC_WIN = 1024;
     static const int SNAC_HOP = 256;   // 5.3ms — comfortable cadence for
                                        // guitar pitch tracking. Was 128
