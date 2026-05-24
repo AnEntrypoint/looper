@@ -58,13 +58,16 @@ void apcKey25::handleEffectsCC(u8 cc, u8 data2)
     }
     else if (cc == 53)
     {
-        // Formant depth ∈ [-1, +1]. Center deadzone (data2 60-68) snaps to
-        // 0 (natural pitch shift: formants slide with pitch). Above center
-        // → formants preserved at original pitch (vocal-octave character).
-        // Below center → formants doubled-down with pitch (huge/monster).
-        // ±deep extremes overdrive the formant warp for special-effect use.
+        // Formant depth knob. Default range ±1 (musical territory).
+        // Hold SHIFT while turning to expand to ±3 (extreme / special-fx).
+        // Center deadzone (data2 60-68) snaps to 0 = natural pitch shift
+        // (formants slide with pitch). Above center → formants preserved
+        // at original pitch (vocal-octave character). Below center →
+        // formants doubled-down (huge/monster).
         bool inDeadzone = (data2 >= 60 && data2 <= 68);
-        m_formant = inDeadzone ? 0.0f : (((float)((int)data2 - 64)) / 63.0f);
+        float range = m_shift ? 3.0f : 1.0f;
+        m_formant = inDeadzone ? 0.0f
+                               : (((float)((int)data2 - 64)) / 63.0f) * range;
         _applyFormant();
     }
     // CC56/57 (formant resonance + peak freq) were used by the prior

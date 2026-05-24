@@ -274,9 +274,23 @@ void loop()
 		unsigned c1pct = (d_b1+d_i1) ? (unsigned)((d_b1 * 100) / (d_b1+d_i1)) : 0;
 		unsigned c2act = d_b2 ? 1u : 0u;       // control plane is Yield-cooperative; report active
 		unsigned c3pct = (d_b3+d_i3) ? (unsigned)((d_b3 * 100) / (d_b3+d_i3)) : 0;
-		CLogger::Get()->Write(log_name, LogNotice,
-			"cores c1=%u%% c2=%s c3=%u%% (c3 should be 0; c1 low when idle)",
-			c1pct, c2act ? "active" : "idle", c3pct);
+		// Rate-limited cores log — user reported audible glitches correlating
+		// with screen-log output. Emit only when busy% changes by >=5 (real
+		// state change worth observing), with a 10s heartbeat as fallback so
+		// the line still appears periodically for sanity checks.
+		static unsigned s_lastC1 = 999, s_lastC3 = 999;
+		static u64 s_lastCoreLogTicks = 0;
+		unsigned dc1 = (c1pct > s_lastC1) ? (c1pct - s_lastC1) : (s_lastC1 - c1pct);
+		unsigned dc3 = (c3pct > s_lastC3) ? (c3pct - s_lastC3) : (s_lastC3 - c3pct);
+		bool heartbeat = (now - s_lastCoreLogTicks) > (USB_STAT_TICKS * 20);
+		if (dc1 >= 5 || dc3 >= 5 || heartbeat) {
+			CLogger::Get()->Write(log_name, LogNotice,
+				"cores c1=%u%% c2=%s c3=%u%%",
+				c1pct, c2act ? "active" : "idle", c3pct);
+			s_lastC1 = c1pct;
+			s_lastC3 = c3pct;
+			s_lastCoreLogTicks = now;
+		}
 		prev_busy[1]=g_coreBusyTicks[1]; prev_idle[1]=g_coreIdleTicks[1];
 		prev_busy[2]=g_coreBusyTicks[2];
 		prev_busy[3]=g_coreBusyTicks[3]; prev_idle[3]=g_coreIdleTicks[3];
