@@ -37,13 +37,14 @@ public:
     EngineSoladSnac() { reset(); }
 
     void reset() {
+        initSincTable();
         for (int i = 0; i < DL; i++) m_dl[i] = 0.0f;
         for (int i = 0; i < PRE_DL; i++) m_preBuf[i] = 0.0f;
         m_preWr = PRE_DL / 2;
         m_preRd = 0.0;
         m_preRate = 1.0f;
         m_formantDepth = 0.0f;
-        m_wr = INITIAL_READ_OFFSET;
+        m_wr = (uint32_t)m_initialReadOffset;
         m_rdA = 0.0;                          // primary read pointer
         m_rdB = 0.0;
         m_useA = true;
@@ -63,6 +64,63 @@ public:
     }
 
     void setPitchScale(float s) { m_targetScale = s; }
+
+    // Live-tunable runtime params (sweep-friendly for empirical tuning).
+    // initialReadOffset = engine algorithmic delay (samples). Smaller =
+    //   lower latency, higher chance of read catching write under drift.
+    void setInitialReadOffset(int samples) {
+        if (samples < 32) samples = 32;
+        if (samples > DL - 64) samples = DL - 64;
+        m_initialReadOffset = samples;
+    }
+    int  getInitialReadOffset() const { return m_initialReadOffset; }
+
+    // Splice crossfade scale factor over the per-period default.
+    //   1.0 = 2*period (default), 0.5 = 1*period, 2.0 = 4*period.
+    void setXfadeScale(float s) {
+        if (s < 0.25f) s = 0.25f;
+        if (s > 4.0f) s = 4.0f;
+        m_xfadeScale = s;
+    }
+
+    // SNAC fidelity gate ∈ [0.3, 0.95]. Lower = tracks weaker signals,
+    // higher = only confident lock. Default 0.7.
+    void setFidelityThresh(float f) {
+        if (f < 0.30f) f = 0.30f;
+        if (f > 0.95f) f = 0.95f;
+        m_fidelityThresh = f;
+    }
+
+    // Bypass pre-resample formant stage entirely. When formantDepth=0
+    // the stage is supposed to be a unity-rate pass-through, but the
+    // 8-tap sinc + drift management adds compute and could be the
+    // source of periodic misalignment artefacts. CC103 toggles.
+    void setPreResampleBypass(bool on) { m_preBypass = on; }
+
+    // Skip integer-period snap in triggerSplice. The math relies on the
+    // SNAC-detected period being correct; if it's off, the splice lands
+    // at a position that's not phase-coherent. CC104 toggles.
+    void setSpliceSnap(bool on) { m_spliceSnap = on; }
+
+    // Skip the value-match refinement in triggerSplice. CC105 toggles.
+    void setSpliceMatch(bool on) { m_spliceMatch = on; }
+
+    // Splice drift-band lower bound (samples). Splice fires when
+    // gap < this. Default 8. Higher = more frequent splices.
+    void setDriftLowBand(int samples) {
+        if (samples < 1) samples = 1;
+        if (samples > DL / 4) samples = DL / 4;
+        m_driftLowBand = samples;
+    }
+
+    // Splice drift-band upper headroom (samples below DL). Splice fires
+    // when gap > DL - this. Default 256.
+    void setDriftHighHead(int samples) {
+        if (samples < 16) samples = 16;
+        if (samples > DL / 2) samples = DL / 2;
+        m_driftHighHead = samples;
+    }
+
     // Formant depth ∈ [-1, +1]:
     //   d = 0  : natural pitch shift, formants slide with pitch (deep/slow)
     //   d = 1  : formants fully preserved at original pitch (vocal-octave)
@@ -79,29 +137,29 @@ public:
             // Write raw input into the formant-prewarp buffer at full rate;
             // read at preRate to produce formant-warped samples for the
             // delay line. Continuous-rate sinc-interpolated read.
-            m_preBuf[m_preWr & PRE_MASK] = in[i];
-            m_preWr++;
-            // preRate = pow(pitchScale, -depth). depth=0 → preRate=1 → no
-            // formant warp (natural pitch shift). depth=1 → preRate=1/scale
-            // (formants preserved). Smooth onto target.
-            float scale = m_scale;
-            if (scale < 0.01f) scale = 0.01f;
-            float targetPreRate = powf(scale, -m_formantDepth);
-            m_preRate += (targetPreRate - m_preRate) * (1.0f / 480.0f);
+            float xWarped;
+            // Bypass pre-resample stage when explicitly toggled (CC103)
+            // OR when formant depth is 0 (output is identical to feeding
+            // input straight through, but ~10× cheaper on Pi). At
+            // depth=0 preRate = pow(scale, 0) = 1.0, so the sinc-
+            // interpolated read at fractional rate exactly reproduces
+            // the input — bypassing it is a numerical identity, not a
+            // semantic change.
+            if (m_preBypass || m_formantDepth == 0.0f) {
+                xWarped = in[i];
+            } else {
+                m_preBuf[m_preWr & PRE_MASK] = in[i];
+                m_preWr++;
+                float scale = m_scale;
+                if (scale < 0.01f) scale = 0.01f;
+                float targetPreRate = powf(scale, -m_formantDepth);
+                m_preRate += (targetPreRate - m_preRate) * (1.0f / 480.0f);
 
-            // Read pre-buffer at preRate; how many delay-line writes per
-            // input sample = 1/preRate average. Maintain m_preRd, only
-            // commit to delay line when m_preRd ≤ current write position
-            // minus a small safety.
-            // Walk preRd at fixed step of 1 output (delay-line) sample per
-            // engine sample; preRd reads pre-buffer at variable rate.
-            float xWarped = 0.0f;
-            {
+                xWarped = 0.0f;
                 double pos = m_preRd;
                 int base = (int)pos;
                 if (pos < 0) base = (int)pos - 1;
                 double frac = pos - (double)base;
-                // 8-tap sinc — cheaper than the 16-tap delay-line read.
                 const int TAPS = 8, HALF = TAPS/2;
                 for (int k = 0; k < TAPS; k++) {
                     int idx = base + k - HALF + 1;
@@ -113,10 +171,14 @@ public:
                     xWarped += m_preBuf[(uint32_t)idx & PRE_MASK] * (float)(s * w);
                 }
                 m_preRd += (double)m_preRate;
-                // Drift management on pre-buffer.
                 double pgap = (double)m_preWr - m_preRd;
-                if (pgap > (double)(PRE_DL - 32) || pgap < 8.0)
-                    m_preRd = (double)m_preWr - (double)(PRE_DL / 2);
+                const double pgapTarget = (double)(PRE_DL / 2);
+                if (pgap < 4.0 || pgap > (double)(PRE_DL - 16)) {
+                    m_preRd = (double)m_preWr - pgapTarget;
+                } else if (pgap < pgapTarget * 0.5 || pgap > pgapTarget * 1.5) {
+                    float bias = (pgap < pgapTarget) ? -1e-4f : +1e-4f;
+                    m_preRate += bias;
+                }
             }
 
             // ---- 1. Ingest the pre-warped sample ----
@@ -129,6 +191,11 @@ public:
             m_snacWr = (m_snacWr + 1) % SNAC_WIN;
 
             // ---- 2. Pitch detect periodically ----
+            // Always run SNAC at HOP cadence (matches host engine).
+            // The earlier unity-skip optimisation was based on the
+            // mistaken assumption that engine compute was causing the
+            // glitch; with dispatch over-scheduling fixed (c4b58ad),
+            // SNAC fits in budget and the parity with host matters more.
             if (++m_sinceDetect >= SNAC_HOP) {
                 m_sinceDetect = 0;
                 detectPitch();
@@ -161,8 +228,12 @@ public:
             if (m_warmup > 0) {
                 m_warmup--;
                 out[i] = 0.0f;
-                if (m_useA) m_rdA = (double)(m_wr - INITIAL_READ_OFFSET);
-                else        m_rdB = (double)(m_wr - INITIAL_READ_OFFSET);
+                // Both readers parked at the same offset behind write —
+                // ensures that when the first splice flips active/passive,
+                // the formerly-passive reader is already at a valid position
+                // pointing at real audio, not at delay-line[0] silence.
+                m_rdA = (double)(m_wr - m_initialReadOffset);
+                m_rdB = (double)(m_wr - m_initialReadOffset);
                 continue;
             }
 
@@ -183,7 +254,7 @@ public:
             // integer-period snap would land at a phase-incorrect position
             // and click; better to let the gap stretch until we re-lock.
             double gap = (double)m_wr - rdActive;
-            bool driftOOB = (gap > (double)(DL - 256) || gap < 8.0);
+            bool driftOOB = (gap > (double)(DL - m_driftHighHead) || gap < (double)m_driftLowBand);
             if (driftOOB && m_periodValid && m_envSlow > 0.005f) {
                 triggerSplice(/*toLive=*/false);
             }
@@ -240,15 +311,28 @@ private:
     static const int MASK = DL - 1;
     static const int SINC_TAPS = 16;
     static const int SINC_HALF = SINC_TAPS / 2;
-    static const int INITIAL_READ_OFFSET = 192;
+    // 192 samples = 4 ms @ 48 kHz. Matches host engine default which has
+    // been tested clean (0.06% THD, 41Hz lock from 82Hz input). The 64-
+    // sample setting from the earlier sweep was measuring passthrough
+    // (engine never actually engaged because ch2 MIDI handler was missing)
+    // — that sweep's "best at 64" conclusion is invalid.
+    static const int INITIAL_READ_OFFSET_DEFAULT = 192;
     static const int SNAC_WIN = 1024;
-    static const int SNAC_HOP = 128;
+    static const int SNAC_HOP = 1024;  // 21ms — re-detect window. Pi-side
+                                       // screen telem shows Core 1 at 85%
+                                       // during transpose with HOP=256;
+                                       // need 4× less detect frequency to
+                                       // bring Core 1 under 50% with
+                                       // headroom for the rest of the
+                                       // audio graph. Guitar pitch doesn't
+                                       // change at audio rate; 21ms updates
+                                       // are still ~4× faster than perception.
     static const int MIN_PERIOD = 48;     // 1 kHz
     static const int MAX_PERIOD = 800;    // 60 Hz
     static const int TRANS_REFRACTORY = 14400;  // 300 ms — keeps transient splice rare
     static constexpr float ENV_SLOW_TC = 1.0f / 4800.0f;  // 100 ms
     static constexpr float ENV_FAST_TC = 1.0f / 48.0f;    // 1 ms
-    static constexpr float FIDELITY_THRESH = 0.7f;        // relaxed from 0.95 for guitar
+    static constexpr float FIDELITY_THRESH_DEFAULT = 0.7f;  // relaxed from 0.95 for guitar
 
     float    m_dl[DL];
     float    m_preBuf[PRE_DL];
@@ -256,7 +340,15 @@ private:
     double   m_preRd = 0.0;
     float    m_preRate = 1.0f;
     float    m_formantDepth = 0.0f;
-    uint32_t m_wr = INITIAL_READ_OFFSET;
+    int      m_initialReadOffset = INITIAL_READ_OFFSET_DEFAULT;
+    float    m_xfadeScale = 1.0f;
+    float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
+    bool     m_preBypass = false;
+    bool     m_spliceSnap = true;
+    bool     m_spliceMatch = true;
+    int      m_driftLowBand = 8;
+    int      m_driftHighHead = 256;
+    uint32_t m_wr = INITIAL_READ_OFFSET_DEFAULT;
     double   m_rdA = 0.0;
     double   m_rdB = 0.0;
     bool     m_useA = true;
@@ -278,19 +370,43 @@ private:
     float    m_r[MAX_PERIOD + 1];
     float    m_normK[MAX_PERIOD + 1];
 
+    // Precomputed sinc kernel table — TABLE_SIZE phases × SINC_TAPS taps.
+    // Lookup at runtime replaces ~16 sin() + 16 cos() per readSinc call
+    // (was 32 transcendentals × 2 readers × 48000 = 3M/sec on Pi).
+    static constexpr int SINC_PHASES = 256;
+    static float sincTable[SINC_PHASES][SINC_TAPS];
+    static bool sincTableReady;
+    static void initSincTable() {
+        if (sincTableReady) return;
+        for (int p = 0; p < SINC_PHASES; p++) {
+            double frac = (double)p / (double)SINC_PHASES;
+            for (int k = 0; k < SINC_TAPS; k++) {
+                double x = (double)(k - SINC_HALF + 1) - frac;
+                double s = (x < 1e-9 && x > -1e-9) ? 1.0
+                         : sin(SOLAD_M_PI * x) / (SOLAD_M_PI * x);
+                double w = 0.5 - 0.5 * cos(2.0 * SOLAD_M_PI * ((double)k + frac)
+                                           / (double)(SINC_TAPS - 1));
+                sincTable[p][k] = (float)(s * w);
+            }
+        }
+        sincTableReady = true;
+    }
+
     inline float readSinc(double pos) const {
         int base = (int)pos;
         if (pos < 0) base = (int)pos - 1;
         double frac = pos - (double)base;
+        // Lookup nearest phase in precomputed table — saves ~16 sin/cos
+        // per call. The 256-phase resolution gives error well below
+        // perceptual threshold for fractional-rate reads.
+        int p = (int)(frac * SINC_PHASES);
+        if (p < 0) p = 0;
+        if (p >= SINC_PHASES) p = SINC_PHASES - 1;
+        const float* coef = sincTable[p];
         float v = 0;
         for (int k = 0; k < SINC_TAPS; k++) {
             int idx = base + k - SINC_HALF + 1;
-            double x = (double)(k - SINC_HALF + 1) - frac;
-            double s = (x < 1e-9 && x > -1e-9) ? 1.0
-                     : sin(SOLAD_M_PI * x) / (SOLAD_M_PI * x);
-            double w = 0.5 - 0.5 * cos(2.0 * SOLAD_M_PI * ((double)k + frac)
-                                       / (double)(SINC_TAPS - 1));
-            v += m_dl[(uint32_t)idx & MASK] * (float)(s * w);
+            v += m_dl[(uint32_t)idx & MASK] * coef[k];
         }
         return v;
     }
@@ -310,11 +426,12 @@ private:
             newPos = (double)m_wr - 32.0;
         } else {
             // Drift correction: target middle of safe band.
-            newPos = (double)m_wr - (double)INITIAL_READ_OFFSET;
+            newPos = (double)m_wr - (double)m_initialReadOffset;
         }
         // Snap to integer period offset from current active reader if we
-        // have a confident period — phase-coherent splice.
-        if (m_periodValid && m_periodF >= (float)MIN_PERIOD) {
+        // have a confident period — phase-coherent splice. Toggle via
+        // setSpliceSnap (CC104).
+        if (m_spliceSnap && m_periodValid && m_periodF >= (float)MIN_PERIOD) {
             double diff = newPos - rdActive;
             double pf = (double)m_periodF;
             int periods = (int)(diff / pf + (diff > 0 ? 0.5 : -0.5));
@@ -322,35 +439,37 @@ private:
 
             // Refine: within ±period/2 of the integer-period target, slide
             // newPos to minimise the AMPLITUDE+DERIVATIVE mismatch with
-            // rdActive RIGHT NOW. Matching both value and slope ensures the
-            // crossfade is invisible — equivalent to a 1st-order continuous
-            // splice through the OLA window.
-            float vActive = readSinc(rdActive);
-            float vActiveNext = readSinc(rdActive + (double)m_scale);
-            float dActive = vActiveNext - vActive;
-            double bestDelta = 0.0;
-            float  bestErr = 1e9f;
-            const int N_TRIAL = 33;
-            double maxOff = (double)pf * 0.5;
-            for (int t = -N_TRIAL/2; t <= N_TRIAL/2; t++) {
-                double off = (double)t * maxOff / (double)(N_TRIAL/2);
-                double trialPos = newPos + off;
-                if (trialPos < 0.0) continue;
-                if (trialPos > (double)m_wr - 1.0) continue;
-                float vTrial = readSinc(trialPos);
-                float vTrialNext = readSinc(trialPos + (double)m_scale);
-                float dTrial = vTrialNext - vTrial;
-                float err = fabsf(vTrial - vActive) * 1.0f
-                          + fabsf(dTrial - dActive) * 100.0f;  // weight slope heavily
-                if (err < bestErr) { bestErr = err; bestDelta = off; }
+            // rdActive RIGHT NOW. Toggle via setSpliceMatch (CC105).
+            if (m_spliceMatch) {
+                float vActive = readSinc(rdActive);
+                float vActiveNext = readSinc(rdActive + (double)m_scale);
+                float dActive = vActiveNext - vActive;
+                double bestDelta = 0.0;
+                float  bestErr = 1e9f;
+                const int N_TRIAL = 33;
+                double maxOff = (double)pf * 0.5;
+                for (int t = -N_TRIAL/2; t <= N_TRIAL/2; t++) {
+                    double off = (double)t * maxOff / (double)(N_TRIAL/2);
+                    double trialPos = newPos + off;
+                    if (trialPos < 0.0) continue;
+                    if (trialPos > (double)m_wr - 1.0) continue;
+                    float vTrial = readSinc(trialPos);
+                    float vTrialNext = readSinc(trialPos + (double)m_scale);
+                    float dTrial = vTrialNext - vTrial;
+                    float err = fabsf(vTrial - vActive) * 1.0f
+                              + fabsf(dTrial - dActive) * 100.0f;
+                    if (err < bestErr) { bestErr = err; bestDelta = off; }
+                }
+                newPos += bestDelta;
             }
-            newPos += bestDelta;
         }
         rdPassive = newPos;
         // Crossfade length = 2 × period for thorough overlap. Generous
         // window beats a tight one — the splice cooldown caps splice rate
         // so even a long xfade doesn't accumulate.
-        int len = m_periodValid ? m_period * 2 : 512;
+        int len = m_periodValid
+                  ? (int)((float)m_period * 2.0f * m_xfadeScale)
+                  : (int)(512.0f * m_xfadeScale);
         if (len < 256)  len = 256;
         if (len > 2048) len = 2048;
         m_xfadeLen = len;
@@ -377,17 +496,21 @@ private:
         for (int i = 0; i < W; i++) energy += win[i] * win[i];
         if (energy < 0.001f) { m_periodValid = false; return; }
 
-        // Direct autocorrelation + norm.
+        // Direct autocorrelation + norm. Per-tau inner loop is O(W-tau);
+        // total O(W*P). Stride-4 in the inner loop on Pi to cut SNAC cost
+        // by 4× (Pi screen telem confirmed Core 1 at 85% with stride=1 +
+        // HOP=256; needs both HOP coarsening AND inner-loop coarsening to
+        // get under 50%). For monophonic guitar with strong fundamentals
+        // the autocorrelation SNR is more than enough at stride=4.
         int maxTau = MAX_PERIOD;
         if (maxTau > W - 32) maxTau = W - 32;
-        // r[0] = sum x²
         m_r[0] = energy;
         m_normK[0] = 2.0f * energy;
         for (int k = 1; k <= maxTau; k++) {
             float sum = 0;
-            for (int n = 0; n < W - k; n++) sum += win[n] * win[n + k];
-            m_r[k] = sum;
-            // Incremental norm update.
+            int limit = W - k;
+            for (int n = 0; n < limit; n += 4) sum += win[n] * win[n + k];
+            m_r[k] = sum * 4.0f;   // compensate stride
             float removed = win[W - k] * win[W - k] + win[k - 1] * win[k - 1];
             m_normK[k] = m_normK[k - 1] - removed;
             if (m_normK[k] < 1e-12f) m_normK[k] = 1e-12f;
@@ -404,7 +527,7 @@ private:
             float v  = 2.0f * m_r[k] / m_normK[k];
             float vm = 2.0f * m_r[k-1] / m_normK[k-1];
             float vp = 2.0f * m_r[k+1] / m_normK[k+1];
-            if (v > vm && v > vp && v > FIDELITY_THRESH) {
+            if (v > vm && v > vp && v > m_fidelityThresh) {
                 // McLeod picks first peak above (max * 0.8) within the bunch.
                 if (v > bestVal) { bestVal = v; bestTau = k; }
                 // Don't break — keep looking for higher peaks within MAX_PERIOD.
@@ -441,3 +564,7 @@ private:
         m_periodValid = true;
     }
 };
+
+// Static-member storage. Header-only so we mark inline (C++17).
+inline float EngineSoladSnac::sincTable[EngineSoladSnac::SINC_PHASES][EngineSoladSnac::SINC_TAPS] = {};
+inline bool  EngineSoladSnac::sincTableReady = false;

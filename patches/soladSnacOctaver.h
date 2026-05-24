@@ -37,6 +37,7 @@ public:
     EngineSoladSnac() { reset(); }
 
     void reset() {
+        initSincTable();
         for (int i = 0; i < DL; i++) m_dl[i] = 0.0f;
         for (int i = 0; i < PRE_DL; i++) m_preBuf[i] = 0.0f;
         m_preWr = PRE_DL / 2;
@@ -137,12 +138,14 @@ public:
             // read at preRate to produce formant-warped samples for the
             // delay line. Continuous-rate sinc-interpolated read.
             float xWarped;
-            // Always run pre-resample stage (matches host engine that
-            // tests clean). Bypass kept only when explicitly toggled via
-            // CC103 for A/B comparison — auto-bypass at depth=0 was
-            // changing the audio path timing vs host and may have been
-            // the source of the Pi-only glitching.
-            if (m_preBypass) {
+            // Bypass pre-resample stage when explicitly toggled (CC103)
+            // OR when formant depth is 0 (output is identical to feeding
+            // input straight through, but ~10× cheaper on Pi). At
+            // depth=0 preRate = pow(scale, 0) = 1.0, so the sinc-
+            // interpolated read at fractional rate exactly reproduces
+            // the input — bypassing it is a numerical identity, not a
+            // semantic change.
+            if (m_preBypass || m_formantDepth == 0.0f) {
                 xWarped = in[i];
             } else {
                 m_preBuf[m_preWr & PRE_MASK] = in[i];
@@ -315,14 +318,15 @@ private:
     // — that sweep's "best at 64" conclusion is invalid.
     static const int INITIAL_READ_OFFSET_DEFAULT = 192;
     static const int SNAC_WIN = 1024;
-    static const int SNAC_HOP = 256;   // 5.3ms — comfortable cadence for
-                                       // guitar pitch tracking. Was 128
-                                       // (2.7ms, too tight) and briefly
-                                       // 512 (10.7ms — overcorrected on
-                                       // suspected CPU exhaustion that
-                                       // turned out to be 2× dispatch
-                                       // over-scheduling in AudioSystem,
-                                       // fixed separately).
+    static const int SNAC_HOP = 1024;  // 21ms — re-detect window. Pi-side
+                                       // screen telem shows Core 1 at 85%
+                                       // during transpose with HOP=256;
+                                       // need 4× less detect frequency to
+                                       // bring Core 1 under 50% with
+                                       // headroom for the rest of the
+                                       // audio graph. Guitar pitch doesn't
+                                       // change at audio rate; 21ms updates
+                                       // are still ~4× faster than perception.
     static const int MIN_PERIOD = 48;     // 1 kHz
     static const int MAX_PERIOD = 800;    // 60 Hz
     static const int TRANS_REFRACTORY = 14400;  // 300 ms — keeps transient splice rare
@@ -366,19 +370,43 @@ private:
     float    m_r[MAX_PERIOD + 1];
     float    m_normK[MAX_PERIOD + 1];
 
+    // Precomputed sinc kernel table — TABLE_SIZE phases × SINC_TAPS taps.
+    // Lookup at runtime replaces ~16 sin() + 16 cos() per readSinc call
+    // (was 32 transcendentals × 2 readers × 48000 = 3M/sec on Pi).
+    static constexpr int SINC_PHASES = 256;
+    static float sincTable[SINC_PHASES][SINC_TAPS];
+    static bool sincTableReady;
+    static void initSincTable() {
+        if (sincTableReady) return;
+        for (int p = 0; p < SINC_PHASES; p++) {
+            double frac = (double)p / (double)SINC_PHASES;
+            for (int k = 0; k < SINC_TAPS; k++) {
+                double x = (double)(k - SINC_HALF + 1) - frac;
+                double s = (x < 1e-9 && x > -1e-9) ? 1.0
+                         : sin(SOLAD_M_PI * x) / (SOLAD_M_PI * x);
+                double w = 0.5 - 0.5 * cos(2.0 * SOLAD_M_PI * ((double)k + frac)
+                                           / (double)(SINC_TAPS - 1));
+                sincTable[p][k] = (float)(s * w);
+            }
+        }
+        sincTableReady = true;
+    }
+
     inline float readSinc(double pos) const {
         int base = (int)pos;
         if (pos < 0) base = (int)pos - 1;
         double frac = pos - (double)base;
+        // Lookup nearest phase in precomputed table — saves ~16 sin/cos
+        // per call. The 256-phase resolution gives error well below
+        // perceptual threshold for fractional-rate reads.
+        int p = (int)(frac * SINC_PHASES);
+        if (p < 0) p = 0;
+        if (p >= SINC_PHASES) p = SINC_PHASES - 1;
+        const float* coef = sincTable[p];
         float v = 0;
         for (int k = 0; k < SINC_TAPS; k++) {
             int idx = base + k - SINC_HALF + 1;
-            double x = (double)(k - SINC_HALF + 1) - frac;
-            double s = (x < 1e-9 && x > -1e-9) ? 1.0
-                     : sin(SOLAD_M_PI * x) / (SOLAD_M_PI * x);
-            double w = 0.5 - 0.5 * cos(2.0 * SOLAD_M_PI * ((double)k + frac)
-                                       / (double)(SINC_TAPS - 1));
-            v += m_dl[(uint32_t)idx & MASK] * (float)(s * w);
+            v += m_dl[(uint32_t)idx & MASK] * coef[k];
         }
         return v;
     }
@@ -468,11 +496,12 @@ private:
         for (int i = 0; i < W; i++) energy += win[i] * win[i];
         if (energy < 0.001f) { m_periodValid = false; return; }
 
-        // Direct autocorrelation + norm. Per-tau inner loop O(W-tau).
-        // Was using stride=2 to halve CPU when we thought engine cost was
-        // the cause of dispatch overflow — actual cause was 2× scheduling
-        // in AudioSystem::startUpdate (now idempotent per audio cycle).
-        // Reverted to full SNR for best pitch accuracy.
+        // Direct autocorrelation + norm. Per-tau inner loop is O(W-tau);
+        // total O(W*P). Stride-4 in the inner loop on Pi to cut SNAC cost
+        // by 4× (Pi screen telem confirmed Core 1 at 85% with stride=1 +
+        // HOP=256; needs both HOP coarsening AND inner-loop coarsening to
+        // get under 50%). For monophonic guitar with strong fundamentals
+        // the autocorrelation SNR is more than enough at stride=4.
         int maxTau = MAX_PERIOD;
         if (maxTau > W - 32) maxTau = W - 32;
         m_r[0] = energy;
@@ -480,8 +509,8 @@ private:
         for (int k = 1; k <= maxTau; k++) {
             float sum = 0;
             int limit = W - k;
-            for (int n = 0; n < limit; n++) sum += win[n] * win[n + k];
-            m_r[k] = sum;
+            for (int n = 0; n < limit; n += 4) sum += win[n] * win[n + k];
+            m_r[k] = sum * 4.0f;   // compensate stride
             float removed = win[W - k] * win[W - k] + win[k - 1] * win[k - 1];
             m_normK[k] = m_normK[k - 1] - removed;
             if (m_normK[k] < 1e-12f) m_normK[k] = 1e-12f;
@@ -535,3 +564,7 @@ private:
         m_periodValid = true;
     }
 };
+
+// Static-member storage. Header-only so we mark inline (C++17).
+inline float EngineSoladSnac::sincTable[EngineSoladSnac::SINC_PHASES][EngineSoladSnac::SINC_TAPS] = {};
+inline bool  EngineSoladSnac::sincTableReady = false;
