@@ -279,7 +279,11 @@ private:
     static const int MASK = DL - 1;
     static const int SINC_TAPS = 16;
     static const int SINC_HALF = SINC_TAPS / 2;
-    static const int INITIAL_READ_OFFSET_DEFAULT = 192;
+    // 64 samples = 1.33 ms @ 48 kHz. Empirically validated via CC100 sweep
+    // on OTG↔OTG loopback (scripts/measure-results/sweep-cc100-*): 0.13%
+    // THD at this offset vs 0.32% at 192. The smallest stable offset that
+    // doesn't trigger splice resonance on low-fundamental input.
+    static const int INITIAL_READ_OFFSET_DEFAULT = 64;
     static const int SNAC_WIN = 1024;
     static const int SNAC_HOP = 128;
     static const int MIN_PERIOD = 48;     // 1 kHz

@@ -206,26 +206,37 @@ void loop()
 		s_watchdogForces++;
 	}
 
-	// Drain ISR-safe event ring on main thread. Events are timestamped at
-	// push time; logging happens here where CLogger UDP send is safe.
+	// Drain ISR-safe event ring on main thread. CRITICAL: per-event logging
+	// was causing audible glitches because each CLogger::Write blocks Core 2
+	// on UDP syslog. A single IN ring underrun emits up to 64 TELEM_IN_UNDERRUN
+	// events (one per sample in the empty block), drained 32-at-a-time → 32
+	// blocking writes back-to-back. The logging WAS amplifying the glitch.
+	//
+	// New scheme: drain silently, accumulate per-code stats with min/max args,
+	// then emit ONE summary line per code per 500ms stat tick (or when count
+	// crosses a 32-event high-water mark). Real underrun/resync events still
+	// fully visible via the counters (g_inUnderruns etc) shown in cores stat.
+	static unsigned s_telCounts[8] = {0};
+	static u32 s_telMinArg[8] = {0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu,
+	                              0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu,0xFFFFFFFFu};
+	static u32 s_telMaxArg[8] = {0};
 	AudioTelemEvent ev;
 	unsigned drained = 0;
-	while (drained < 32 && audioTelemetryPop(&ev))
+	while (drained < 256 && audioTelemetryPop(&ev))
 	{
-		const char *name = "?";
-		switch (ev.code) {
-			case TELEM_IN_UNDERRUN:   name = "IN_UR";   break;
-			case TELEM_IN_RESYNC:     name = "IN_RS";   break;
-			case TELEM_OUT_UNDERRUN:  name = "OUT_UR";  break;
-			case TELEM_OTG_RESYNC:    name = "OTG_RS";  break;
-			case TELEM_WATCHDOG:      name = "WD";      break;
-			case TELEM_LAG_SAMPLE:    name = "LAG";     break;
-			case TELEM_DISPATCH_FULL: name = "DISP_FULL"; break;
-			default: break;
-		}
-		CLogger::Get()->Write(log_name, LogNotice, "telem t=%u %s arg=%u",
-			ev.ticks, name, ev.arg);
+		unsigned code = ev.code & 0x7;
+		s_telCounts[code]++;
+		if (ev.arg < s_telMinArg[code]) s_telMinArg[code] = ev.arg;
+		if (ev.arg > s_telMaxArg[code]) s_telMaxArg[code] = ev.arg;
 		drained++;
+	}
+	// Burst alarm: if we drained the cap, the ring was overflowing — emit
+	// ONE diagnostic line so the operator knows there was a flood.
+	static u64 s_lastBurstLogTicks = 0;
+	if (drained >= 256 && (now - s_lastBurstLogTicks) > USB_STAT_TICKS) {
+		CLogger::Get()->Write(log_name, LogNotice,
+			"telem burst — drained 256 events this tick (more queued)");
+		s_lastBurstLogTicks = now;
 	}
 
 	if ((now - s_lastStatTicks) > USB_STAT_TICKS * 2)   // 2 Hz summary
@@ -252,9 +263,28 @@ void loop()
 		bool any = d_inUR | d_outUR | d_inRS | d_otgRS | d_wd | d_drop | d_disp;
 		if (any)
 		{
+			// Include min/max args from the silent telemetry drainer so
+			// the operator still sees the diagnostic detail (was per-event
+			// log lines before — that itself caused glitches). Args of zero
+			// for IN_UR mean "ring fully empty when block sampled" — i.e.,
+			// the underrun fallback (repeat-last-sample) fired this block.
 			CLogger::Get()->Write(log_name, LogNotice,
-				"stat in_av=%u out_av=%u in_ur+%u out_ur+%u in_rs+%u otg_rs+%u wd+%u drop+%u disp+%u",
-				inAv, outAv, d_inUR, d_outUR, d_inRS, d_otgRS, d_wd, d_drop, d_disp);
+				"stat in_av=%u out_av=%u in_ur+%u(arg=%u..%u) out_ur+%u in_rs+%u(arg=%u..%u) otg_rs+%u wd+%u drop+%u disp+%u",
+				inAv, outAv,
+				d_inUR,
+				s_telCounts[TELEM_IN_UNDERRUN]  ? s_telMinArg[TELEM_IN_UNDERRUN]  : 0u,
+				s_telCounts[TELEM_IN_UNDERRUN]  ? s_telMaxArg[TELEM_IN_UNDERRUN]  : 0u,
+				d_outUR,
+				d_inRS,
+				s_telCounts[TELEM_IN_RESYNC]    ? s_telMinArg[TELEM_IN_RESYNC]    : 0u,
+				s_telCounts[TELEM_IN_RESYNC]    ? s_telMaxArg[TELEM_IN_RESYNC]    : 0u,
+				d_otgRS, d_wd, d_drop, d_disp);
+		}
+		// Reset per-stat-tick min/max accumulators.
+		for (int i = 0; i < 8; i++) {
+			s_telCounts[i] = 0;
+			s_telMinArg[i] = 0xFFFFFFFFu;
+			s_telMaxArg[i] = 0;
 		}
 		prev_inUR=g_inUnderruns; prev_outUR=g_outUnderruns;
 		prev_inRS=g_inResyncs;   prev_otgRS=g_otgResyncs;

@@ -35,39 +35,47 @@ using System.Runtime.InteropServices;
 using System.Text;
 
 public static class WinMM {
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential, Pack=1)]
     public struct WAVEFORMATEX {
-        public ushort wFormatTag, nChannels;
-        public uint nSamplesPerSec, nAvgBytesPerSec;
-        public ushort nBlockAlign, wBitsPerSample, cbSize;
+        public ushort wFormatTag;
+        public ushort nChannels;
+        public uint   nSamplesPerSec;
+        public uint   nAvgBytesPerSec;
+        public ushort nBlockAlign;
+        public ushort wBitsPerSample;
+        public ushort cbSize;
     }
     [StructLayout(LayoutKind.Sequential)]
     public struct WAVEHDR {
         public IntPtr lpData;
-        public uint dwBufferLength;
-        public uint dwBytesRecorded;
+        public uint   dwBufferLength;
+        public uint   dwBytesRecorded;
         public IntPtr dwUser;
-        public uint dwFlags;
-        public uint dwLoops;
+        public uint   dwFlags;
+        public uint   dwLoops;
         public IntPtr lpNext;
         public IntPtr reserved;
     }
-    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi)]
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi, Pack=1)]
     public struct WAVEOUTCAPS {
-        public ushort wMid, wPid;
-        public uint vDriverVersion;
+        public ushort wMid;
+        public ushort wPid;
+        public uint   vDriverVersion;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string szPname;
-        public uint dwFormats;
-        public ushort wChannels, wReserved1;
-        public uint dwSupport;
+        public uint   dwFormats;
+        public ushort wChannels;
+        public ushort wReserved1;
+        public uint   dwSupport;
     }
-    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi)]
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi, Pack=1)]
     public struct WAVEINCAPS {
-        public ushort wMid, wPid;
-        public uint vDriverVersion;
+        public ushort wMid;
+        public ushort wPid;
+        public uint   vDriverVersion;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string szPname;
-        public uint dwFormats;
-        public ushort wChannels, wReserved1;
+        public uint   dwFormats;
+        public ushort wChannels;
+        public ushort wReserved1;
     }
     [DllImport("winmm.dll")] public static extern uint waveOutGetNumDevs();
     [DllImport("winmm.dll")] public static extern int waveOutGetDevCapsA(int dev, ref WAVEOUTCAPS caps, int sz);
