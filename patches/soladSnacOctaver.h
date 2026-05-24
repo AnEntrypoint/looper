@@ -188,9 +188,20 @@ public:
             m_snacWr = (m_snacWr + 1) % SNAC_WIN;
 
             // ---- 2. Pitch detect periodically ----
-            if (++m_sinceDetect >= SNAC_HOP) {
-                m_sinceDetect = 0;
-                detectPitch();
+            // Skip SNAC at unity scale — splice never fires (gap stays
+            // at initial offset), so the detected period is unused. Frees
+            // ~5ms of Core 1 every 5.3ms when the engine is engaged but
+            // not actually pitching. Resume detect as soon as scale
+            // departs unity (so we have a period ready for splices).
+            if (m_scale < 0.999f || m_scale > 1.001f) {
+                if (++m_sinceDetect >= SNAC_HOP) {
+                    m_sinceDetect = 0;
+                    detectPitch();
+                }
+            } else {
+                // Hold detector ready — when scale changes we want a
+                // fresh detect within HOP samples, not wait full HOP.
+                m_sinceDetect = SNAC_HOP - 1;
             }
 
             // ---- 3. Transient detector ----
