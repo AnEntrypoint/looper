@@ -30,7 +30,7 @@ public:
     EngineYinPsola() { reset(); }
 
     void reset() {
-        m_buf.assign(BUF, 0.0f);
+        for (int i = 0; i < BUF; i++) m_buf[i] = 0.0f;
         m_writeAbs = 0;
         m_period = 0;
         m_periodConfident = false;
@@ -98,7 +98,6 @@ public:
                 }
 
                 if (m_samplesUntilNextEpoch <= 0) {
-                    Voice &v = m_voice[m_nextVoice];
                     // Don't stomp an active voice — find a free one.
                     int free = -1;
                     for (int k = 0; k < N_VOICES; k++) {
@@ -183,7 +182,7 @@ private:
         int64_t sourceAbs = 0;
     };
 
-    std::vector<float> m_buf;
+    float m_buf[16384];
     int64_t m_writeAbs = 0;
     int m_period = 0;
     bool m_periodConfident = false;
@@ -205,44 +204,48 @@ private:
         return m_buf[(size_t)((absPos % BUF + BUF) % BUF)];
     }
 
+    // Scratch buffers reused across detection calls — kept as members so
+    // no per-call heap allocation (firmware audio path requirement).
+    float m_x[DETECT_WIN];
+    float m_d[MAX_PERIOD + 1];
+    float m_dPrime[MAX_PERIOD + 1];
+
     void detectPeriod() {
         const int W = DETECT_WIN;
         if (m_writeAbs < W) { m_periodConfident = false; return; }
-        std::vector<float> x(W);
-        for (int i = 0; i < W; i++) x[i] = sampleAt(m_writeAbs - W + i);
+        for (int i = 0; i < W; i++) m_x[i] = sampleAt(m_writeAbs - W + i);
 
         // Pre-gate on signal energy.
         float energy = 0.0f;
-        for (int i = 0; i < W; i++) energy += x[i] * x[i];
+        for (int i = 0; i < W; i++) energy += m_x[i] * m_x[i];
         if (energy < (float)W * NOISE_FLOOR * NOISE_FLOOR) {
             m_periodConfident = false;
             return;
         }
 
         const int maxTau = MAX_PERIOD;
-        std::vector<float> d(maxTau + 1, 0.0f);
-        std::vector<float> dPrime(maxTau + 1, 1.0f);
+        for (int i = 0; i <= maxTau; i++) { m_d[i] = 0.0f; m_dPrime[i] = 1.0f; }
         for (int tau = 1; tau <= maxTau; tau++) {
             float sum = 0.0f;
             int limit = W - tau;
-            if (limit < 32) { dPrime[tau] = 1.0f; continue; }
+            if (limit < 32) { m_dPrime[tau] = 1.0f; continue; }
             for (int j = 0; j < limit; j++) {
-                float diff = x[j] - x[j + tau];
+                float diff = m_x[j] - m_x[j + tau];
                 sum += diff * diff;
             }
-            d[tau] = sum;
+            m_d[tau] = sum;
         }
-        dPrime[0] = 1.0f;
+        m_dPrime[0] = 1.0f;
         float running = 0.0f;
         for (int tau = 1; tau <= maxTau; tau++) {
-            running += d[tau];
-            dPrime[tau] = running > 0.0f ? d[tau] * (float)tau / running : 1.0f;
+            running += m_d[tau];
+            m_dPrime[tau] = running > 0.0f ? m_d[tau] * (float)tau / running : 1.0f;
         }
         const float THRESH = 0.15f;
         int chosen = -1;
         for (int tau = MIN_PERIOD; tau <= maxTau; tau++) {
-            if (dPrime[tau] < THRESH) {
-                while (tau + 1 <= maxTau && dPrime[tau + 1] < dPrime[tau]) tau++;
+            if (m_dPrime[tau] < THRESH) {
+                while (tau + 1 <= maxTau && m_dPrime[tau + 1] < m_dPrime[tau]) tau++;
                 chosen = tau;
                 break;
             }
@@ -250,9 +253,9 @@ private:
         if (chosen < 0) { m_periodConfident = false; return; }
         float refined = (float)chosen;
         if (chosen > 0 && chosen < maxTau) {
-            float a = dPrime[chosen - 1];
-            float b = dPrime[chosen];
-            float c = dPrime[chosen + 1];
+            float a = m_dPrime[chosen - 1];
+            float b = m_dPrime[chosen];
+            float c = m_dPrime[chosen + 1];
             float denom = 2.0f * (2.0f * b - a - c);
             if (fabsf(denom) > 1e-9f) refined = (float)chosen + (a - c) / denom;
         }
