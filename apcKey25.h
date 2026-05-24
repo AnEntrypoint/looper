@@ -105,7 +105,9 @@ private:
     float         m_reverbAmount;
     float         m_delayAmount;
     float         m_time;
-    float         m_formant;
+    float         m_formant;            // brightness, -1..+1 (CC53)
+    float         m_formantResonance;    // 0..1 peaking gain (CC56)
+    float         m_formantFreq;         // 300..3000 Hz peak center (CC57)
 
     void _applyLivePitch();
     void _applyFilters();

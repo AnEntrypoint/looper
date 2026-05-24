@@ -4,6 +4,7 @@
 #include "usbMidi.h"
 #include "patches/apcEffectsProcessor.h"
 #include "patches/RubberBandWrapper.h"
+#include <math.h>
 
 extern apcEffectsProcessor *pEffectsProcessor;
 extern RubberBandWrapper *pLivePitchWrapper;
@@ -57,7 +58,23 @@ void apcKey25::handleEffectsCC(u8 cc, u8 data2)
     }
     else if (cc == 53)
     {
-        m_formant = norm;
+        // Brightness ∈ [-1, +1] centred at data2=64 (mod-wheel deadzone behavior).
+        bool inDeadzone = (data2 >= 60 && data2 <= 68);
+        m_formant = inDeadzone ? 0.0f : (((float)((int)data2 - 64)) / 63.0f);
+        _applyFormant();
+    }
+    else if (cc == 56)
+    {
+        // Resonance ∈ [0, 1] linear from data2.
+        m_formantResonance = norm;
+        _applyFormant();
+    }
+    else if (cc == 57)
+    {
+        // Peak frequency 300..3000 Hz log-mapped from data2 ∈ [0, 127].
+        // f = 300 * (3000/300)^(data2/127) = 300 * 10^(data2/127)
+        float t = (float)data2 / 127.0f;
+        m_formantFreq = 300.0f * powf(10.0f, t);
         _applyFormant();
     }
 }
@@ -74,6 +91,9 @@ void apcKey25::_applyEffects()
 void apcKey25::_applyFormant()
 {
     if (pLivePitchWrapper) {
+        // Three-knob path: drives both the sinc octaver post-EQ (-12 branch)
+        // and the signalsmith formant factor (other ratios) via brightness.
+        pLivePitchWrapper->setFormantEq(m_formant, m_formantResonance, m_formantFreq);
         pLivePitchWrapper->setFormant(m_formant);
     }
 }

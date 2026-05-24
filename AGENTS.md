@@ -99,11 +99,16 @@ When patching Circle's `lib/usb/gadget/` to add `CUSBAudioGadget`:
 ## Live pitch shifting via MIDI
 
 - **`pLivePitchWrapper`** allocated unconditionally in `audio.cpp::setup()`. In `loopMachine::update()`, audio bypasses wrapper when `pTheAPC->getDebugState().liveEngaged == false` (zero latency).
-- **Pitch shift path (RubberBandWrapper.h)**: triple-engine, selected by `m_pitchScale`:
+- **Pitch shift path (RubberBandWrapper.h)**: three engines selected by `m_pitchScale`:
   - `≈ 2.0` (up +12, within ±1%): **fixed-grain granular octaver** (2-tap crossfading delay-line, OCT_GRAIN=256, Hann crossfade). ~3ms latency. Up-shift only — read taps advance faster than write, snap-back reset is phase-safe.
-  - `< 0.7` (down ≤ -6 semitones): **PsolaOctaver** (`patches/psolaOctaver.h`) — autocorrelation pitch tracker (range 30Hz-1kHz, ACF window 2048 samples) + time-domain resampling on 16384-sample circular delay buffer. Read pointer advances at `scale × write` rate; period-aligned resync when gap nears buffer wrap. Stable down to low-E -12 (41.2Hz). Host-tested via `scripts/test-psola.cpp` against 82.4/110/220/440Hz sustained sines, all PASS with <0.5Hz frequency error and <5% THD. Warm-up = 1 ACF window (~43ms cold); steady-state latency ≈ 1 period (~24ms at 41.2Hz, ~12ms at 82.4Hz). Falls back to signalsmith for this block when detector hasn't yet locked.
-  - All other ratios (continuous CC bends, formant mangling): **signalsmith-stretch** at blockSamples=192, intervalSamples=64. ~3.3ms latency. Provides formant-preserving STFT shift (`setTransposeFactor(scale, formant)`).
-  - Engine choice is per-block, no runtime configuration — the wrapper picks based on `m_pitchScale` and `PsolaOctaver::ready()`. Octaver activation hysteresis ±1% (up) and 0.7 threshold (down) prevent rapid engine flapping on CC bends.
+  - `∈ [0.45, 0.55]` (down ~-12 semitones): **SincFormantOctaver** (`patches/sincFormantOctaver.h`) — sinc-delay-192 (16-tap windowed-sinc interpolated read on 32k-sample delay line, initial read offset 192 samples = 4ms) followed by two biquads: high shelf at 800 Hz for brightness control + peaking EQ at runtime-tunable freq (300-3000 Hz, Q=2) for vocal-like resonance. Host A/B sweep: cleanest pitch lock of any engine in the 12ms budget (0.05-0.31 Hz error across E2-E4), THD 44-58% on harmonic content. Defaults give bit-identical sinc-delay-192; formant character driven by APC CC53/56/57. Renders at `scripts/ab-renders/engines/<sample>__sinc-formant-*.wav`.
+  - All other ratios (continuous CC bends, formant mangling): **signalsmith-stretch** at blockSamples=128, intervalSamples=48. ~3.7ms latency. Formant-preserving STFT shift via `setTransposeFactor(scale, formant)`.
+  - Engine choice is per-block, picked from `m_pitchScale` alone — no detector state, no flap.
+- **Live -12 expressive controls** (CC mapping in `apcKey25.cpp::handleEffectsCC` / `apcKey25Filters.cpp::handleEffectsCC`):
+  - **CC53** brightness ∈ [-1, +1]: data2=64 ±4 deadzone → 0 (neutral). Outside deadzone linearly maps to high-shelf gain ±12 dB at 800 Hz on the sinc octaver AND signalsmith formant factor.
+  - **CC56** resonance ∈ [0, 1]: linear data2/127 → peaking EQ gain 0..+12 dB at `m_formantFreq`.
+  - **CC57** peak freq: log-mapped 300..3000 Hz via `300 * 10^(data2/127)`.
+  - All three call `RubberBandWrapper::setFormantEq(brightness, resonance, freqHz)` which forwards to both stereo SincFormantOctaver instances. Biquads redesigned only when knob value changes; per-sample cost is two biquad evaluations (~6 mul/add total).
 - **Pitch scale**: `_applyLivePitch()` calls `setPitchScale(pow(2, semitones / 12))`.
 - **CC1 (mod wheel)**: deadzone 59-69 disengages. Outside: ±6 semitones by `((data2 - 64) * 6 / 63)`.
 - **CC52**: linear 0-127 → ±6 semitones.
