@@ -189,6 +189,7 @@ static double estLatencyMs(const std::vector<float> &in, const std::vector<float
 #include "engines/engine_signalsmith.h"
 #include "engines/engine_downsample.h"
 #include "engines/engine_sinc_delay.h"
+#include "engines/engine_yin_psola.h"
 
 static void runEngine(const std::string &name, const std::vector<float> &in,
                       std::vector<float> &out, int sr, float scale) {
@@ -210,8 +211,11 @@ static void runEngine(const std::string &name, const std::vector<float> &in,
     else if (name == "downsample-64-32")    engine_downsample(in, out, sr, scale, 64,  32);
     else if (name == "downsample-96-32")    engine_downsample(in, out, sr, scale, 96,  32);
     else if (name == "downsample-128-32")   engine_downsample(in, out, sr, scale, 128, 32);
+    else if (name == "sinc-delay-128")      engine_sinc_delay(in, out, sr, scale, 128);
+    else if (name == "sinc-delay-192")      engine_sinc_delay(in, out, sr, scale, 192);
     else if (name == "sinc-delay-256")      engine_sinc_delay(in, out, sr, scale, 256);
     else if (name == "sinc-delay-384")      engine_sinc_delay(in, out, sr, scale, 384);
+    else if (name == "yin-psola")           EngineYinPsola::run(in, out, sr, scale);
     else { fprintf(stderr, "unknown engine: %s\n", name.c_str()); std::exit(4); }
 }
 
