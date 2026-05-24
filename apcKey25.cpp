@@ -162,6 +162,48 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
         CLogger::Get()->Write(log_name, LogNotice, "tune fidelity=%.3f", f);
         return;
     }
+    if (msgType == 0xB0 && data1 == 103)
+    {
+        // CC103: pre-resample bypass. data2 < 64 = off (engine runs normally),
+        // data2 >= 64 = bypass. When formantDepth=0 the bypass is auto-applied
+        // anyway, but the toggle lets us A/B the stage on/off explicitly.
+        bool on = (data2 >= 64);
+        if (pLivePitchWrapper) pLivePitchWrapper->setEnginePreBypass(on);
+        CLogger::Get()->Write(log_name, LogNotice, "tune preBypass=%d", on?1:0);
+        return;
+    }
+    if (msgType == 0xB0 && data1 == 104)
+    {
+        // CC104: splice integer-period snap. data2 < 64 = off, >= 64 = on.
+        bool on = (data2 >= 64);
+        if (pLivePitchWrapper) pLivePitchWrapper->setEngineSpliceSnap(on);
+        CLogger::Get()->Write(log_name, LogNotice, "tune spliceSnap=%d", on?1:0);
+        return;
+    }
+    if (msgType == 0xB0 && data1 == 105)
+    {
+        // CC105: splice value-match refinement. data2 < 64 = off, >= 64 = on.
+        bool on = (data2 >= 64);
+        if (pLivePitchWrapper) pLivePitchWrapper->setEngineSpliceMatch(on);
+        CLogger::Get()->Write(log_name, LogNotice, "tune spliceMatch=%d", on?1:0);
+        return;
+    }
+    if (msgType == 0xB0 && data1 == 106)
+    {
+        // CC106: drift low band. data2 0..127 → 1..32 samples (linear).
+        int s = 1 + (int)(((float)data2 / 127.0f) * 31.0f);
+        if (pLivePitchWrapper) pLivePitchWrapper->setEngineDriftLow(s);
+        CLogger::Get()->Write(log_name, LogNotice, "tune driftLow=%d", s);
+        return;
+    }
+    if (msgType == 0xB0 && data1 == 107)
+    {
+        // CC107: drift high head. data2 0..127 → 16..1024 samples (linear).
+        int s = 16 + (int)(((float)data2 / 127.0f) * 1008.0f);
+        if (pLivePitchWrapper) pLivePitchWrapper->setEngineDriftHigh(s);
+        CLogger::Get()->Write(log_name, LogNotice, "tune driftHigh=%d", s);
+        return;
+    }
 }
 
 void apcKey25::update()

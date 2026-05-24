@@ -210,8 +210,10 @@ public:
     m_soladR.setFormantDepth(brightness);
   }
 
-  // Live-tunable solad-snac runtime params (CC100-102 via UDP-MIDI inject).
-  // Lets us sweep latency / splice / fidelity in-place without rebuilding.
+  // Live-tunable solad-snac runtime params (CC100-107 via UDP-MIDI inject).
+  // Lets us sweep latency / splice / fidelity / bypasses in-place without
+  // rebuilding to find the param combination that eliminates periodic
+  // misalignment glitches.
   void setEngineReadOffset(int samples) {
     m_soladL.setInitialReadOffset(samples);
     m_soladR.setInitialReadOffset(samples);
@@ -223,6 +225,26 @@ public:
   void setEngineFidelity(float f) {
     m_soladL.setFidelityThresh(f);
     m_soladR.setFidelityThresh(f);
+  }
+  void setEnginePreBypass(bool on) {
+    m_soladL.setPreResampleBypass(on);
+    m_soladR.setPreResampleBypass(on);
+  }
+  void setEngineSpliceSnap(bool on) {
+    m_soladL.setSpliceSnap(on);
+    m_soladR.setSpliceSnap(on);
+  }
+  void setEngineSpliceMatch(bool on) {
+    m_soladL.setSpliceMatch(on);
+    m_soladR.setSpliceMatch(on);
+  }
+  void setEngineDriftLow(int s) {
+    m_soladL.setDriftLowBand(s);
+    m_soladR.setDriftLowBand(s);
+  }
+  void setEngineDriftHigh(int s) {
+    m_soladL.setDriftHighHead(s);
+    m_soladR.setDriftHighHead(s);
   }
 
   void setTempoRatio(float) {}

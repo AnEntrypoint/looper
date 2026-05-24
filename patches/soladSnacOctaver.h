@@ -90,6 +90,36 @@ public:
         m_fidelityThresh = f;
     }
 
+    // Bypass pre-resample formant stage entirely. When formantDepth=0
+    // the stage is supposed to be a unity-rate pass-through, but the
+    // 8-tap sinc + drift management adds compute and could be the
+    // source of periodic misalignment artefacts. CC103 toggles.
+    void setPreResampleBypass(bool on) { m_preBypass = on; }
+
+    // Skip integer-period snap in triggerSplice. The math relies on the
+    // SNAC-detected period being correct; if it's off, the splice lands
+    // at a position that's not phase-coherent. CC104 toggles.
+    void setSpliceSnap(bool on) { m_spliceSnap = on; }
+
+    // Skip the value-match refinement in triggerSplice. CC105 toggles.
+    void setSpliceMatch(bool on) { m_spliceMatch = on; }
+
+    // Splice drift-band lower bound (samples). Splice fires when
+    // gap < this. Default 8. Higher = more frequent splices.
+    void setDriftLowBand(int samples) {
+        if (samples < 1) samples = 1;
+        if (samples > DL / 4) samples = DL / 4;
+        m_driftLowBand = samples;
+    }
+
+    // Splice drift-band upper headroom (samples below DL). Splice fires
+    // when gap > DL - this. Default 256.
+    void setDriftHighHead(int samples) {
+        if (samples < 16) samples = 16;
+        if (samples > DL / 2) samples = DL / 2;
+        m_driftHighHead = samples;
+    }
+
     // Formant depth ∈ [-1, +1]:
     //   d = 0  : natural pitch shift, formants slide with pitch (deep/slow)
     //   d = 1  : formants fully preserved at original pitch (vocal-octave)
@@ -106,29 +136,27 @@ public:
             // Write raw input into the formant-prewarp buffer at full rate;
             // read at preRate to produce formant-warped samples for the
             // delay line. Continuous-rate sinc-interpolated read.
-            m_preBuf[m_preWr & PRE_MASK] = in[i];
-            m_preWr++;
-            // preRate = pow(pitchScale, -depth). depth=0 → preRate=1 → no
-            // formant warp (natural pitch shift). depth=1 → preRate=1/scale
-            // (formants preserved). Smooth onto target.
-            float scale = m_scale;
-            if (scale < 0.01f) scale = 0.01f;
-            float targetPreRate = powf(scale, -m_formantDepth);
-            m_preRate += (targetPreRate - m_preRate) * (1.0f / 480.0f);
+            float xWarped;
+            if (m_preBypass || m_formantDepth == 0.0f) {
+                // Bypass the pre-resample stage entirely — feed input
+                // straight into the delay line. At depth=0 this is
+                // semantically identical to the sinc-read path but
+                // sidesteps any drift-snap artefact from the pre-buffer
+                // gap-management glide.
+                xWarped = in[i];
+            } else {
+                m_preBuf[m_preWr & PRE_MASK] = in[i];
+                m_preWr++;
+                float scale = m_scale;
+                if (scale < 0.01f) scale = 0.01f;
+                float targetPreRate = powf(scale, -m_formantDepth);
+                m_preRate += (targetPreRate - m_preRate) * (1.0f / 480.0f);
 
-            // Read pre-buffer at preRate; how many delay-line writes per
-            // input sample = 1/preRate average. Maintain m_preRd, only
-            // commit to delay line when m_preRd ≤ current write position
-            // minus a small safety.
-            // Walk preRd at fixed step of 1 output (delay-line) sample per
-            // engine sample; preRd reads pre-buffer at variable rate.
-            float xWarped = 0.0f;
-            {
+                xWarped = 0.0f;
                 double pos = m_preRd;
                 int base = (int)pos;
                 if (pos < 0) base = (int)pos - 1;
                 double frac = pos - (double)base;
-                // 8-tap sinc — cheaper than the 16-tap delay-line read.
                 const int TAPS = 8, HALF = TAPS/2;
                 for (int k = 0; k < TAPS; k++) {
                     int idx = base + k - HALF + 1;
@@ -140,19 +168,11 @@ public:
                     xWarped += m_preBuf[(uint32_t)idx & PRE_MASK] * (float)(s * w);
                 }
                 m_preRd += (double)m_preRate;
-                // Drift management on pre-buffer. Hard-snap only when we
-                // genuinely cannot recover (gap < 4 or > PRE_DL-16) —
-                // those are emergency cases where read would alias write.
-                // Within recoverable band, nudge the read rate slightly
-                // toward the target gap (= PRE_DL/2) over the next ~10ms
-                // so we glide back instead of clicking.
                 double pgap = (double)m_preWr - m_preRd;
                 const double pgapTarget = (double)(PRE_DL / 2);
                 if (pgap < 4.0 || pgap > (double)(PRE_DL - 16)) {
                     m_preRd = (double)m_preWr - pgapTarget;
                 } else if (pgap < pgapTarget * 0.5 || pgap > pgapTarget * 1.5) {
-                    // Drift bias — preRate slightly off target so gap walks
-                    // back toward pgapTarget. Inaudible <0.1% rate shift.
                     float bias = (pgap < pgapTarget) ? -1e-4f : +1e-4f;
                     m_preRate += bias;
                 }
@@ -226,7 +246,7 @@ public:
             // integer-period snap would land at a phase-incorrect position
             // and click; better to let the gap stretch until we re-lock.
             double gap = (double)m_wr - rdActive;
-            bool driftOOB = (gap > (double)(DL - 256) || gap < 8.0);
+            bool driftOOB = (gap > (double)(DL - m_driftHighHead) || gap < (double)m_driftLowBand);
             if (driftOOB && m_periodValid && m_envSlow > 0.005f) {
                 triggerSplice(/*toLive=*/false);
             }
@@ -313,6 +333,11 @@ private:
     int      m_initialReadOffset = INITIAL_READ_OFFSET_DEFAULT;
     float    m_xfadeScale = 1.0f;
     float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
+    bool     m_preBypass = false;
+    bool     m_spliceSnap = true;
+    bool     m_spliceMatch = true;
+    int      m_driftLowBand = 8;
+    int      m_driftHighHead = 256;
     uint32_t m_wr = INITIAL_READ_OFFSET_DEFAULT;
     double   m_rdA = 0.0;
     double   m_rdB = 0.0;
@@ -370,8 +395,9 @@ private:
             newPos = (double)m_wr - (double)m_initialReadOffset;
         }
         // Snap to integer period offset from current active reader if we
-        // have a confident period — phase-coherent splice.
-        if (m_periodValid && m_periodF >= (float)MIN_PERIOD) {
+        // have a confident period — phase-coherent splice. Toggle via
+        // setSpliceSnap (CC104).
+        if (m_spliceSnap && m_periodValid && m_periodF >= (float)MIN_PERIOD) {
             double diff = newPos - rdActive;
             double pf = (double)m_periodF;
             int periods = (int)(diff / pf + (diff > 0 ? 0.5 : -0.5));
@@ -379,29 +405,29 @@ private:
 
             // Refine: within ±period/2 of the integer-period target, slide
             // newPos to minimise the AMPLITUDE+DERIVATIVE mismatch with
-            // rdActive RIGHT NOW. Matching both value and slope ensures the
-            // crossfade is invisible — equivalent to a 1st-order continuous
-            // splice through the OLA window.
-            float vActive = readSinc(rdActive);
-            float vActiveNext = readSinc(rdActive + (double)m_scale);
-            float dActive = vActiveNext - vActive;
-            double bestDelta = 0.0;
-            float  bestErr = 1e9f;
-            const int N_TRIAL = 33;
-            double maxOff = (double)pf * 0.5;
-            for (int t = -N_TRIAL/2; t <= N_TRIAL/2; t++) {
-                double off = (double)t * maxOff / (double)(N_TRIAL/2);
-                double trialPos = newPos + off;
-                if (trialPos < 0.0) continue;
-                if (trialPos > (double)m_wr - 1.0) continue;
-                float vTrial = readSinc(trialPos);
-                float vTrialNext = readSinc(trialPos + (double)m_scale);
-                float dTrial = vTrialNext - vTrial;
-                float err = fabsf(vTrial - vActive) * 1.0f
-                          + fabsf(dTrial - dActive) * 100.0f;  // weight slope heavily
-                if (err < bestErr) { bestErr = err; bestDelta = off; }
+            // rdActive RIGHT NOW. Toggle via setSpliceMatch (CC105).
+            if (m_spliceMatch) {
+                float vActive = readSinc(rdActive);
+                float vActiveNext = readSinc(rdActive + (double)m_scale);
+                float dActive = vActiveNext - vActive;
+                double bestDelta = 0.0;
+                float  bestErr = 1e9f;
+                const int N_TRIAL = 33;
+                double maxOff = (double)pf * 0.5;
+                for (int t = -N_TRIAL/2; t <= N_TRIAL/2; t++) {
+                    double off = (double)t * maxOff / (double)(N_TRIAL/2);
+                    double trialPos = newPos + off;
+                    if (trialPos < 0.0) continue;
+                    if (trialPos > (double)m_wr - 1.0) continue;
+                    float vTrial = readSinc(trialPos);
+                    float vTrialNext = readSinc(trialPos + (double)m_scale);
+                    float dTrial = vTrialNext - vTrial;
+                    float err = fabsf(vTrial - vActive) * 1.0f
+                              + fabsf(dTrial - dActive) * 100.0f;
+                    if (err < bestErr) { bestErr = err; bestDelta = off; }
+                }
+                newPos += bestDelta;
             }
-            newPos += bestDelta;
         }
         rdPassive = newPos;
         // Crossfade length = 2 × period for thorough overlap. Generous
