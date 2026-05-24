@@ -175,9 +175,9 @@ void apcKey25::_updateGridLeds()
             else if (cpeak > 1500) color = APC_VEL_LED_YELLOW;
             else                   color = APC_VEL_LED_GREEN;
         } else if (pTrack->getNumRecordedClips() > 0) {
-            // Stopped/paused but has content — show dim presence. APC25 has
-            // no dim green so use yellow to mean "captured but not playing".
-            color = APC_VEL_LED_OFF;  // pure blank when paused/stopped
+            // Has content but paused/stopped — blink yellow so you can see
+            // at a glance which loopers are loaded-but-silent vs truly empty.
+            color = APC_VEL_LED_YELLOW_BLINK;
         }
 
         int row = n / 4;

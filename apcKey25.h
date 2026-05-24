@@ -17,10 +17,13 @@
 #define APC_CH_NOTE_ON      0x90
 #define APC_CH_NOTE_OFF     0x80
 
-#define APC_VEL_LED_OFF     0
-#define APC_VEL_LED_GREEN   1
-#define APC_VEL_LED_RED     3
-#define APC_VEL_LED_YELLOW  5
+#define APC_VEL_LED_OFF            0
+#define APC_VEL_LED_GREEN          1
+#define APC_VEL_LED_GREEN_BLINK    2
+#define APC_VEL_LED_RED            3
+#define APC_VEL_LED_RED_BLINK      4
+#define APC_VEL_LED_YELLOW         5
+#define APC_VEL_LED_YELLOW_BLINK   6
 
 #define APC_HOLD_ERASE_MS   1000
 #define APC_LED_BOOT_DELAY_MS 2000
