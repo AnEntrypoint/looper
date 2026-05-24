@@ -209,31 +209,13 @@ public:
             m_snacBuf[m_snacWr] = x;
             m_snacWr = (m_snacWr + 1) % SNAC_WIN;
 
-            // ---- 2. Pitch detect — only when a splice is approaching ----
-            // SNAC is an O(W·P)=~800k-op burst. Running it every HOP stalls
-            // one audio block per HOP → IN ring overfills → resync (~100/s
-            // = the audible glitch). The detected period is ONLY consumed by
-            // triggerSplice's phase-coherent snap. So only run SNAC when the
-            // reader gap is within one detection-window of the drift-splice
-            // threshold — i.e. a splice is actually imminent. At -12 the gap
-            // grows slowly (0.5/sample) so splices are ~5s apart; SNAC then
-            // runs a handful of times just before each splice instead of
-            // 188×/sec continuously. Eliminates the per-HOP burst stall.
-            {
-                double g = (double)m_wr - (m_useA ? m_rdA : m_rdB);
-                double hi = (double)(DL - m_driftHighHead);
-                double lo = (double)m_driftLowBand;
-                bool spliceSoon = (g > hi - (double)SNAC_WIN) ||
-                                  (g < lo + (double)SNAC_WIN);
-                if (spliceSoon) {
-                    if (++m_sinceDetect >= SNAC_HOP) {
-                        m_sinceDetect = 0;
-                        detectPitch();
-                    }
-                } else {
-                    m_sinceDetect = SNAC_HOP;  // detect immediately when splice nears
-                }
-            }
+            // ---- 2. Pitch detect — SNAC runs ONLY at splice time ----
+            // Per-HOP SNAC (188 bursts/sec) was proven to stall audio
+            // blocks → IN ring resync ~100/sec = the glitch. SNAC is now
+            // invoked solely from the splice path (~12/sec at -12), where
+            // a fresh period is actually needed. The per-sample SNAC ring
+            // mirror is still maintained (cheap) so the window is ready
+            // whenever the splice path calls detectPitch().
 
             // ---- 3. Transient detector ----
             // Fire only on RISING envelope edge: envFast must (a) exceed
@@ -296,16 +278,29 @@ public:
             // integer-period snap would land at a phase-incorrect position
             // and click; better to let the gap stretch until we re-lock.
             double gap = (double)m_wr - rdActive;
-            bool driftOOB = (gap > (double)(DL - m_driftHighHead) || gap < (double)m_driftLowBand);
-            if (driftOOB && m_periodValid && m_envSlow > 0.005f) {
+            // PSOLA pitch shift REQUIRES the reader to drift (it advances
+            // slower than the writer at down-shift) and periodically splice
+            // back by an integer number of periods. You cannot bound the gap
+            // without splicing — that's the core of the algorithm. The key
+            // to inaudible splices is: splice OFTEN and PHASE-ALIGNED, so
+            // each is a tiny period-boundary overlap, not a rare giant jump.
+            //
+            // Trigger a splice once the reader has drifted ~one resplice
+            // interval (RESPLICE_GAP samples) past the target offset. With
+            // RESPLICE_GAP ≈ 4096 (85ms) splices fire ~12×/sec at -12 —
+            // frequent enough that each only re-uses 85ms of audio (no
+            // audible repeat), phase-aligned so the crossfade is seamless.
+            double driftFromTarget = gap - (double)m_initialReadOffset;
+            if (driftFromTarget > (double)RESPLICE_GAP && m_envSlow > 0.003f) {
+                // Run a fresh SNAC right now so the splice is period-aligned.
+                if (!m_periodValid) detectPitch();
                 triggerSplice(/*toLive=*/false);
             }
-            // Hard escape — if we genuinely cannot recover (reader wrapping
-            // off the end of the buffer), splice anyway. Better a click than
-            // garbage memory reads.
-            if (gap > (double)(DL - 16) || gap < 0.0) {
+            // Emergency hard-escape (buffer wrap protection only).
+            if (gap > (double)(DL - 16) || gap < 16.0) {
                 triggerSplice(/*toLive=*/false);
             }
+            m_gapBias = 0.0;  // no rate bias — pitch must stay exact
 
             // ---- 6. Read + crossfade ----
             float yA = readSinc(m_rdA);
@@ -325,8 +320,13 @@ public:
             out[i] = y;
 
             // ---- 7. Advance pointers ----
-            m_rdA += (double)m_scale;
-            m_rdB += (double)m_scale;
+            // m_gapBias holds the gap near mid-buffer so no splice is ever
+            // needed on sustained pitch shift. The +bias makes the reader
+            // advance slightly faster (shrinking an over-large gap) or
+            // slightly slower (growing a too-small gap). Magnitude <0.05.
+            double adv = (double)m_scale + m_gapBias;
+            m_rdA += adv;
+            m_rdB += adv;
             if (m_xfadeRemain > 0) m_xfadeRemain--;
         }
     }
@@ -367,6 +367,12 @@ private:
                                        // misalignment, not CPU).
     static const int MIN_PERIOD = 48;     // 1 kHz
     static const int MAX_PERIOD = 800;    // 60 Hz
+    // Reader drifts this far past the read-offset before a phase-aligned
+    // resplice. 4096 = 85ms → ~12 splices/sec at -12. Frequent + small so
+    // each splice's audio re-use is imperceptible; phase-aligned so the
+    // crossfade is seamless. SNAC runs once per splice (≈12/sec) not per
+    // HOP (188/sec) — the difference that keeps the IN ring from resyncing.
+    static const int RESPLICE_GAP = 4096;
     static const int TRANS_REFRACTORY = 14400;  // 300 ms — keeps transient splice rare
     static constexpr float ENV_SLOW_TC = 1.0f / 4800.0f;  // 100 ms
     static constexpr float ENV_FAST_TC = 1.0f / 48.0f;    // 1 ms
@@ -389,6 +395,7 @@ private:
     uint32_t m_wr = INITIAL_READ_OFFSET_DEFAULT;
     double   m_rdA = 0.0;
     double   m_rdB = 0.0;
+    double   m_gapBias = 0.0;
     bool     m_useA = true;
     int      m_xfadeRemain = 0;
     int      m_xfadeLen = 0;
