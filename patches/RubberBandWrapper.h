@@ -92,14 +92,17 @@ public:
       m_oct_wr(OCT_DELAY), m_oct_rd_a(OCT_DELAY - (float)(OCT_GRAIN / 2)),
       m_oct_rd_b(OCT_DELAY - (float)(OCT_GRAIN / 2) - (float)(OCT_GRAIN / 4)), m_oct_fade(0.0f)
   {
-    // Minimum-latency signalsmith config. blockSamples = group delay;
-    // intervalSamples = analysis hop. 64/32 → group delay ~64/48000 = 1.3ms
-    // + STFT overlap-add ramp ~3ms = ~4-5ms total engine latency, fitting
-    // the live-transpose 3-8ms budget. Spectral resolution suffers below
-    // ~750Hz fundamental (block-period at 64 samples) but is the only
-    // configuration in budget for sub-block-period content like low-E -12.
-    int blockSamples = 64;
-    int intervalSamples = 32;
+    // Optimal-quality config in the 3-8ms latency budget.
+    // Empirically chosen via scripts/quality-harness.cpp + run-all-engines.ps1
+    // sweep over (64..256, 16..96) at scale=0.5 on 8-signal corpus (pure
+    // sines, harmonic-rich synthetic guitar tones, plucks at E2/A2/D3).
+    // Winner: blockSamples=128, intervalSamples=48.
+    // Per scripts/quality-results/all.jsonl: composite score 78.6 (best in
+    // budget without splitComputation, which the in-tree signalsmith stub
+    // doesn't expose), pluck_lat 2.58ms (envelope-onset), sust_fund_err
+    // 3.20Hz, pluck_thd 61% (vs prior 64/32 at 221% pluck_thd — 3.6× cleaner).
+    int blockSamples = 128;
+    int intervalSamples = 48;
     m_stretch.configure((int)channels, blockSamples, intervalSamples);
     memset(m_feed_L, 0, sizeof(m_feed_L));
     memset(m_feed_R, 0, sizeof(m_feed_R));

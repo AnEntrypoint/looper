@@ -44,6 +44,12 @@ scripts/*.exe
 # Generated WAVs (gen-tones.ps1 + ffmpeg resamples). Track the generator
 # script, not the (large, binary, reproducible) outputs.
 scripts/samples/*.wav
+# Quality-harness outputs — regenerable via gen-corpus.exe + run-all-engines.ps1
+scripts/quality-corpus/*.wav
+scripts/quality-corpus/*.exe
+scripts/quality-results/
+scripts/compare-out/
+scripts/engines/*.exe
 
 # Dev tools
 .env
