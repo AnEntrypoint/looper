@@ -305,11 +305,25 @@ public:
             // SNAC is NOT run here (that's the ring-resync cost). We reuse
             // the cached m_periodF, refreshed on a slow timer below.
             double driftFromTarget = gap - (double)m_initialReadOffset;
-            double per = (m_periodValid && m_periodF >= (float)MIN_PERIOD)
-                         ? (double)m_periodF : 240.0;
-            if (driftFromTarget > per && m_envSlow > 0.003f && m_xfadeRemain == 0) {
-                // Jump reader forward by one period, crossfade over one period.
-                triggerSpliceByPeriod(per);
+            // Only resplice on a VALID period. A fallback fixed jump (e.g.
+            // 240) is not phase-aligned to the actual waveform => the
+            // 1-period crossfade lands on a discontinuity = click on every
+            // fallback splice. When the detector is unsure (silence/noise
+            // tail / not-yet-locked) we DEFER: let the gap stretch until
+            // SNAC re-locks. Only the emergency hard-escape below may splice
+            // without a valid period (buffer-wrap protection).
+            if (m_periodValid && m_periodF >= (float)MIN_PERIOD) {
+                double per = (double)m_periodF;
+                // Resplice when the reader has drifted a SMALL fraction of a
+                // period past target (not a full period). Smaller drift before
+                // each splice => the gap-sawtooth amplitude shrinks
+                // proportionally, which shrinks the residual amplitude ripple
+                // (tremolo). The jump is still exactly one period (phase-
+                // coherent grain repeat); only the cadence is finer.
+                double trigger = per * m_respliceFrac;
+                if (driftFromTarget > trigger && m_envSlow > 0.003f && m_xfadeRemain == 0) {
+                    triggerSpliceByPeriod(per);
+                }
             }
             // Emergency hard-escape (buffer wrap protection only).
             if (gap > (double)(DL - 16) || gap < 16.0) {
@@ -324,11 +338,17 @@ public:
                        ? (float)m_xfadeRemain / (float)m_xfadeLen
                        : 0.0f;
             // w=1 → 100% passive (old reader); w=0 → 100% active (new reader)
+            // EQUAL-GAIN linear fade: wActive + wPassive == 1.0 exactly.
+            // The two readers are ONE PERIOD apart on a quasi-periodic
+            // signal — they are CORRELATED, not independent. An equal-POWER
+            // (sum-of-squares=1) cosine fade on correlated grains sums to
+            // >1.0 mid-fade (up to +3dB); with per-splice SNAC phase error
+            // the bump magnitude varies splice-to-splice => periodic
+            // amplitude modulation = audible tremolo. Linear (constant-sum)
+            // fade holds the summed amplitude flat when the grains are
+            // phase-aligned, which is the PSOLA invariant.
             float wActive  = 1.0f - w;
             float wPassive = w;
-            // Use cosine fade for smoother amplitude (sum-of-squares = 1)
-            wActive  = 0.5f * (1.0f - cosf(SOLAD_M_PI * wActive));
-            wPassive = 1.0f - wActive;
 
             float y = m_useA ? (yA * wActive + yB * wPassive)
                              : (yB * wActive + yA * wPassive);
@@ -403,6 +423,9 @@ private:
     float    m_formantDepth = 0.0f;
     int      m_initialReadOffset = INITIAL_READ_OFFSET_DEFAULT;
     float    m_xfadeScale = 1.0f;
+    float    m_respliceFrac = 1.0f;  // resplice after drifting this fraction
+                                      // of a period; smaller = finer cadence,
+                                      // smaller residual amplitude ripple.
     float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
     bool     m_preBypass = false;
     bool     m_spliceSnap = true;
@@ -449,14 +472,28 @@ private:
         if (sincTableReady) return;
         for (int p = 0; p < SINC_PHASES; p++) {
             double frac = (double)p / (double)SINC_PHASES;
+            double sum = 0.0;
+            double tmp[SINC_TAPS];
             for (int k = 0; k < SINC_TAPS; k++) {
                 double x = (double)(k - SINC_HALF + 1) - frac;
                 double s = (x < 1e-9 && x > -1e-9) ? 1.0
                          : sin(SOLAD_M_PI * x) / (SOLAD_M_PI * x);
                 double w = 0.5 - 0.5 * cos(2.0 * SOLAD_M_PI * ((double)k + frac)
                                            / (double)(SINC_TAPS - 1));
-                sincTable[p][k] = (float)(s * w);
+                tmp[k] = s * w;
+                sum += tmp[k];
             }
+            // Per-phase DC-gain normalization. The raw windowed-sinc kernel's
+            // coefficient sum varies ~9.9% across fractional phases (0.905 at
+            // frac~0.5, up to 1.0 at frac=0). As the read pointer drifts
+            // through phases during pitch-shift, that gain ripple modulates
+            // the output amplitude => audible TREMOLO (~3-5Hz at -12).
+            // Normalizing each phase row to unity DC gain kills the ripple
+            // at its source — the dominant tremolo mechanism (host-measured:
+            // 20% envelope modulation depth before this fix).
+            double inv = (fabs(sum) > 1e-9) ? 1.0 / sum : 1.0;
+            for (int k = 0; k < SINC_TAPS; k++)
+                sincTable[p][k] = (float)(tmp[k] * inv);
         }
         sincTableReady = true;
     }
