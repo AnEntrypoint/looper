@@ -182,6 +182,7 @@ extern volatile unsigned g_dispatchDropped;
 
 static unsigned s_watchdogForces  = 0;
 static unsigned s_lastStatTicks   = 0;
+static u64      s_lastEngTicks    = 0;
 #define USB_WATCHDOG_TICKS  (CLOCKHZ / 200)
 #define USB_STAT_TICKS      CLOCKHZ
 #endif
@@ -341,12 +342,13 @@ void loop()
 			unsigned em = pLivePitchWrapper->engineEmergency();
 			unsigned d_emerg = em - prev_emerg; prev_emerg = em;
 			CLogger::Get()->Write(log_name, LogNotice,
-				"eng scale=%d.%03d gap=%d period=%d lock=%d splice+%u emerg+%u",
+				"eng scale=%d.%03d gap=%d period=%d lock=%d splice+%u emerg+%u dtms=%u",
 				sci/1000, sci%1000,
 				pLivePitchWrapper->engineGap(),
 				pLivePitchWrapper->enginePeriod(),
 				pLivePitchWrapper->enginePeriodOk() ? 1 : 0,
-				d_splice, d_emerg);
+				d_splice, d_emerg, (unsigned)((now - s_lastEngTicks)/1000));
+				s_lastEngTicks = now;
 		}
 	}
 #endif
