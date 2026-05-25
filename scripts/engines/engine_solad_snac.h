@@ -429,8 +429,12 @@ public:
     }
 
 private:
-    static const int DL = 131072;  // 2.7s at 48k — drift splice fires every
-                                   // ~5.5s at -12 (vs 1.35s at DL=32768)
+    static const int DL = 16384;   // 0.34s at 48k — ample for -12 drift; the
+                                   // former 131072 (512KB) made RubberBandWrapper
+                                   // a multi-MB single `new` that corrupted on
+                                   // the Pi (garbage even at unity scale while
+                                   // host was clean at every scale). 16384 keeps
+                                   // the wrapper small + heap-safe on AARCH=32.
     static const int PRE_DL = 8192;        // 170 ms — formant pre-resample buffer
     static const int PRE_MASK = PRE_DL - 1;
     static const int MASK = DL - 1;

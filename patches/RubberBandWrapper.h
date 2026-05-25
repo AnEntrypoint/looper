@@ -4,17 +4,15 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
-#include "signalsmith/signalsmith-stretch.h"
-#include "yinPsolaOctaver.h"
-#include "sincFormantOctaver.h"
 #include "soladSnacOctaver.h"
 
 class RubberBandWrapper {
-  signalsmith::stretch::SignalsmithStretch<float> m_stretch;
-  EngineYinPsola m_psolaL;
-  EngineYinPsola m_psolaR;
-  SincFormantOctaver m_sincL;
-  SincFormantOctaver m_sincR;
+  // ONLY EngineSoladSnac is in the live pitch path. The former embedded
+  // signalsmith / yinPsola / sincFormant engines were dead members that
+  // bloated this single `new`-allocated object to multiple MB — on the Pi
+  // (AARCH=32) that large allocation corrupted the engine (garbage output
+  // even at unity scale, while the identical code is clean on host at every
+  // scale). Removed; the wrapper is now ~300KB.
   EngineSoladSnac m_soladL;
   EngineSoladSnac m_soladR;
   float m_pitchScale;
@@ -113,9 +111,7 @@ public:
     // budget without splitComputation, which the in-tree signalsmith stub
     // doesn't expose), pluck_lat 2.58ms (envelope-onset), sust_fund_err
     // 3.20Hz, pluck_thd 61% (vs prior 64/32 at 221% pluck_thd — 3.6× cleaner).
-    int blockSamples = 128;
-    int intervalSamples = 48;
-    m_stretch.configure((int)channels, blockSamples, intervalSamples);
+    (void)sampleRate;
     memset(m_feed_L, 0, sizeof(m_feed_L));
     memset(m_feed_R, 0, sizeof(m_feed_R));
     memset(m_retr_L, 0, sizeof(m_retr_L));
@@ -172,11 +168,6 @@ public:
 
   void setPitchScale(float scale) {
     m_pitchScale = scale;
-    m_stretch.setTransposeFactor(scale, m_formant);
-    m_psolaL.configure(48000.0f, scale);
-    m_psolaR.configure(48000.0f, scale);
-    m_sincL.setPitchScale(scale);
-    m_sincR.setPitchScale(scale);
     m_soladL.setPitchScale(scale);
     m_soladR.setPitchScale(scale);
   }
@@ -191,8 +182,6 @@ public:
   void setEngaged(bool on) {
     bool was = m_engaged;
     m_engaged = on;
-    m_sincL.setEngaged(on);
-    m_sincR.setEngaged(on);
     if (on && !was) {
       m_soladL.reengage();
       m_soladR.reengage();
@@ -206,7 +195,6 @@ public:
   // signalsmith on a non-live code path.
   void setFormant(float depth) {
     m_formant = depth * 0.12f;
-    m_stretch.setTransposeFactor(m_pitchScale, m_formant);
     m_soladL.setFormantDepth(depth);
     m_soladR.setFormantDepth(depth);
   }
