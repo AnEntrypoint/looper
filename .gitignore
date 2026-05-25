@@ -50,6 +50,7 @@ scripts/quality-corpus/*.exe
 scripts/quality-results/
 scripts/compare-out/
 scripts/engines/*.exe
+scripts/ab-renders/
 
 # Dev tools
 .env
