@@ -337,14 +337,16 @@ void loop()
 			unsigned d_splice = sc - prev_splice;
 			prev_splice = sc;
 			int sci = (int)(pLivePitchWrapper->engineScale() * 1000.0f);
-			int eri = (int)(pLivePitchWrapper->engineEffRate() * 1000.0f);
+			static unsigned prev_emerg = 0;
+			unsigned em = pLivePitchWrapper->engineEmergency();
+			unsigned d_emerg = em - prev_emerg; prev_emerg = em;
 			CLogger::Get()->Write(log_name, LogNotice,
-				"eng scale=%d.%03d effRate=%d.%03d period=%d lock=%d splice+%u",
+				"eng scale=%d.%03d gap=%d period=%d lock=%d splice+%u emerg+%u",
 				sci/1000, sci%1000,
-				eri/1000, eri%1000,
+				pLivePitchWrapper->engineGap(),
 				pLivePitchWrapper->enginePeriod(),
 				pLivePitchWrapper->enginePeriodOk() ? 1 : 0,
-				d_splice);
+				d_splice, d_emerg);
 		}
 	}
 #endif

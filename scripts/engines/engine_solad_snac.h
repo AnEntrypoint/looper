@@ -387,9 +387,13 @@ public:
             // never fire in normal sustained use — it's the last-resort
             // backstop for true silence-from-cold (no period ever seen).
             if (gap > (double)(DL - 16) || gap < 16.0) {
+                m_emergencyCount++;
                 triggerSplice(/*toLive=*/false);
             }
-            m_gapBias = 0.0;  // no rate bias — pitch must stay exact
+            m_gapBias = 0.0;  // no rate bias — at downshift the reader MUST lag
+                              // (the lag IS the pitch shift); biasing it toward
+                              // a fixed gap detunes the output. Gap control is
+                              // the splice's job, not a rate bias.
 
             // ---- 6. Read + crossfade ----
             float yA = readSinc(m_rdA);
@@ -524,9 +528,12 @@ private:
     bool     m_periodValid = false;
     float    m_lastGoodPeriodF = 256.0f;  // survives brief lock loss
     bool     m_haveGoodPeriod = false;
+    unsigned m_emergencyCount = 0;        // emergency buffer-wrap escapes
 public:
     // Introspection for Pi-side telemetry (read by wrapper → audio.cpp log).
     unsigned m_spliceCount = 0;
+    int      gapNow() const { return (int)((double)m_wr - (m_useA ? m_rdA : m_rdB)); }
+    unsigned emergencyCount() const { return m_emergencyCount; }
     double   m_effContAccum = 0.0;
     double   m_spliceJumpAccum = 0.0;
     unsigned m_effSamples = 0;
