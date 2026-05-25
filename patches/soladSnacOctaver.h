@@ -691,6 +691,34 @@ private:
         double maxPos = (double)m_wr - (double)m_initialReadOffset;
         while (newPos > maxPos && n > 1) { n--; newPos = rdActive + (double)n * per; }
         if (newPos > maxPos) newPos = maxPos;   // last resort (gap-safe, may be off-phase by <1 period)
+
+        // SPLICE-POINT REFINEMENT (the key to seamless splices on REAL input).
+        // A blind exactly-one-period jump is seamless only if consecutive
+        // periods are IDENTICAL — true for a synthetic sine (host: THD 0.4%)
+        // but NOT for real guitar/rig input where ADC+room noise makes each
+        // period slightly different. The tiny value/slope mismatch at the
+        // crossfade then clicks ~55×/s = the gurgle/buzz on the Pi. Slide the
+        // splice target within ±period/2 to the point whose VALUE and SLOPE
+        // best match the current read point, so the overlap-add is continuous.
+        {
+            float vA  = readSinc(rdActive);
+            float vAn = readSinc(rdActive + (double)m_scale);
+            float dA  = vAn - vA;
+            double bestOff = 0.0; float bestErr = 1e30f;
+            const int NT = 17;
+            double maxOff = per * 0.5;
+            for (int t = -NT/2; t <= NT/2; t++) {
+                double off = (double)t * maxOff / (double)(NT/2);
+                double tp = newPos + off;
+                if (tp < 1.0 || tp > maxPos) continue;
+                float vT  = readSinc(tp);
+                float vTn = readSinc(tp + (double)m_scale);
+                float dT  = vTn - vT;
+                float err = fabsf(vT - vA) + fabsf(dT - dA) * 80.0f;
+                if (err < bestErr) { bestErr = err; bestOff = off; }
+            }
+            newPos += bestOff;
+        }
         jump = newPos - rdActive;
         rdPassive = newPos;
         m_spliceJumpAccum += jump;
