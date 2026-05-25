@@ -59,6 +59,8 @@ public:
         m_targetScale = 1.0f;
         m_period = 256;
         m_periodValid = false;
+        m_lastGoodPeriodF = 256.0f;
+        m_haveGoodPeriod = false;
         m_sinceDetect = 0;
         m_warmup = SNAC_WIN;
         m_envSlow = 0.0f;
@@ -353,20 +355,28 @@ public:
             // tail / not-yet-locked) we DEFER: let the gap stretch until
             // SNAC re-locks. Only the emergency hard-escape below may splice
             // without a valid period (buffer-wrap protection).
+            // Cache the last confidently-detected period. When SNAC lock
+            // momentarily drops (a transient, a brief noisy window) we keep
+            // resplicing with this STALE-BUT-RECENT period rather than
+            // deferring — deferring let the reader drift unbounded to the
+            // buffer wall, firing the emergency hard-escape = one POP, then a
+            // splice storm = GURGLE until re-lock (user-reported). A recent
+            // period is still phase-coherent enough for a clean 1-period jump.
             if (m_periodValid && m_periodF >= (float)MIN_PERIOD) {
-                double per = (double)m_periodF;
-                // Resplice when the reader has drifted a SMALL fraction of a
-                // period past target (not a full period). Smaller drift before
-                // each splice => the gap-sawtooth amplitude shrinks
-                // proportionally, which shrinks the residual amplitude ripple
-                // (tremolo). The jump is still exactly one period (phase-
-                // coherent grain repeat); only the cadence is finer.
+                m_lastGoodPeriodF = m_periodF;
+                m_haveGoodPeriod = true;
+            }
+            if (m_haveGoodPeriod) {
+                double per = (double)m_lastGoodPeriodF;
                 double trigger = per * m_respliceFrac;
                 if (driftFromTarget > trigger && m_envSlow > 0.003f && m_xfadeRemain == 0) {
                     triggerSpliceByPeriod(per);
                 }
             }
-            // Emergency hard-escape (buffer wrap protection only).
+            // Emergency hard-escape (buffer wrap protection only). With the
+            // stale-period resplice above keeping the gap bounded, this should
+            // never fire in normal sustained use — it's the last-resort
+            // backstop for true silence-from-cold (no period ever seen).
             if (gap > (double)(DL - 16) || gap < 16.0) {
                 triggerSplice(/*toLive=*/false);
             }
@@ -429,12 +439,14 @@ public:
     }
 
 private:
-    static const int DL = 16384;   // 0.34s at 48k — ample for -12 drift; the
-                                   // former 131072 (512KB) made RubberBandWrapper
-                                   // a multi-MB single `new` that corrupted on
-                                   // the Pi (garbage even at unity scale while
-                                   // host was clean at every scale). 16384 keeps
-                                   // the wrapper small + heap-safe on AARCH=32.
+    static const int DL = 32768;   // 0.68s at 48k. Big enough that the
+                                   // emergency buffer-wrap escape stays rare,
+                                   // small enough (128KB/ch, 256KB stereo) to
+                                   // keep RubberBandWrapper heap-safe on the Pi
+                                   // (the former 131072=512KB/ch bloated the
+                                   // single `new` to multi-MB and corrupted on
+                                   // AARCH=32). The stale-period resplice keeps
+                                   // the gap bounded so wrap rarely matters.
     static const int PRE_DL = 8192;        // 170 ms — formant pre-resample buffer
     static const int PRE_MASK = PRE_DL - 1;
     static const int MASK = DL - 1;
@@ -501,6 +513,8 @@ private:
     int      m_period = 256;
     float    m_periodF = 256.0f;   // sub-sample period for snap precision
     bool     m_periodValid = false;
+    float    m_lastGoodPeriodF = 256.0f;  // survives brief lock loss
+    bool     m_haveGoodPeriod = false;
 public:
     // Introspection for Pi-side telemetry (read by wrapper → audio.cpp log).
     unsigned m_spliceCount = 0;
