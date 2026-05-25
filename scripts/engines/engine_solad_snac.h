@@ -368,18 +368,28 @@ public:
                 m_lastGoodPeriodF = m_periodF;
                 m_haveGoodPeriod = true;
             }
-            // Resplice gating must NOT stall — a stalled resplice was letting
-            // the gap run up to ~20000 over ~0.8s, then ONE giant clamped
-            // multi-period jump chopped the output = the 8s dropout. So the
-            // ONLY gate is m_xfadeRemain (don't splice mid-crossfade); no env
-            // gate (input dips were stalling it) and no cooldown (the
-            // multi-period catch-up + frac already bound the rate). The jump
-            // size is capped small (in triggerSpliceByPeriod) so even if drift
-            // is large the catch-up is gradual — never one dropout-causing jump.
-            if (m_haveGoodPeriod && m_xfadeRemain == 0) {
+            if (m_spliceCooldown > 0) m_spliceCooldown--;
+            if (m_haveGoodPeriod) {
                 double per = (double)m_lastGoodPeriodF;
                 double trigger = per * m_respliceFrac;
-                if (driftFromTarget > trigger) {
+                if (driftFromTarget > trigger && m_envSlow > 0.003f
+                    && m_xfadeRemain == 0 && m_spliceCooldown == 0) {
+                    // Refractory: after a splice, suppress new splices for ~1
+                    // period. Normal -12 cadence is ~1 splice / 2 periods so
+                    // this never throttles steady operation, but it HARD-CAPS
+                    // the splice rate, converting the gap-runup recovery from a
+                    // multi-second >100/s storm (gurgle) into single clean
+                    // catch-up splices.
+                    m_spliceCooldown = (int)(per * 0.9);
+                    // Jump forward by as many WHOLE periods as needed to bring
+                    // the gap back to ~target in ONE phase-coherent splice,
+                    // not just one period. A single-period jump left the gap
+                    // still above trigger whenever drift exceeded ~1 period,
+                    // so it re-fired every block = splice STORM = gurgle (the
+                    // 16s-period instability: the read/write gap slow-beats,
+                    // and on the high half it stormed). Clearing the whole
+                    // drift gives hysteresis: one clean splice, then quiet
+                    // until the gap genuinely drifts up a period again.
                     triggerSpliceByPeriod(per, driftFromTarget);
                 }
             }
@@ -678,13 +688,7 @@ private:
         // seamless as a 1-period one but it fully resets the gap, giving the
         // control loop hysteresis (no per-block re-fire = no splice storm).
         int n = 1;
-        if (drift > per) { n = (int)(drift / per + 0.5); if (n < 1) n = 1; if (n > 3) n = 3; }
-        // Cap the jump at 3 periods. A 64-period jump (when drift ran huge)
-        // accumulated 64x the per-period phase error and landed way off =
-        // the audible dropout/chop. Capping means if drift is large the gap
-        // reduces over several SMALL phase-coherent jumps instead of one giant
-        // discontinuity. Combined with the no-stall gating above, drift now
-        // never gets large enough to need more than a few periods anyway.
+        if (drift > per) { n = (int)(drift / per + 0.5); if (n < 1) n = 1; if (n > 64) n = 64; }
         double jump = (double)n * per;
         // CLAMP: never jump the reader past (or too close to) the writer.
         // An over-large multi-period jump landed rdPassive >= m_wr => gap<16 =>
