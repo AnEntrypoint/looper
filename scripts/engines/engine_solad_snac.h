@@ -369,27 +369,27 @@ public:
                 m_haveGoodPeriod = true;
             }
             if (m_spliceCooldown > 0) m_spliceCooldown--;
-            if (m_haveGoodPeriod && m_envSlow > 0.003f) {
+            if (m_haveGoodPeriod) {
                 double per = (double)m_lastGoodPeriodF;
                 double trigger = per * m_respliceFrac;
-                // Two-tier gap control:
-                //  - Normal drift (1..~3 periods over target): cooldown-gated
-                //    resplice, gentle steady cadence.
-                //  - LARGE drift (gap ran up because lock was briefly lost):
-                //    FORCE a phase-coherent catch-up immediately, ignoring the
-                //    cooldown AND any in-flight xfade. This BOUNDS the gap so
-                //    it can never run up to ~20000 (the cause of the recovery
-                //    storm/gurgle). The single multi-period clamped jump pulls
-                //    the gap straight back to target in one clean splice.
-                bool large = driftFromTarget > per * 3.0;
-                bool normal = driftFromTarget > trigger
-                              && m_xfadeRemain == 0 && m_spliceCooldown == 0;
-                if (large) {
-                    m_xfadeRemain = 0;             // override stuck xfade
+                if (driftFromTarget > trigger && m_envSlow > 0.003f
+                    && m_xfadeRemain == 0 && m_spliceCooldown == 0) {
+                    // Refractory: after a splice, suppress new splices for ~1
+                    // period. Normal -12 cadence is ~1 splice / 2 periods so
+                    // this never throttles steady operation, but it HARD-CAPS
+                    // the splice rate, converting the gap-runup recovery from a
+                    // multi-second >100/s storm (gurgle) into single clean
+                    // catch-up splices.
                     m_spliceCooldown = (int)(per * 0.9);
-                    triggerSpliceByPeriod(per, driftFromTarget);
-                } else if (normal) {
-                    m_spliceCooldown = (int)(per * 0.9);
+                    // Jump forward by as many WHOLE periods as needed to bring
+                    // the gap back to ~target in ONE phase-coherent splice,
+                    // not just one period. A single-period jump left the gap
+                    // still above trigger whenever drift exceeded ~1 period,
+                    // so it re-fired every block = splice STORM = gurgle (the
+                    // 16s-period instability: the read/write gap slow-beats,
+                    // and on the high half it stormed). Clearing the whole
+                    // drift gives hysteresis: one clean splice, then quiet
+                    // until the gap genuinely drifts up a period again.
                     triggerSpliceByPeriod(per, driftFromTarget);
                 }
             }
