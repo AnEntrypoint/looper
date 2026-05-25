@@ -42,6 +42,11 @@ public:
         for (int i = 0; i < PRE_DL; i++) m_preBuf[i] = 0.0f;
         m_preWr = PRE_DL / 2;
         m_preRd = 0.0;
+        m_preRdB = 0.0;
+        m_preUseA = true;
+        m_preXfadeRemain = 0;
+        m_preXfadeLen = 0;
+        m_preEnv = 0.0f;
         m_preRate = 1.0f;
         m_formantDepth = 0.0f;
         m_wr = (uint32_t)m_initialReadOffset;
@@ -174,30 +179,54 @@ public:
                 float targetPreRate = powf(scale, -m_formantDepth);
                 m_preRate += (targetPreRate - m_preRate) * (1.0f / 480.0f);
 
-                xWarped = 0.0f;
-                double pos = m_preRd;
-                int base = (int)pos;
-                if (pos < 0) base = (int)pos - 1;
-                double frac = pos - (double)base;
-                const int TAPS = 8, HALF = TAPS/2;
-                for (int k = 0; k < TAPS; k++) {
-                    int idx = base + k - HALF + 1;
-                    double dx = (double)(k - HALF + 1) - frac;
-                    double s = (dx < 1e-9 && dx > -1e-9) ? 1.0
-                             : sin(SOLAD_M_PI * dx) / (SOLAD_M_PI * dx);
-                    double w = 0.5 - 0.5 * cos(2.0 * SOLAD_M_PI * ((double)k + frac)
-                                               / (double)(TAPS - 1));
-                    xWarped += m_preBuf[(uint32_t)idx & PRE_MASK] * (float)(s * w);
+                // Cheap rising-transient flag from the input stream — used to
+                // DEFER pre-resample wraps during attacks so the wrap's grain-
+                // repeat never lands on a transient (was a source of smear).
+                float aIn = fabsf(in[i]);
+                m_preEnv += (aIn - m_preEnv) * (1.0f / 64.0f);
+                bool preTransient = (aIn > m_preEnv * 2.5f && aIn > 0.02f);
+
+                // Period for phase-coherent wraps (reuse cached SNAC period).
+                double per = (m_periodValid && m_periodF >= (float)MIN_PERIOD)
+                             ? (double)m_periodF : 0.0;
+                // Keep the read close behind write (small gap) so any grain
+                // repeat on wrap is RECENT — a one-period repeat of the last
+                // few ms is inaudible, vs the old 85ms replay that doubled.
+                double gapTarget = (per > 0.0) ? per * 4.0 : 1024.0;
+                double pgapA = (double)m_preWr - m_preRd;
+
+                // Wrap when the active reader approaches either bound. Jump the
+                // PASSIVE reader by an integer number of periods back toward
+                // gapTarget (phase-coherent), short equal-gain crossfade, swap.
+                bool nearBound = (pgapA < gapTarget * 0.4) || (pgapA > gapTarget * 2.5);
+                if (per > 0.0 && nearBound && m_preXfadeRemain == 0 && !preTransient) {
+                    double &a = m_preUseA ? m_preRd : m_preRdB;
+                    double &b = m_preUseA ? m_preRdB : m_preRd;
+                    double target = (double)m_preWr - gapTarget;
+                    double diff = target - a;
+                    int periods = (int)(diff / per + (diff > 0 ? 0.5 : -0.5));
+                    if (periods == 0) periods = (diff > 0 ? 1 : -1);
+                    b = a + (double)periods * per;
+                    int len = (int)(per * 0.5);
+                    if (len < 24) len = 24; if (len > 512) len = 512;
+                    m_preXfadeLen = len; m_preXfadeRemain = len;
+                    m_preUseA = !m_preUseA;
+                } else if (per <= 0.0 && (pgapA < 8.0 || pgapA > (double)(PRE_DL - 16))) {
+                    // No period lock (silence/noise) — bare reset, inaudible.
+                    m_preRd = (double)m_preWr - gapTarget;
+                    m_preRdB = m_preRd;
                 }
-                m_preRd += (double)m_preRate;
-                double pgap = (double)m_preWr - m_preRd;
-                const double pgapTarget = (double)(PRE_DL / 2);
-                if (pgap < 4.0 || pgap > (double)(PRE_DL - 16)) {
-                    m_preRd = (double)m_preWr - pgapTarget;
-                } else if (pgap < pgapTarget * 0.5 || pgap > pgapTarget * 1.5) {
-                    float bias = (pgap < pgapTarget) ? -1e-4f : +1e-4f;
-                    m_preRate += bias;
-                }
+
+                float yA = readPre(m_preRd);
+                float yB = readPre(m_preRdB);
+                float pw = (m_preXfadeRemain > 0 && m_preXfadeLen > 0)
+                           ? (float)m_preXfadeRemain / (float)m_preXfadeLen : 0.0f;
+                float wAct = 1.0f - pw, wPas = pw;  // equal-gain linear
+                xWarped = m_preUseA ? (yA * wAct + yB * wPas)
+                                    : (yB * wAct + yA * wPas);
+                m_preRd  += (double)m_preRate;
+                m_preRdB += (double)m_preRate;
+                if (m_preXfadeRemain > 0) m_preXfadeRemain--;
             }
 
             // ---- 1. Ingest the pre-warped sample ----
@@ -418,7 +447,12 @@ private:
     float    m_dl[DL];
     float    m_preBuf[PRE_DL];
     uint32_t m_preWr = PRE_DL / 2;
-    double   m_preRd = 0.0;
+    double   m_preRd = 0.0;       // active pre-resample read pointer
+    double   m_preRdB = 0.0;      // passive (post-wrap) pre-resample reader
+    bool     m_preUseA = true;
+    int      m_preXfadeRemain = 0;
+    int      m_preXfadeLen = 0;
+    float    m_preEnv = 0.0f;     // fast input envelope for wrap-defer on attacks
     float    m_preRate = 1.0f;
     float    m_formantDepth = 0.0f;
     int      m_initialReadOffset = INITIAL_READ_OFFSET_DEFAULT;
@@ -515,6 +549,29 @@ private:
             v += m_dl[(uint32_t)idx & MASK] * coef[k];
         }
         return v;
+    }
+
+    // 8-tap windowed-sinc read of the formant pre-resample buffer with
+    // per-call DC-gain normalization (same fix as the main sinc table — an
+    // un-normalized kernel ripples ~10% across phases = formant-stage tremolo).
+    inline float readPre(double pos) const {
+        int base = (int)pos;
+        if (pos < 0) base = (int)pos - 1;
+        double frac = pos - (double)base;
+        const int TAPS = 8, HALF = TAPS / 2;
+        double acc = 0.0, sum = 0.0;
+        for (int k = 0; k < TAPS; k++) {
+            int idx = base + k - HALF + 1;
+            double dx = (double)(k - HALF + 1) - frac;
+            double s = (dx < 1e-9 && dx > -1e-9) ? 1.0
+                     : sin(SOLAD_M_PI * dx) / (SOLAD_M_PI * dx);
+            double w = 0.5 - 0.5 * cos(2.0 * SOLAD_M_PI * ((double)k + frac)
+                                       / (double)(TAPS - 1));
+            double c = s * w;
+            acc += (double)m_preBuf[(uint32_t)idx & PRE_MASK] * c;
+            sum += c;
+        }
+        return (float)(sum > 1e-9 ? acc / sum : acc);
     }
 
     // Micro-splice: jump the new reader forward by exactly ONE period
