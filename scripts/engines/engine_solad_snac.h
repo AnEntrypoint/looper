@@ -99,8 +99,8 @@ public:
         // m_haveGoodPeriod was false the resplice never fired -> the gap ran up
         // to the emergency escape every cycle = the detune/wobble. With a seed,
         // the resplice always bounds the gap; SNAC then refines the period.
-        // 218 ≈ 220Hz, a safe mid-range guitar period; refined within ~40ms.
-        m_lastGoodPeriodF = 218.0f;
+        // 600 ≈ 80Hz (below guitar low-E 82Hz): a long seed can never bias a real note toward a half-period (octave) splice error; SNAC refines up to the true period. A short seed (218=220Hz) made 110Hz lock to its half-period = flat detune.
+        m_lastGoodPeriodF = 600.0f;
         m_haveGoodPeriod = true;
         m_lockMiss = 0;
         m_spliceCooldown = 0;
