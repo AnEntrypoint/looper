@@ -534,6 +534,7 @@ private:
     float    m_lastGoodPeriodF = 256.0f;  // survives brief lock loss
     bool     m_haveGoodPeriod = false;
     unsigned m_emergencyCount = 0;        // emergency buffer-wrap escapes
+    int      m_lockMiss = 0;              // consecutive SNAC peak-pick misses
 public:
     // Introspection for Pi-side telemetry (read by wrapper → audio.cpp log).
     unsigned m_spliceCount = 0;
@@ -820,7 +821,17 @@ private:
                 if (v > bestVal) { bestVal = v; bestTau = k; }
             }
         }
-        if (bestTau < 0) { m_periodValid = false; return; }
+        // Sticky lock: a single sweep finding no peak above fidelity does NOT
+        // drop lock — only several consecutive misses do. A momentary
+        // peak-pick miss on a sustained tone was clearing m_periodValid,
+        // which destabilized the resplice (off-phase jumps) = part of the
+        // gurgle. m_haveGoodPeriod keeps the resplice running regardless;
+        // this keeps the reported lock + period steady through brief misses.
+        if (bestTau < 0) {
+            if (++m_lockMiss >= 3) m_periodValid = false;
+            return;
+        }
+        m_lockMiss = 0;
         float a = 2.0f*m_r[bestTau-1]/m_normK[bestTau-1];
         float b = 2.0f*m_r[bestTau]  /m_normK[bestTau];
         float c = 2.0f*m_r[bestTau+1]/m_normK[bestTau+1];
