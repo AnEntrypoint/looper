@@ -407,23 +407,32 @@ bool AudioSystem::takeUpdateResponsibility()
 }
 
 
+// Pending-drain flag. When a doUpdate is in flight and another IN-packet
+// startUpdate arrives, we must NOT silently drop the drain — doing so leaves
+// the USB IN ring un-drained for that packet, so its write-pointer advance is
+// never matched by a read advance and `avail` creeps up to the resync ceiling
+// (in_rs), producing a periodic ~350-sample read-position jump that DETUNES
+// and smears the live-pitch engine output (measured: -12 of 110Hz came out at
+// ~52Hz instead of a clean 55Hz on the Pi). Instead we REMEMBER the missed
+// update and run one more doUpdate when the current finishes, so the ring
+// drain keeps pace with packet production. Single-slot (one extra catch-up is
+// always enough at the 1:1 packet:block rate); avoids gratuitous 2x work when
+// the engine is idle and doUpdate finishes within the packet interval.
+static volatile bool s_updatePending = false;
+
 void AudioSystem::startUpdate()
 {
-	// Idempotent per audio cycle: if a doUpdate is already in flight OR
-	// queued, drop this push. USB IN and OUT URB completions fire at
-	// the same 750 Hz rate (one per AUDIO_BLOCK_SAMPLES), but each one
-	// used to queue a fresh doUpdate — burning Core 1 doing 2× the
-	// necessary DSP work and overflowing the dispatch ring at ~1000
-	// drops/sec during transpose. One doUpdate per audio cycle is all
-	// that's needed; whichever ISR fires first does the scheduling.
-	//
-	// Atomic check+set: disable IRQ briefly to defeat ISR-vs-Core-2
-	// race. The check is dirt cheap so the IRQ window is sub-µs.
+	// Atomic check+set: disable IRQ briefly to defeat ISR-vs-Core-2 race.
 	__disable_irq();
 	bool already = (s_nInUpdate != 0);
-	if (!already) s_nInUpdate++;
+	if (already) {
+		s_updatePending = true;   // catch up after the in-flight doUpdate
+		__enable_irq();
+		s_numOverflows++;
+		return;
+	}
+	s_nInUpdate++;
 	__enable_irq();
-	if (already) { s_numOverflows++; return; }
 
 	#ifdef ARM_ALLOW_MULTI_CORE
 		// Hand off DSP to Core 1 worker. Producer may be Core 0 ISR or
@@ -437,15 +446,27 @@ void AudioSystem::startUpdate()
 
 void AudioSystem::doUpdate()
 {
-	for (AudioStream *p = s_pFirstStream; p; p = p->m_pNextStream)
+	// Cap catch-up iterations so a sustained over-budget condition can never
+	// spin Core 1 forever; the IN-ring resync clause is the backstop if we
+	// ever fall this far behind. 4 blocks = 256 samples of catch-up headroom.
+	int guard = 4;
+	for (;;)
 	{
-		if (p->m_numConnections)
-			p->update();
-	}
+		for (AudioStream *p = s_pFirstStream; p; p = p->m_pNextStream)
+		{
+			if (p->m_numConnections)
+				p->update();
+		}
 
-	__disable_irq();
-	s_nInUpdate--;
-	__enable_irq();
+		// If a packet's update was missed while we were processing, drain
+		// one more block now so the IN ring read pointer catches up to the
+		// write pointer.
+		__disable_irq();
+		bool again = s_updatePending && (--guard > 0);
+		s_updatePending = false;
+		if (!again) { s_nInUpdate--; __enable_irq(); return; }
+		__enable_irq();
+	}
 }
 
 	
