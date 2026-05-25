@@ -370,7 +370,16 @@ public:
                 double per = (double)m_lastGoodPeriodF;
                 double trigger = per * m_respliceFrac;
                 if (driftFromTarget > trigger && m_envSlow > 0.003f && m_xfadeRemain == 0) {
-                    triggerSpliceByPeriod(per);
+                    // Jump forward by as many WHOLE periods as needed to bring
+                    // the gap back to ~target in ONE phase-coherent splice,
+                    // not just one period. A single-period jump left the gap
+                    // still above trigger whenever drift exceeded ~1 period,
+                    // so it re-fired every block = splice STORM = gurgle (the
+                    // 16s-period instability: the read/write gap slow-beats,
+                    // and on the high half it stormed). Clearing the whole
+                    // drift gives hysteresis: one clean splice, then quiet
+                    // until the gap genuinely drifts up a period again.
+                    triggerSpliceByPeriod(per, driftFromTarget);
                 }
             }
             // Emergency hard-escape (buffer wrap protection only). With the
@@ -634,16 +643,22 @@ private:
     // consecutive periods of a quasi-periodic tone are near-identical,
     // this is seamless — the textbook PSOLA period-repeat. No SNAC here
     // (uses the passed cached period), so it can fire ~100/sec cheaply.
-    void triggerSpliceByPeriod(double per) {
+    void triggerSpliceByPeriod(double per, double drift = 0.0) {
         if (m_xfadeRemain > 0) return;
         m_spliceCount++;
         double &rdActive  = m_useA ? m_rdA : m_rdB;
         double &rdPassive = m_useA ? m_rdB : m_rdA;
-        // New reader = active + one period (forward jump = skip ahead,
-        // shrinking the gap by exactly one period). Phase-identical point.
-        rdPassive = rdActive + per;
-        m_spliceJumpAccum += per;   // effective output reader jumps +per on swap
-        int len = (int)per;
+        // Forward-jump by N whole periods to clear the accumulated drift in
+        // one phase-coherent splice (N>=1). Adjacent periods of a
+        // quasi-periodic tone are near-identical, so an N-period jump is as
+        // seamless as a 1-period one but it fully resets the gap, giving the
+        // control loop hysteresis (no per-block re-fire = no splice storm).
+        int n = 1;
+        if (drift > per) { n = (int)(drift / per + 0.5); if (n < 1) n = 1; if (n > 64) n = 64; }
+        double jump = (double)n * per;
+        rdPassive = rdActive + jump;
+        m_spliceJumpAccum += jump;
+        int len = (int)per;          // crossfade still spans ONE period
         if (len < 32) len = 32;
         if (len > 2048) len = 2048;
         m_xfadeLen = len;
