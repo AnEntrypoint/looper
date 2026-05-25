@@ -341,9 +341,15 @@ void loop()
 			static unsigned prev_emerg = 0;
 			unsigned em = pLivePitchWrapper->engineEmergency();
 			unsigned d_emerg = em - prev_emerg; prev_emerg = em;
+			// eff = the ACTUAL effective read rate on the real Pi input
+			// (continuous advance + splice jumps)/samples. This is the
+			// output/input frequency RATIO measured in-engine, the
+			// capture-free witness for the -12 pitch: must read 0.5000.
+			int effi = (int)(pLivePitchWrapper->engineEffRate() * 10000.0f);
 			CLogger::Get()->Write(log_name, LogNotice,
-				"eng scale=%d.%03d gap=%d period=%d lock=%d peakV=%d peakTau=%d splice+%u emerg+%u dtms=%u",
+				"eng scale=%d.%03d eff=%d.%04d gap=%d period=%d lock=%d peakV=%d peakTau=%d splice+%u emerg+%u dtms=%u",
 				sci/1000, sci%1000,
+				effi/10000, effi%10000,
 				pLivePitchWrapper->engineGap(),
 				pLivePitchWrapper->enginePeriod(),
 				pLivePitchWrapper->enginePeriodOk() ? 1 : 0,
