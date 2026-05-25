@@ -262,6 +262,7 @@ public:
   // Pi-side engine introspection — surfaces solad-snac internals to the
   // audio.cpp telemetry so we can diagnose on hardware: is scale actually
   // at target, how often are splices firing, is the period locked.
+  float engineEffRate()        { return m_soladL.effRateNow(); }
   float engineScale()    const { return m_soladL.scaleNow(); }
   int   enginePeriod()   const { return m_soladL.periodNow(); }
   bool  enginePeriodOk() const { return m_soladL.periodOk(); }

@@ -337,9 +337,11 @@ void loop()
 			unsigned d_splice = sc - prev_splice;
 			prev_splice = sc;
 			int sci = (int)(pLivePitchWrapper->engineScale() * 1000.0f);
+			int eri = (int)(pLivePitchWrapper->engineEffRate() * 1000.0f);
 			CLogger::Get()->Write(log_name, LogNotice,
-				"eng scale=%d.%03d period=%d lock=%d splice+%u",
+				"eng scale=%d.%03d effRate=%d.%03d period=%d lock=%d splice+%u",
 				sci/1000, sci%1000,
+				eri/1000, eri%1000,
 				pLivePitchWrapper->enginePeriod(),
 				pLivePitchWrapper->enginePeriodOk() ? 1 : 0,
 				d_splice);

@@ -404,6 +404,13 @@ public:
             m_rdA += adv;
             m_rdB += adv;
             if (m_xfadeRemain > 0) m_xfadeRemain--;
+            // Effective-pitch instrumentation: accumulate the ACTIVE reader's
+            // true displacement per output sample INCLUDING splice jumps
+            // (recorded in m_spliceJumpAccum). effRate = (cont advance +
+            // splice jumps) / samples. If output detunes (52 not 55Hz at -12)
+            // this reveals whether the read rate != scale on the Pi.
+            m_effContAccum += adv;
+            m_effSamples++;
         }
     }
 
@@ -493,6 +500,18 @@ private:
 public:
     // Introspection for Pi-side telemetry (read by wrapper → audio.cpp log).
     unsigned m_spliceCount = 0;
+    double   m_effContAccum = 0.0;
+    double   m_spliceJumpAccum = 0.0;
+    unsigned m_effSamples = 0;
+    // Effective read rate over the window since last read (incl splice jumps).
+    // At a correct -12 this must read 0.500; a detuned 52Hz output reads ~0.47.
+    float effRateNow() {
+        float r = (m_effSamples > 0)
+                  ? (float)((m_effContAccum + m_spliceJumpAccum) / (double)m_effSamples)
+                  : 0.0f;
+        m_effContAccum = 0.0; m_spliceJumpAccum = 0.0; m_effSamples = 0;
+        return r;
+    }
     float    scaleNow()  const { return m_scale; }
     int      periodNow() const { return m_period; }
     bool     periodOk()  const { return m_periodValid; }
@@ -605,6 +624,7 @@ private:
         // New reader = active + one period (forward jump = skip ahead,
         // shrinking the gap by exactly one period). Phase-identical point.
         rdPassive = rdActive + per;
+        m_spliceJumpAccum += per;   // effective output reader jumps +per on swap
         int len = (int)per;
         if (len < 32) len = 32;
         if (len > 2048) len = 2048;
