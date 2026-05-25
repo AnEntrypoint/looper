@@ -521,9 +521,15 @@ private:
     float    m_formantDepth = 0.0f;
     int      m_initialReadOffset = INITIAL_READ_OFFSET_DEFAULT;
     float    m_xfadeScale = 1.0f;
-    float    m_respliceFrac = 1.0f;  // resplice after drifting this fraction
-                                      // of a period; smaller = finer cadence,
-                                      // smaller residual amplitude ripple.
+    // Resplice only after drifting this many WHOLE periods past target. Each
+    // splice crossfade momentarily dips amplitude (correlated-grain overlap);
+    // at the old frac=1 (~55 splices/s) those dips were an audible ~55Hz
+    // buzz/gurgle on -12 (worse on real input where grains aren't identical).
+    // The multi-period catch-up jump clears the whole accumulated drift in ONE
+    // splice, so splicing RARELY is fine: frac=8 => ~7 splices/s (8x fewer
+    // dips), pitch still exact (host 55Hz=0.44 THD 0.4%). Reader lags up to 8
+    // periods before reset — inherent PSOLA-downshift lag, as in the host renders.
+    float    m_respliceFrac = 8.0f;
     float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
     bool     m_preBypass = false;
     bool     m_spliceSnap = true;
