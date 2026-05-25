@@ -61,6 +61,8 @@ public:
         m_periodValid = false;
         m_lastGoodPeriodF = 256.0f;
         m_haveGoodPeriod = false;
+        m_lockMiss = 0;
+        m_spliceCooldown = 0;
         m_sinceDetect = 0;
         m_warmup = SNAC_WIN;
         m_envSlow = 0.0f;
@@ -366,10 +368,19 @@ public:
                 m_lastGoodPeriodF = m_periodF;
                 m_haveGoodPeriod = true;
             }
+            if (m_spliceCooldown > 0) m_spliceCooldown--;
             if (m_haveGoodPeriod) {
                 double per = (double)m_lastGoodPeriodF;
                 double trigger = per * m_respliceFrac;
-                if (driftFromTarget > trigger && m_envSlow > 0.003f && m_xfadeRemain == 0) {
+                if (driftFromTarget > trigger && m_envSlow > 0.003f
+                    && m_xfadeRemain == 0 && m_spliceCooldown == 0) {
+                    // Refractory: after a splice, suppress new splices for ~1
+                    // period. Normal -12 cadence is ~1 splice / 2 periods so
+                    // this never throttles steady operation, but it HARD-CAPS
+                    // the splice rate, converting the gap-runup recovery from a
+                    // multi-second >100/s storm (gurgle) into single clean
+                    // catch-up splices.
+                    m_spliceCooldown = (int)(per * 0.9);
                     // Jump forward by as many WHOLE periods as needed to bring
                     // the gap back to ~target in ONE phase-coherent splice,
                     // not just one period. A single-period jump left the gap
@@ -535,6 +546,7 @@ private:
     bool     m_haveGoodPeriod = false;
     unsigned m_emergencyCount = 0;        // emergency buffer-wrap escapes
     int      m_lockMiss = 0;              // consecutive SNAC peak-pick misses
+    int      m_spliceCooldown = 0;        // refractory samples between splices
 public:
     // Introspection for Pi-side telemetry (read by wrapper → audio.cpp log).
     unsigned m_spliceCount = 0;
