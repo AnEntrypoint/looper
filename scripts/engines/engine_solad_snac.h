@@ -553,7 +553,7 @@ private:
     // splice, so splicing RARELY is fine: frac=8 => ~7 splices/s (8x fewer
     // dips), pitch still exact (host 55Hz=0.44 THD 0.4%). Reader lags up to 8
     // periods before reset — inherent PSOLA-downshift lag, as in the host renders.
-    float    m_respliceFrac = 8.0f;
+    float    m_respliceFrac = 16.0f;
     float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
     bool     m_preBypass = false;
     bool     m_spliceSnap = true;
