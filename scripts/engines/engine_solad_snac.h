@@ -423,9 +423,26 @@ public:
             // approach these bounds in normal operation; firing here is a last
             // resort (cold-start silence / pathological drift), not part of the
             // steady control loop. Lower bound uses the sinc tap margin, not 16.
+            // Suppress the emergency escape on QUIET input. On the silence
+            // tail after a note, there is no real fundamental: SNAC peaks on a
+            // spurious long lag (e.g. 719) and the gap runs to the wrap bound,
+            // firing an unaligned reset. That reset is inaudible during the
+            // silence itself, but it lands the reader off-phase so the NEXT
+            // note-on starts from a discontinuity = click between notes. While
+            // quiet, just clamp the reader to a safe distance behind the writer
+            // (no splice, no count) so it coasts cleanly into the next note.
+            bool quiet = m_envSlow < 0.004f;
             if (gap > (double)(DL - 64) || gap < (double)(SINC_HALF + 2)) {
-                m_emergencyCount++;
-                triggerSplice(/*toLive=*/false);
+                if (quiet) {
+                    // gap-safe coast: reposition the active reader to the
+                    // target offset behind the writer without a crossfade
+                    // splice (nothing audible to splice on silence).
+                    double safe = (double)m_wr - (double)m_initialReadOffset;
+                    m_rdA = safe; m_rdB = safe;
+                } else {
+                    m_emergencyCount++;
+                    triggerSplice(/*toLive=*/false);
+                }
             }
             m_gapBias = 0.0;  // no rate bias — at downshift the reader MUST lag
                               // (the lag IS the pitch shift); biasing it toward
