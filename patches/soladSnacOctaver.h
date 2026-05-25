@@ -278,13 +278,25 @@ public:
             // one-slice-per-block sweep was leaving lock=0 on the Pi long
             // enough for the gap to run up to the emergency escape (=detune/
             // wobble). Running the whole sweep promptly keeps lock=1.
-            if (m_snacPhase == SNAC_IDLE) {
-                if (++m_sinceDetect >= SNAC_HOP) { m_sinceDetect = 0; snacBegin(); }
-            } else {
-                detectPitchStep();
-                detectPitchStep();
-                detectPitchStep();
-                detectPitchStep();
+            // SNAC throttle — run the autocorrelation sweep at most ONE slice
+            // per processBlock, NOT per sample. The previous code called
+            // detectPitchStep() 4× per SAMPLE (≈256×/64-sample block), which
+            // blasted the whole ~820k-mul autocorrelation through in the first
+            // few samples of a block = a Core-1 compute SPIKE that overran the
+            // audio deadline, delayed the IN-ring drain (doUpdate also on
+            // Core 1), let the ring fill swing to the resync ceiling, and the
+            // resync read-position jump = a click ~9×/s (in_rs, ONLY when
+            // engaged). One 48-lag slice per block ≈ 49k mul/block (flat, no
+            // spike); a full MAX_PERIOD=800 detection finishes over ~17 blocks
+            // ≈ 23 ms — far faster than pitch changes, so lock is unaffected.
+            // Ring untouched: this caps the engine's worst-case block time so
+            // the ring never starves. Only the FIRST sample of a block steps.
+            if (i == 0) {
+                if (m_snacPhase == SNAC_IDLE) {
+                    if ((m_sinceDetect += n) >= SNAC_HOP) { m_sinceDetect = 0; snacBegin(); }
+                } else {
+                    detectPitchStep();
+                }
             }
 
             // ---- 3. Transient detector ----
