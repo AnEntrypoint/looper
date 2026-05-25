@@ -94,6 +94,16 @@ public:
         m_scale = m_targetScale;   // skip 1-pole ramp (already at target by re-engage time)
         m_periodValid = false;
         m_sinceDetect = 0;
+        // Seed a usable period so the gap-bounding resplice works IMMEDIATELY,
+        // before SNAC's first lock. On the Pi, lock was intermittent and while
+        // m_haveGoodPeriod was false the resplice never fired -> the gap ran up
+        // to the emergency escape every cycle = the detune/wobble. With a seed,
+        // the resplice always bounds the gap; SNAC then refines the period.
+        // 218 ≈ 220Hz, a safe mid-range guitar period; refined within ~40ms.
+        m_lastGoodPeriodF = 218.0f;
+        m_haveGoodPeriod = true;
+        m_lockMiss = 0;
+        m_spliceCooldown = 0;
         // m_warmup stays at 0 — don't re-mute output; just realign.
     }
 
@@ -260,11 +270,22 @@ public:
             // resyncs (in_rs) — which fed the engine discontinuous input and
             // destroyed the -12 output on the Pi. detectPitchStep() advances
             // the sweep; a fresh sweep is armed every SNAC_HOP samples.
-            if (++m_sinceDetect >= SNAC_HOP && m_snacPhase == SNAC_IDLE) {
-                m_sinceDetect = 0;
-                snacBegin();
+            // SNAC sweep: arm at HOP cadence, then advance the incremental
+            // sweep EVERY sample until it completes (instead of one slice per
+            // block). The engine is light now (dead engines stripped), so the
+            // full sweep finishing within a handful of blocks is affordable and
+            // — critically — lock is acquired FAST and held. The slower
+            // one-slice-per-block sweep was leaving lock=0 on the Pi long
+            // enough for the gap to run up to the emergency escape (=detune/
+            // wobble). Running the whole sweep promptly keeps lock=1.
+            if (m_snacPhase == SNAC_IDLE) {
+                if (++m_sinceDetect >= SNAC_HOP) { m_sinceDetect = 0; snacBegin(); }
+            } else {
+                detectPitchStep();
+                detectPitchStep();
+                detectPitchStep();
+                detectPitchStep();
             }
-            if (m_snacPhase != SNAC_IDLE) detectPitchStep();
 
             // ---- 3. Transient detector ----
             // Fire only on RISING envelope edge: envFast must (a) exceed
