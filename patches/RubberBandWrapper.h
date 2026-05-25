@@ -251,6 +251,7 @@ public:
   // audio.cpp telemetry so we can diagnose on hardware: is scale actually
   // at target, how often are splices firing, is the period locked.
   float engineEffRate()        { return m_soladL.effRateNow(); }
+  float engineSplicePhaseErr() { return m_soladL.splicePhaseErrNow(); }
   int   engineGap()      const { return m_soladL.gapNow(); }
   unsigned engineEmergency() const { return m_soladL.emergencyCount(); }
   int   enginetPeakVal1000() const { return (int)(m_soladL.dbgPeakVal()*1000.0f); }

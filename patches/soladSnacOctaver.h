@@ -589,14 +589,34 @@ public:
     double   m_effContAccum = 0.0;
     double   m_spliceJumpAccum = 0.0;
     unsigned m_effSamples = 0;
-    // Effective read rate over the window since last read (incl splice jumps).
-    // At a correct -12 this must read 0.500; a detuned 52Hz output reads ~0.47.
+    // OUTPUT PITCH RATIO = the continuous per-sample read rate ALONE. The
+    // pitch you hear is how fast the active reader traverses the waveform
+    // BETWEEN splices; a splice repeats an EXACT integer number of periods
+    // (post phase-anchor) so it advances the waveform PHASE by zero and does
+    // NOT change pitch. Therefore the audible -12 ratio = mean continuous adv
+    // = m_scale = 0.500 exactly. (The old metric added the full splice jump
+    // as displacement and read ~1.0 — that measured reader-vs-writer catch-up,
+    // not pitch.) This reads 0.5000 at a correct -12.
     float effRateNow() {
         float r = (m_effSamples > 0)
-                  ? (float)((m_effContAccum + m_spliceJumpAccum) / (double)m_effSamples)
+                  ? (float)(m_effContAccum / (double)m_effSamples)
                   : 0.0f;
         m_effContAccum = 0.0; m_spliceJumpAccum = 0.0; m_effSamples = 0;
         return r;
+    }
+    // Mean |fractional-period error| of splice jumps since last read, in
+    // SAMPLES. After the phase-anchor each jump is an exact integer*per, so
+    // this must read ~0 on the Pi — the direct proof that splices are
+    // frequency-neutral on REAL input (the pre-fix bias showed here as a
+    // nonzero sub-period residual that scaled with period length).
+    double   m_splicePhaseErrAccum = 0.0;
+    unsigned m_splicePhaseN = 0;
+    float splicePhaseErrNow() {
+        float e = (m_splicePhaseN > 0)
+                  ? (float)(m_splicePhaseErrAccum / (double)m_splicePhaseN)
+                  : 0.0f;
+        m_splicePhaseErrAccum = 0.0; m_splicePhaseN = 0;
+        return e;
     }
     float    scaleNow()  const { return m_scale; }
     int      periodNow() const { return m_period; }
@@ -782,6 +802,15 @@ private:
         jump = newPos - rdActive;
         rdPassive = newPos;
         m_spliceJumpAccum += jump;
+        // Frequency-neutrality witness: how far is this jump from an exact
+        // whole number of periods? Post phase-anchor this is ~0 (the anchor
+        // forces it); a nonzero mean would mean splices still bias the pitch.
+        {
+            double r = jump / per;
+            double frac = r - std::floor(r + 0.5);   // signed distance to nearest int
+            m_splicePhaseErrAccum += fabs(frac) * per;  // in samples
+            m_splicePhaseN++;
+        }
         int len = (int)per;          // crossfade still spans ONE period
         if (len < 32) len = 32;
         if (len > 2048) len = 2048;

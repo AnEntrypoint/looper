@@ -346,10 +346,14 @@ void loop()
 			// output/input frequency RATIO measured in-engine, the
 			// capture-free witness for the -12 pitch: must read 0.5000.
 			int effi = (int)(pLivePitchWrapper->engineEffRate() * 10000.0f);
+			// perr = mean |splice fractional-period error| in 1/100 samples.
+			// Post phase-anchor must read ~0 => splices frequency-neutral on
+			// real Pi input => audible -12 = exact 0.5×.
+			int perri = (int)(pLivePitchWrapper->engineSplicePhaseErr() * 100.0f);
 			CLogger::Get()->Write(log_name, LogNotice,
-				"eng scale=%d.%03d eff=%d.%04d gap=%d period=%d lock=%d peakV=%d peakTau=%d splice+%u emerg+%u dtms=%u",
+				"eng scale=%d.%03d eff=%d.%04d perr=%d gap=%d period=%d lock=%d peakV=%d peakTau=%d splice+%u emerg+%u dtms=%u",
 				sci/1000, sci%1000,
-				effi/10000, effi%10000,
+				effi/10000, effi%10000, perri,
 				pLivePitchWrapper->engineGap(),
 				pLivePitchWrapper->enginePeriod(),
 				pLivePitchWrapper->enginePeriodOk() ? 1 : 0,
