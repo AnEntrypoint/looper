@@ -753,6 +753,32 @@ private:
             }
             newPos += bestOff;
         }
+        // FREQUENCY-NEUTRALITY ANCHOR. The bestOff slide (±per/2) and the
+        // n=round(drift/per) rounding both leave the net jump a NON-integer
+        // number of periods. On a synthetic sine consecutive periods are
+        // identical so that does not matter (host: exact), but on real Pi
+        // input each period differs slightly, so the value+slope match search
+        // has a consistent-sign bias => every splice displaces the reader by a
+        // sub-period amount => the long-term read rate != m_scale => pitch
+        // error. At low notes (large per, rare splices) it does not average
+        // out => audibly FLAT (82->39 not 41.2). Fix: snap the net jump to the
+        // NEAREST WHOLE number of periods from the active reader. bestOff still
+        // chose which period boundary best matches the waveform (the crossfade
+        // lands within <1 period of the matched point, inaudible), but the
+        // displacement is now an exact integer*per => provably frequency-
+        // neutral on ANY input. Ring untouched — this lives entirely in the
+        // effect.
+        {
+            double rawJump = newPos - rdActive;
+            int    nWhole  = (int)(rawJump / per + (rawJump >= 0.0 ? 0.5 : -0.5));
+            if (nWhole < 1) nWhole = 1;
+            double anchored = rdActive + (double)nWhole * per;
+            // keep gap-safe: if the integer-snap pushed us past the writer,
+            // drop whole periods until it fits (still phase-coherent).
+            while (anchored > maxPos && nWhole > 1) { nWhole--; anchored = rdActive + (double)nWhole * per; }
+            if (anchored <= maxPos) newPos = anchored;
+            // else: keep the clamped sub-period newPos (last-resort gap safety)
+        }
         jump = newPos - rdActive;
         rdPassive = newPos;
         m_spliceJumpAccum += jump;
