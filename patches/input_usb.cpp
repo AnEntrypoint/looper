@@ -16,8 +16,17 @@ volatile u32   AudioInputUSB::s_peakLevel = 0;
 #define IN_RING_SIZE 512
 #define IN_TARGET_LAG   96
 #define IN_DEADBAND     48
-#define IN_RATE_GAIN    16384
-#define IN_RATE_MAX_DEV 256
+// Gentler, tighter rate correction. The old GAIN=16384 / MAX_DEV=256 let the
+// read rate swing up to ±1.56% as it hunted the target lag; the live-pitch
+// engine reads the delay line at a fixed rate, so that ±1.5% rate OSCILLATION
+// passed straight through as an audible -12 PITCH WARBLE (~16s cycle = the
+// "gurgle"; wideband analysis showed the octave was always full-amplitude,
+// just wobbling in frequency). 8x gentler gain + 4x tighter clamp keeps the
+// correction rate near the true average so the warble is below audibility,
+// while still tracking real long-term drift (the deadband + large ring absorb
+// jitter; correction just happens slower and smaller).
+#define IN_RATE_GAIN    131072
+#define IN_RATE_MAX_DEV 64
 #define IN_FRAC_ONE     65536
 
 static s16 s_in_ring_left [IN_RING_SIZE];
