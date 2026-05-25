@@ -506,7 +506,10 @@ private:
     static const int TRANS_REFRACTORY = 14400;  // 300 ms — keeps transient splice rare
     static constexpr float ENV_SLOW_TC = 1.0f / 4800.0f;  // 100 ms
     static constexpr float ENV_FAST_TC = 1.0f / 48.0f;    // 1 ms
-    static constexpr float FIDELITY_THRESH_DEFAULT = 0.7f;  // relaxed from 0.95 for guitar
+    static constexpr float FIDELITY_THRESH_DEFAULT = 0.45f;  // low so SNAC holds
+        // lock on real Pi input (rig/ADC noise lowers the peak); a too-high gate
+        // dropped lock every ~16s -> gap ran up -> resplice stormed on a stale
+        // period -> the -12 fundamental collapsed for ~8s (the gurgle/dropout).
 
     float    m_dl[DL];
     float    m_preBuf[PRE_DL];
