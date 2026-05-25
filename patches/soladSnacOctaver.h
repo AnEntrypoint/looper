@@ -66,6 +66,10 @@ public:
         m_transCool = 0;
         for (int i = 0; i < SNAC_WIN; i++) m_snacBuf[i] = 0.0f;
         m_snacWr = 0;
+        m_snacPhase = 0;   // SNAC_IDLE
+        m_snacK = 1;
+        m_snacEnergy = 0.0f;
+        m_snacMaxTau = 0;
     }
 
     void setPitchScale(float s) { m_targetScale = s; }
@@ -245,10 +249,18 @@ public:
             // HOP cadence only, NOT per-splice. At SNAC_HOP=2048 (43ms)
             // that's ~23 bursts/sec — well below the level that stalls
             // audio blocks, while still tracking guitar pitch changes.
-            if (++m_sinceDetect >= SNAC_HOP) {
+            // Incremental SNAC: a small slice of the autocorrelation lag
+            // range is computed EACH block so no single processBlock call
+            // does the full O(SNAC_WIN*MAX_PERIOD) burst (~820k mul) that
+            // overran the Core 1 audio deadline and triggered USB IN-ring
+            // resyncs (in_rs) — which fed the engine discontinuous input and
+            // destroyed the -12 output on the Pi. detectPitchStep() advances
+            // the sweep; a fresh sweep is armed every SNAC_HOP samples.
+            if (++m_sinceDetect >= SNAC_HOP && m_snacPhase == SNAC_IDLE) {
                 m_sinceDetect = 0;
-                detectPitch();
+                snacBegin();
             }
+            if (m_snacPhase != SNAC_IDLE) detectPitchStep();
 
             // ---- 3. Transient detector ----
             // Fire only on RISING envelope edge: envFast must (a) exceed
@@ -493,6 +505,12 @@ private:
     int      m_transCool = 0;
     float    m_snacBuf[SNAC_WIN];
     int      m_snacWr = 0;
+    float    m_snacWin[SNAC_WIN];   // snapshot for incremental sweep
+    float    m_snacPre[SNAC_WIN + 1]; // prefix energy for O(1) per-lag norm
+    float    m_snacEnergy = 0.0f;
+    int      m_snacMaxTau = 0;
+    int      m_snacK = 1;           // current lag in the incremental sweep
+    int      m_snacPhase = 0;       // SNAC_IDLE / SNAC_SWEEP
     float    m_r[MAX_PERIOD + 1];
     float    m_normK[MAX_PERIOD + 1];
 
@@ -662,84 +680,87 @@ private:
         m_useA = !m_useA;
     }
 
-    void detectPitch() {
-        // McLeod SNAC: r[k] = sum x[n]*x[n-k]  for k=0..MAX_PERIOD
-        // norm[k]    = sum x[n]^2 + x[n-k]^2
-        // SNAC[k]    = 2*r[k] / norm[k]
-        // We read SNAC window with snacWr as the END (most recent sample).
-        // For simplicity here: O(W*P) direct loop — fine on host.
-        // (Pi build will swap in FFT-based version if CPU-bound.)
+    // ---- Incremental McLeod SNAC ----
+    // The full O(SNAC_WIN*MAX_PERIOD) autocorrelation (~820k mul) done in a
+    // single block overran the Core 1 audio deadline on the Pi, stalling the
+    // chain and triggering USB IN-ring resyncs that destroyed the -12 output.
+    // Here the sweep is split across blocks: snacBegin() snapshots the window
+    // + energy gate, then detectPitchStep() computes LAGS_PER_STEP lags per
+    // processBlock call until the range is swept, then finalizes the peak.
+    static const int LAGS_PER_STEP = 48;   // ~48 * SNAC_WIN ≈ 49k mul / block
+    enum { SNAC_IDLE = 0, SNAC_SWEEP = 1 };
+
+    void snacBegin() {
         const int W = SNAC_WIN;
-        // Build linearized view (most recent W samples in time order).
-        float win[SNAC_WIN];
         for (int i = 0; i < W; i++) {
             int idx = (m_snacWr + i) % W;
-            win[i] = m_snacBuf[idx];
+            m_snacWin[i] = m_snacBuf[idx];
         }
-        // Energy gate.
-        float energy = 0.0f;
-        for (int i = 0; i < W; i++) energy += win[i] * win[i];
-        if (energy < 0.001f) { m_periodValid = false; return; }
-
-        // Full autocorrelation (stride=1). Earlier stride=4 was a CPU
-        // hack reverted because actual glitch cause was buffer
-        // misalignment on re-engage, not CPU shortage.
-        int maxTau = MAX_PERIOD;
-        if (maxTau > W - 32) maxTau = W - 32;
+        // Prefix energy: m_snacPre[i] = sum_{n<i} win[n]^2. Lets the per-lag
+        // norm be computed in O(1) instead of O(W), keeping each step light.
+        float acc = 0.0f;
+        for (int i = 0; i < W; i++) { m_snacPre[i] = acc; acc += m_snacWin[i] * m_snacWin[i]; }
+        m_snacPre[W] = acc;
+        float energy = acc;
+        m_snacEnergy = energy;
+        if (energy < 0.001f) { m_periodValid = false; m_snacPhase = SNAC_IDLE; return; }
+        m_snacMaxTau = MAX_PERIOD; if (m_snacMaxTau > W - 32) m_snacMaxTau = W - 32;
         m_r[0] = energy;
         m_normK[0] = 2.0f * energy;
-        for (int k = 1; k <= maxTau; k++) {
-            float sum = 0;
-            int limit = W - k;
-            for (int n = 0; n < limit; n++) sum += win[n] * win[n + k];
+        m_snacK = 1;
+        m_snacPhase = SNAC_SWEEP;
+    }
+
+    void detectPitchStep() {
+        const int W = SNAC_WIN;
+        int kEnd = m_snacK + LAGS_PER_STEP;
+        if (kEnd > m_snacMaxTau + 1) kEnd = m_snacMaxTau + 1;
+        for (int k = m_snacK; k < kEnd; k++) {
+            float sum = 0; int limit = W - k;
+            for (int n = 0; n < limit; n++) sum += m_snacWin[n] * m_snacWin[n + k];
             m_r[k] = sum;
-            float removed = win[W - k] * win[W - k] + win[k - 1] * win[k - 1];
-            m_normK[k] = m_normK[k - 1] - removed;
-            if (m_normK[k] < 1e-12f) m_normK[k] = 1e-12f;
+            // Per-lag norm via prefix sums (O(1)): e1 = sum win[0..limit)^2,
+            // e2 = sum win[k..W)^2 = total - prefix[k].
+            float e1 = m_snacPre[limit];
+            float e2 = m_snacPre[W] - m_snacPre[k];
+            float nk = e1 + e2; if (nk < 1e-12f) nk = 1e-12f;
+            m_normK[k] = nk;
         }
-        // SNAC = 2r/norm. Find first major peak above threshold.
-        // Skip first dip down from k=0.
+        m_snacK = kEnd;
+        if (m_snacK <= m_snacMaxTau) return;   // more slices to go
+
+        // Sweep complete — peak pick (same logic as before).
+        m_snacPhase = SNAC_IDLE;
+        int maxTau = m_snacMaxTau;
         int k = 1;
-        while (k < maxTau && (2.0f * m_r[k] / m_normK[k]) > (2.0f * m_r[k-1] / m_normK[k-1])) k++;
-        // Now find local maxima.
-        float bestVal = -1.0f;
-        int bestTau = -1;
+        while (k < maxTau && (2.0f*m_r[k]/m_normK[k]) > (2.0f*m_r[k-1]/m_normK[k-1])) k++;
+        float bestVal = -1.0f; int bestTau = -1;
         for (; k < maxTau - 1; k++) {
             if (k < MIN_PERIOD) continue;
-            float v  = 2.0f * m_r[k] / m_normK[k];
-            float vm = 2.0f * m_r[k-1] / m_normK[k-1];
-            float vp = 2.0f * m_r[k+1] / m_normK[k+1];
+            float v  = 2.0f*m_r[k]/m_normK[k];
+            float vm = 2.0f*m_r[k-1]/m_normK[k-1];
+            float vp = 2.0f*m_r[k+1]/m_normK[k+1];
             if (v > vm && v > vp && v > m_fidelityThresh) {
-                // McLeod picks first peak above (max * 0.8) within the bunch.
                 if (v > bestVal) { bestVal = v; bestTau = k; }
-                // Don't break — keep looking for higher peaks within MAX_PERIOD.
             }
         }
         if (bestTau < 0) { m_periodValid = false; return; }
-        // Parabolic interpolation.
-        float a = 2.0f * m_r[bestTau-1] / m_normK[bestTau-1];
-        float b = 2.0f * m_r[bestTau]   / m_normK[bestTau];
-        float c = 2.0f * m_r[bestTau+1] / m_normK[bestTau+1];
+        float a = 2.0f*m_r[bestTau-1]/m_normK[bestTau-1];
+        float b = 2.0f*m_r[bestTau]  /m_normK[bestTau];
+        float c = 2.0f*m_r[bestTau+1]/m_normK[bestTau+1];
         float refined = (float)bestTau;
-        float denom = 2.0f * b - a - c;
+        float denom = 2.0f*b - a - c;
         if (fabsf(denom) > 1e-9f) refined += (a - c) / denom;
         int np = (int)(refined + 0.5f);
         if (np < MIN_PERIOD) np = MIN_PERIOD;
         if (np > MAX_PERIOD) np = MAX_PERIOD;
         if (refined < (float)MIN_PERIOD) refined = (float)MIN_PERIOD;
         if (refined > (float)MAX_PERIOD) refined = (float)MAX_PERIOD;
-        // Light smoothing.
         if (m_periodValid) {
             int delta = np - m_period;
             int maxDelta = m_period / 8 + 2;
-            if (delta > maxDelta) {
-                np = m_period + maxDelta;
-                refined = (float)np;
-            }
-            if (delta < -maxDelta) {
-                np = m_period - maxDelta;
-                refined = (float)np;
-            }
+            if (delta >  maxDelta) { np = m_period + maxDelta; refined = (float)np; }
+            if (delta < -maxDelta) { np = m_period - maxDelta; refined = (float)np; }
         }
         m_period = np;
         m_periodF = refined;
