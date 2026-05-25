@@ -207,41 +207,75 @@ public:
                 // Period for phase-coherent wraps (reuse cached SNAC period).
                 double per = (m_periodValid && m_periodF >= (float)MIN_PERIOD)
                              ? (double)m_periodF : 0.0;
-                // Keep the read close behind write (small gap) so any grain
-                // repeat on wrap is RECENT — a one-period repeat of the last
-                // few ms is inaudible, vs the old 85ms replay that doubled.
+                // Single-reader integer-period splice (same proven design as
+                // the main pitch stage). One active reader m_preRd advances at
+                // m_preRate; when it drifts toward a buffer bound we jump it by
+                // a value+slope-matched WHOLE number of periods and crossfade
+                // from the pre-jump grain (held in m_preRdB) to the new
+                // position. Whole-period displacement keeps the warp ratio
+                // exact; value+slope match keeps the splice click-free even
+                // when consecutive periods DIFFER (real Pi input). The prior
+                // dual-reader/frozen-crossfade design stormed at preRate=2
+                // (depth=+1) because both readers kept advancing through a long
+                // frozen fade while the gap collapsed — replaced wholesale.
+                //
+                // Trigger band scales with preRate so the splice fires with
+                // enough headroom before the gap actually reaches a bound: at
+                // preRate>1 the reader outruns write (gap shrinks), at
+                // preRate<1 it lags (gap grows). gapLo/gapHi bracket a safe
+                // operating band; gapTarget is where a jump aims.
                 double gapTarget = (per > 0.0) ? per * 4.0 : 1024.0;
-                double pgapA = (double)m_preWr - m_preRd;
+                double gapLo = (per > 0.0) ? per * 1.5  : 256.0;
+                double gapHi = (per > 0.0) ? per * 8.0  : 4096.0;
+                double pgap = (double)m_preWr - m_preRd;
 
-                // Wrap when the active reader approaches either bound. Jump the
-                // PASSIVE reader by an integer number of periods back toward
-                // gapTarget (phase-coherent), short equal-gain crossfade, swap.
-                bool nearBound = (pgapA < gapTarget * 0.4) || (pgapA > gapTarget * 2.5);
+                bool nearBound = (pgap < gapLo) || (pgap > gapHi);
                 if (per > 0.0 && nearBound && m_preXfadeRemain == 0 && !preTransient) {
-                    double &a = m_preUseA ? m_preRd : m_preRdB;
-                    double &b = m_preUseA ? m_preRdB : m_preRd;
+                    double a = m_preRd;
                     double target = (double)m_preWr - gapTarget;
                     double diff = target - a;
                     int periods = (int)(diff / per + (diff > 0 ? 0.5 : -0.5));
                     if (periods == 0) periods = (diff > 0 ? 1 : -1);
-                    b = a + (double)periods * per;
-                    int len = (int)(per * 0.5);
-                    if (len < 24) len = 24; if (len > 512) len = 512;
+                    double aMax = (double)m_preWr - 4.0;
+                    double aMin = (double)m_preWr - (double)(PRE_DL - 16);
+                    float  vA  = readPre(a);
+                    float  vAn = readPre(a + (double)m_preRate);
+                    float  dA  = vAn - vA;
+                    int    nBest = periods;
+                    float  bestErr = 1e30f;
+                    for (int nn = periods - 3; nn <= periods + 3; nn++) {
+                        if (nn == 0) continue;
+                        double cand = a + (double)nn * per;
+                        if (cand < aMin || cand > aMax) continue;
+                        float vT  = readPre(cand);
+                        float vTn = readPre(cand + (double)m_preRate);
+                        float dT  = vTn - vT;
+                        float err = fabsf(vT - vA) + fabsf(dT - dA) * 80.0f;
+                        if (err < bestErr) { bestErr = err; nBest = nn; }
+                    }
+                    double newPos = a + (double)nBest * per;
+                    while (newPos > aMax && nBest > 1) { nBest--; newPos = a + (double)nBest * per; }
+                    if (newPos < aMin) newPos = aMin;
+                    // m_preRdB holds the pre-jump grain for the crossfade; the
+                    // fade is short relative to a period so neither reader
+                    // moves far during it (preRate*len < ~1 period).
+                    m_preRdB = a;
+                    m_preRd  = newPos;
+                    int len = (int)(per * 0.25 / (m_preRate > 0.01f ? m_preRate : 0.01f));
+                    if (len < 16) len = 16; if (len > 256) len = 256;
                     m_preXfadeLen = len; m_preXfadeRemain = len;
-                    m_preUseA = !m_preUseA;
-                } else if (per <= 0.0 && (pgapA < 8.0 || pgapA > (double)(PRE_DL - 16))) {
+                } else if (per <= 0.0 && (pgap < 8.0 || pgap > (double)(PRE_DL - 16))) {
                     // No period lock (silence/noise) — bare reset, inaudible.
                     m_preRd = (double)m_preWr - gapTarget;
                     m_preRdB = m_preRd;
+                    m_preXfadeRemain = 0;
                 }
 
-                float yA = readPre(m_preRd);
-                float yB = readPre(m_preRdB);
+                float yA = readPre(m_preRd);      // new position (active)
+                float yB = readPre(m_preRdB);     // pre-jump grain (fading out)
                 float pw = (m_preXfadeRemain > 0 && m_preXfadeLen > 0)
                            ? (float)m_preXfadeRemain / (float)m_preXfadeLen : 0.0f;
-                float wAct = 1.0f - pw, wPas = pw;  // equal-gain linear
-                xWarped = m_preUseA ? (yA * wAct + yB * wPas)
-                                    : (yB * wAct + yA * wPas);
+                xWarped = yA * (1.0f - pw) + yB * pw;   // equal-gain linear
                 m_preRd  += (double)m_preRate;
                 m_preRdB += (double)m_preRate;
                 if (m_preXfadeRemain > 0) m_preXfadeRemain--;
