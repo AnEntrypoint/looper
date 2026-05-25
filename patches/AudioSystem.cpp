@@ -432,7 +432,9 @@ extern unsigned AudioInputUSB_inAvail (void);
 // balance.
 static const unsigned DRAIN_HIGH = AUDIO_BLOCK_SAMPLES * 4 + 32;  // ~288 enter-drain
 static const unsigned DRAIN_LOW  = AUDIO_BLOCK_SAMPLES * 2;       // ~128 exit-drain
-static const int      DRAIN_MAX_ITERS = 8;   // hard cap against runaway
+static const int      DRAIN_MAX_ITERS = 2;   // at most ONE extra block/wake —
+                                             // multi-block drain bursts produced
+                                             // 64-sample block-boundary clicks
 static volatile bool s_updatePending = false;
 static volatile bool s_draining = false;     // latched drain-mode (hysteresis)
 
