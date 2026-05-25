@@ -431,7 +431,7 @@ extern unsigned AudioInputUSB_inAvail (void);
 // Keep avail centered in the [64,384] band: stop draining at 4 blocks (256) so
 // the post-drain floor stays ~192, far from both the underrun and overfill
 // resync edges.
-static const unsigned DRAIN_TARGET = AUDIO_BLOCK_SAMPLES * 4;
+static const unsigned DRAIN_TARGET = AUDIO_BLOCK_SAMPLES * 3;
 static const int      DRAIN_MAX_ITERS = 8;   // hard cap against runaway
 static volatile bool s_updatePending = false;
 
