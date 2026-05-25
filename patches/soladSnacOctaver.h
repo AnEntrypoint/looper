@@ -386,7 +386,12 @@ public:
             // stale-period resplice above keeping the gap bounded, this should
             // never fire in normal sustained use — it's the last-resort
             // backstop for true silence-from-cold (no period ever seen).
-            if (gap > (double)(DL - 16) || gap < 16.0) {
+            // True buffer-wrap protection only. The jump-clamp above keeps the
+            // reader a safe distance behind the writer, so gap should never
+            // approach these bounds in normal operation; firing here is a last
+            // resort (cold-start silence / pathological drift), not part of the
+            // steady control loop. Lower bound uses the sinc tap margin, not 16.
+            if (gap > (double)(DL - 64) || gap < (double)(SINC_HALF + 2)) {
                 m_emergencyCount++;
                 triggerSplice(/*toLive=*/false);
             }
@@ -663,7 +668,18 @@ private:
         int n = 1;
         if (drift > per) { n = (int)(drift / per + 0.5); if (n < 1) n = 1; if (n > 64) n = 64; }
         double jump = (double)n * per;
-        rdPassive = rdActive + jump;
+        // CLAMP: never jump the reader past (or too close to) the writer.
+        // An over-large multi-period jump landed rdPassive >= m_wr => gap<16 =>
+        // the emergency escape fired = POP, then the reader was reset unaligned
+        // => splice storm = the 16s gurgle. Keep the new reader at least the
+        // initial read offset behind the writer, dropping whole periods until
+        // it fits (stays phase-coherent).
+        double newPos = rdActive + jump;
+        double maxPos = (double)m_wr - (double)m_initialReadOffset;
+        while (newPos > maxPos && n > 1) { n--; newPos = rdActive + (double)n * per; }
+        if (newPos > maxPos) newPos = maxPos;   // last resort (gap-safe, may be off-phase by <1 period)
+        jump = newPos - rdActive;
+        rdPassive = newPos;
         m_spliceJumpAccum += jump;
         int len = (int)per;          // crossfade still spans ONE period
         if (len < 32) len = 32;
