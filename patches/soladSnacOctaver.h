@@ -807,7 +807,7 @@ private:
         // forces it); a nonzero mean would mean splices still bias the pitch.
         {
             double r = jump / per;
-            double frac = r - std::floor(r + 0.5);   // signed distance to nearest int
+            double frac = r - (double)((long)(r + (r >= 0.0 ? 0.5 : -0.5)));   // signed distance to nearest int
             m_splicePhaseErrAccum += fabs(frac) * per;  // in samples
             m_splicePhaseN++;
         }
