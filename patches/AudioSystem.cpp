@@ -407,17 +407,24 @@ bool AudioSystem::takeUpdateResponsibility()
 }
 
 
-// Pending-drain flag. When a doUpdate is in flight and another IN-packet
-// startUpdate arrives, we must NOT silently drop the drain — doing so leaves
-// the USB IN ring un-drained for that packet, so its write-pointer advance is
-// never matched by a read advance and `avail` creeps up to the resync ceiling
-// (in_rs), producing a periodic ~350-sample read-position jump that DETUNES
-// and smears the live-pitch engine output (measured: -12 of 110Hz came out at
-// ~52Hz instead of a clean 55Hz on the Pi). Instead we REMEMBER the missed
-// update and run one more doUpdate when the current finishes, so the ring
-// drain keeps pace with packet production. Single-slot (one extra catch-up is
-// always enough at the 1:1 packet:block rate); avoids gratuitous 2x work when
-// the engine is idle and doUpdate finishes within the packet interval.
+// IN-ring-fill-driven drain. The earlier idempotent startUpdate scheduled at
+// most ONE doUpdate per Core-1 wake; with the live engine in-line each
+// doUpdate runs longer, so IN packets piled up faster than they drained —
+// `avail` climbed to the 384 resync ceiling (in_rs) while the OUT ring
+// emptied (out_av=0), chopping the audio into garbage WHENEVER engaged (even
+// at unity scale, where the engine math is provably correct: effRate=1.000
+// lock=1). Fix: when Core 1 wakes, doUpdate keeps running the graph while the
+// IN ring still holds more than the target lag, draining it back to target in
+// one wake instead of one-block-per-packet. This keeps both rings balanced
+// under engine load without touching the ring files.
+extern unsigned AudioInputUSB_inAvail (void);
+#ifndef AUDIO_BLOCK_SAMPLES
+#define AUDIO_BLOCK_SAMPLES 64
+#endif
+// Drain target: keep IN ring near 2 blocks buffered (matches IN_TARGET_LAG=96
+// ≈ 1.5 blocks). Stop draining once at/below this so we never underrun IN.
+static const unsigned DRAIN_TARGET = AUDIO_BLOCK_SAMPLES * 2;
+static const int      DRAIN_MAX_ITERS = 8;   // hard cap against runaway
 static volatile bool s_updatePending = false;
 
 void AudioSystem::startUpdate()
@@ -446,10 +453,11 @@ void AudioSystem::startUpdate()
 
 void AudioSystem::doUpdate()
 {
-	// Cap catch-up iterations so a sustained over-budget condition can never
-	// spin Core 1 forever; the IN-ring resync clause is the backstop if we
-	// ever fall this far behind. 4 blocks = 256 samples of catch-up headroom.
-	int guard = 4;
+	// Run the graph, then keep draining while the IN ring still holds more
+	// than the target lag (one Core-1 wake catches up the whole backlog).
+	// Capped so a sustained over-budget condition can't spin Core 1; the
+	// ring resync clause remains the backstop.
+	int guard = DRAIN_MAX_ITERS;
 	for (;;)
 	{
 		for (AudioStream *p = s_pFirstStream; p; p = p->m_pNextStream)
@@ -458,14 +466,15 @@ void AudioSystem::doUpdate()
 				p->update();
 		}
 
-		// If a packet's update was missed while we were processing, drain
-		// one more block now so the IN ring read pointer catches up to the
-		// write pointer.
-		__disable_irq();
-		bool again = s_updatePending && (--guard > 0);
 		s_updatePending = false;
-		if (!again) { s_nInUpdate--; __enable_irq(); return; }
-		__enable_irq();
+		bool backlog = (AudioInputUSB_inAvail() > DRAIN_TARGET) && (--guard > 0);
+		if (!backlog)
+		{
+			__disable_irq();
+			s_nInUpdate--;
+			__enable_irq();
+			return;
+		}
 	}
 }
 
