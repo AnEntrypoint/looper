@@ -763,58 +763,48 @@ private:
         while (newPos > maxPos && n > 1) { n--; newPos = rdActive + (double)n * per; }
         if (newPos > maxPos) newPos = maxPos;   // last resort (gap-safe, may be off-phase by <1 period)
 
-        // SPLICE-POINT REFINEMENT (the key to seamless splices on REAL input).
-        // A blind exactly-one-period jump is seamless only if consecutive
-        // periods are IDENTICAL — true for a synthetic sine (host: THD 0.4%)
-        // but NOT for real guitar/rig input where ADC+room noise makes each
-        // period slightly different. The tiny value/slope mismatch at the
-        // crossfade then clicks ~55×/s = the gurgle/buzz on the Pi. Slide the
-        // splice target within ±period/2 to the point whose VALUE and SLOPE
-        // best match the current read point, so the overlap-add is continuous.
+        // SEAMLESS *AND* FREQUENCY-NEUTRAL SPLICE.
+        // Two requirements that fight each other:
+        //  (1) Frequency-neutral: the reader displacement must be an EXACT
+        //      integer number of periods, else the splice biases the pitch on
+        //      real input (the low-note flat detune we fixed).
+        //  (2) Seamless: the crossfade must land where the waveform VALUE and
+        //      SLOPE match the current read point, else each splice clicks on
+        //      real input (consecutive periods differ slightly).
+        // The earlier code did (2) with a continuous ±period/2 slide, then
+        // forced (1) by snapping to the nearest whole period — which THREW AWAY
+        // the matched point and landed the crossfade on the raw integer-period
+        // position = a click on every splice (the user's "lots of little
+        // clicks", not underruns). Resolve both at once: search the value/slope
+        // match ONLY among INTEGER-PERIOD candidates (n·per from rdActive).
+        // Every candidate is frequency-neutral by construction (integer period
+        // => perr stays 0), and we pick the integer-period boundary that best
+        // matches the waveform => seamless on real input. The pitch period is
+        // fractional, so different n land at slightly different sub-sample
+        // phases; on a quasi-periodic signal the best of them is genuinely
+        // click-free. Ring untouched — entirely in the effect.
         {
             float vA  = readSinc(rdActive);
             float vAn = readSinc(rdActive + (double)m_scale);
             float dA  = vAn - vA;
-            double bestOff = 0.0; float bestErr = 1e30f;
-            const int NT = 17;
-            double maxOff = per * 0.5;
-            for (int t = -NT/2; t <= NT/2; t++) {
-                double off = (double)t * maxOff / (double)(NT/2);
-                double tp = newPos + off;
+            int   nBest = (n >= 1) ? n : 1;
+            float bestErr = 1e30f;
+            // search ±3 whole periods around the target n
+            for (int nn = n - 3; nn <= n + 3; nn++) {
+                if (nn < 1) continue;
+                double tp = rdActive + (double)nn * per;
                 if (tp < 1.0 || tp > maxPos) continue;
                 float vT  = readSinc(tp);
                 float vTn = readSinc(tp + (double)m_scale);
                 float dT  = vTn - vT;
                 float err = fabsf(vT - vA) + fabsf(dT - dA) * 80.0f;
-                if (err < bestErr) { bestErr = err; bestOff = off; }
+                if (err < bestErr) { bestErr = err; nBest = nn; }
             }
-            newPos += bestOff;
-        }
-        // FREQUENCY-NEUTRALITY ANCHOR. The bestOff slide (±per/2) and the
-        // n=round(drift/per) rounding both leave the net jump a NON-integer
-        // number of periods. On a synthetic sine consecutive periods are
-        // identical so that does not matter (host: exact), but on real Pi
-        // input each period differs slightly, so the value+slope match search
-        // has a consistent-sign bias => every splice displaces the reader by a
-        // sub-period amount => the long-term read rate != m_scale => pitch
-        // error. At low notes (large per, rare splices) it does not average
-        // out => audibly FLAT (82->39 not 41.2). Fix: snap the net jump to the
-        // NEAREST WHOLE number of periods from the active reader. bestOff still
-        // chose which period boundary best matches the waveform (the crossfade
-        // lands within <1 period of the matched point, inaudible), but the
-        // displacement is now an exact integer*per => provably frequency-
-        // neutral on ANY input. Ring untouched — this lives entirely in the
-        // effect.
-        {
-            double rawJump = newPos - rdActive;
-            int    nWhole  = (int)(rawJump / per + (rawJump >= 0.0 ? 0.5 : -0.5));
-            if (nWhole < 1) nWhole = 1;
-            double anchored = rdActive + (double)nWhole * per;
-            // keep gap-safe: if the integer-snap pushed us past the writer,
-            // drop whole periods until it fits (still phase-coherent).
-            while (anchored > maxPos && nWhole > 1) { nWhole--; anchored = rdActive + (double)nWhole * per; }
-            if (anchored <= maxPos) newPos = anchored;
-            // else: keep the clamped sub-period newPos (last-resort gap safety)
+            newPos = rdActive + (double)nBest * per;
+            // gap-safe: drop whole periods if the chosen candidate is too close
+            // to the writer (stays integer-period => still frequency-neutral).
+            while (newPos > maxPos && nBest > 1) { nBest--; newPos = rdActive + (double)nBest * per; }
+            if (newPos > maxPos) newPos = maxPos;  // last resort
         }
         jump = newPos - rdActive;
         rdPassive = newPos;

@@ -63,7 +63,19 @@ int main() {
         double target = f / 2.0;
         double meas = measureFund(out, sr);
         double err = (meas - target) / target * 100.0;
-        printf("%9.2f   %10.2f   %10.2f   %+6.2f\n", f, target, meas, err);
+        // click detector: 2nd-difference (jerk) outliers vs robust sigma.
+        // A splice discontinuity shows as a large |out[i]-2out[i-1]+out[i-2]|
+        // relative to the signal's own typical 2nd-difference.
+        int n2 = (int)out.size();
+        std::vector<double> d2(n2, 0.0);
+        double mean = 0;
+        for (int i = 2; i < n2; i++) { d2[i] = fabs((double)out[i] - 2.0*out[i-1] + out[i-2]); mean += d2[i]; }
+        mean /= (n2 - 2);
+        double var = 0; for (int i = 2; i < n2; i++) { double e = d2[i]-mean; var += e*e; }
+        double sigma = sqrt(var / (n2 - 2));
+        int clicks = 0;
+        for (int i = 2; i < n2; i++) if (d2[i] > mean + 10.0*sigma) clicks++;
+        printf("%9.2f   %10.2f   %10.2f   %+6.2f   clicks=%d\n", f, target, meas, err, clicks);
         if (fabs(err) > 1.0) fails++;
     }
     printf("\n%s\n", fails == 0 ? "PASS: all notes within 1%% of exact -12"
