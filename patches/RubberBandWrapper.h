@@ -253,6 +253,8 @@ public:
   float engineEffRate()        { return m_soladL.effRateNow(); }
   int   engineGap()      const { return m_soladL.gapNow(); }
   unsigned engineEmergency() const { return m_soladL.emergencyCount(); }
+  int   enginetPeakVal1000() const { return (int)(m_soladL.dbgPeakVal()*1000.0f); }
+  int   enginePeakTau()  const { return m_soladL.dbgPeakTau(); }
   float engineScale()    const { return m_soladL.scaleNow(); }
   int   enginePeriod()   const { return m_soladL.periodNow(); }
   bool  enginePeriodOk() const { return m_soladL.periodOk(); }

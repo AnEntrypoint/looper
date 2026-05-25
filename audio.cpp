@@ -342,12 +342,14 @@ void loop()
 			unsigned em = pLivePitchWrapper->engineEmergency();
 			unsigned d_emerg = em - prev_emerg; prev_emerg = em;
 			CLogger::Get()->Write(log_name, LogNotice,
-				"eng scale=%d.%03d gap=%d period=%d lock=%d splice+%u emerg+%u dtms=%u",
+				"eng scale=%d.%03d gap=%d period=%d lock=%d peakV=%d peakTau=%d splice+%u emerg+%u dtms=%u",
 				sci/1000, sci%1000,
 				pLivePitchWrapper->engineGap(),
 				pLivePitchWrapper->enginePeriod(),
 				pLivePitchWrapper->enginePeriodOk() ? 1 : 0,
-				d_splice, d_emerg, (unsigned)((now - s_lastEngTicks)/1000));
+				pLivePitchWrapper->enginetPeakVal1000(),
+					pLivePitchWrapper->enginePeakTau(),
+					d_splice, d_emerg, (unsigned)((now - s_lastEngTicks)/1000));
 				s_lastEngTicks = now;
 		}
 	}

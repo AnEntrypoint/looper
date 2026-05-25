@@ -582,6 +582,10 @@ public:
     unsigned m_spliceCount = 0;
     int      gapNow() const { return (int)((double)m_wr - (m_useA ? m_rdA : m_rdB)); }
     unsigned emergencyCount() const { return m_emergencyCount; }
+    float    m_dbgPeakVal = -1.0f;   // strongest SNAC peak value last sweep
+    int      m_dbgPeakTau = -1;      // its lag (samples)
+    float    dbgPeakVal() const { return m_dbgPeakVal; }
+    int      dbgPeakTau() const { return m_dbgPeakTau; }
     double   m_effContAccum = 0.0;
     double   m_spliceJumpAccum = 0.0;
     unsigned m_effSamples = 0;
@@ -897,6 +901,12 @@ private:
         // which destabilized the resplice (off-phase jumps) = part of the
         // gurgle. m_haveGoodPeriod keeps the resplice running regardless;
         // this keeps the reported lock + period steady through brief misses.
+        // Telemetry: strongest SNAC value seen this sweep + its lag, regardless
+        // of whether it passed the fidelity gate — to diagnose Pi lock failure.
+        { float gmax=-1; int gtau=-1;
+          for (int kk=MIN_PERIOD; kk<maxTau-1; kk++){ float vv=2.0f*m_r[kk]/m_normK[kk];
+            if (vv>gmax){gmax=vv;gtau=kk;} }
+          m_dbgPeakVal = gmax; m_dbgPeakTau = gtau; }
         if (bestTau < 0) {
             if (++m_lockMiss >= 3) m_periodValid = false;
             return;
