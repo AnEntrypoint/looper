@@ -430,10 +430,11 @@ extern unsigned AudioInputUSB_inAvail (void);
 // avail is back near the ring's natural target. This brackets avail into a
 // safe mid-band and lets the ring's own Q16 drift-correction hold the fine
 // balance.
-static const unsigned DRAIN_TARGET = AUDIO_BLOCK_SAMPLES * 3;  // ~192 stop point
-static const unsigned DRAIN_FLOOR  = AUDIO_BLOCK_SAMPLES * 2;  // never drain below ~128
+static const unsigned DRAIN_HIGH = AUDIO_BLOCK_SAMPLES * 4 + 32;  // ~288 enter-drain
+static const unsigned DRAIN_LOW  = AUDIO_BLOCK_SAMPLES * 2;       // ~128 exit-drain
 static const int      DRAIN_MAX_ITERS = 8;   // hard cap against runaway
 static volatile bool s_updatePending = false;
+static volatile bool s_draining = false;     // latched drain-mode (hysteresis)
 
 void AudioSystem::startUpdate()
 {
@@ -475,14 +476,19 @@ void AudioSystem::doUpdate()
 		}
 
 		s_updatePending = false;
-		// Extra drain ONLY when avail is high (> DRAIN_TARGET) AND consuming
-		// one more block leaves the ring above DRAIN_FLOOR. This catches the
-		// overfill drift toward 384 without ever pulling avail to the underrun
-		// edge — fixing both the original detune (overfill) and the gurgle
-		// (low-side resync from over-draining).
+		// LATCHED HYSTERESIS drain. A bare threshold hunts: drain->over->stop->
+		// refill->drain, oscillating every ~1s with a small resync each toggle.
+		// Instead: only ENTER drain mode when avail climbs above DRAIN_HIGH
+		// (near the 384 overfill edge), then drain all the way down to
+		// DRAIN_LOW, and don't re-enter until avail climbs back above
+		// DRAIN_HIGH. The wide [DRAIN_LOW, DRAIN_HIGH] deadband lets avail
+		// sweep slowly between ~128 and ~288 — never near the 64 underrun or
+		// 384 overfill resync edges, and no fast toggling.
 		unsigned av = AudioInputUSB_inAvail();
-		bool backlog = (av > DRAIN_TARGET)
-		            && (av - AUDIO_BLOCK_SAMPLES >= DRAIN_FLOOR)
+		if (!s_draining && av > DRAIN_HIGH) s_draining = true;
+		if (s_draining && av <= DRAIN_LOW)  s_draining = false;
+		bool backlog = s_draining
+		            && (av - AUDIO_BLOCK_SAMPLES >= DRAIN_LOW)
 		            && (--guard > 0);
 		if (!backlog)
 		{
