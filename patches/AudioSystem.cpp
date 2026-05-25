@@ -421,17 +421,17 @@ extern unsigned AudioInputUSB_inAvail (void);
 #ifndef AUDIO_BLOCK_SAMPLES
 #define AUDIO_BLOCK_SAMPLES 64
 #endif
-// Drain target: keep IN ring near 2 blocks buffered (matches IN_TARGET_LAG=96
-// ≈ 1.5 blocks). Stop draining once at/below this so we never underrun IN.
-// Drain only while the ring holds well ABOVE the underrun floor. The IN ring
-// resyncs if avail < AUDIO_BLOCK_SAMPLES (64) or >= 384. Draining to 2 blocks
-// (128) let a drain consume a block from avail~129 down to ~65, and with
-// fractional-reader lookahead that dipped below 64 => periodic LOW-side resync
-// (in_rs arg~53) every ~16s = the audible gurgle (engine itself stays clean).
-// Keep avail centered in the [64,384] band: stop draining at 4 blocks (256) so
-// the post-drain floor stays ~192, far from both the underrun and overfill
-// resync edges.
-static const unsigned DRAIN_TARGET = AUDIO_BLOCK_SAMPLES * 3;
+// IN ring resyncs if avail < AUDIO_BLOCK_SAMPLES (64) or >= 384 (3/4 of 512).
+// The extra catch-up drain must pull avail DOWN from the overfill tendency
+// (engine-engaged doUpdate runs slow -> ring fills toward 384) WITHOUT
+// over-shooting to the underrun edge (which gave the periodic ~16s low-side
+// resync = gurgle). Strategy: only drain an EXTRA block when avail is high
+// enough that consuming one block still leaves >= DRAIN_FLOOR, and stop once
+// avail is back near the ring's natural target. This brackets avail into a
+// safe mid-band and lets the ring's own Q16 drift-correction hold the fine
+// balance.
+static const unsigned DRAIN_TARGET = AUDIO_BLOCK_SAMPLES * 3;  // ~192 stop point
+static const unsigned DRAIN_FLOOR  = AUDIO_BLOCK_SAMPLES * 2;  // never drain below ~128
 static const int      DRAIN_MAX_ITERS = 8;   // hard cap against runaway
 static volatile bool s_updatePending = false;
 
@@ -475,12 +475,15 @@ void AudioSystem::doUpdate()
 		}
 
 		s_updatePending = false;
-		// Extra drains ONLY on genuine backlog, and never pull avail toward the
-		// underrun floor: require avail still > DRAIN_TARGET (which is set well
-		// above 1 block) so a drain can't drop the ring below the safe ~2-block
-		// floor that the input_usb resync guards at. This stops the periodic
-		// low-side resync (in_rs arg~53) that caused the ~16s gurgle.
-		bool backlog = (AudioInputUSB_inAvail() > DRAIN_TARGET) && (--guard > 0);
+		// Extra drain ONLY when avail is high (> DRAIN_TARGET) AND consuming
+		// one more block leaves the ring above DRAIN_FLOOR. This catches the
+		// overfill drift toward 384 without ever pulling avail to the underrun
+		// edge — fixing both the original detune (overfill) and the gurgle
+		// (low-side resync from over-draining).
+		unsigned av = AudioInputUSB_inAvail();
+		bool backlog = (av > DRAIN_TARGET)
+		            && (av - AUDIO_BLOCK_SAMPLES >= DRAIN_FLOOR)
+		            && (--guard > 0);
 		if (!backlog)
 		{
 			__disable_irq();
