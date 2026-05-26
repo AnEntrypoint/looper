@@ -614,7 +614,17 @@ public:
                 m_grainFormant.setInputPeriod((double)m_lastGoodPeriodF);
             }
             float gOut = m_grainFormant.read();
-            m_grainMix += (m_grainMixTarget - m_grainMix) * (1.0f / 480.0f);
+            // Derive the crossfade target ON CORE 1 from the grain factor that
+            // is actually in effect here (m_fm propagates to this core — gFac
+            // ramps — whereas the Core-2-written m_grainMixTarget read stale as
+            // 0, leaving gMix=0 and the formant inaudible). |factor-1| maps to
+            // mix: at factor==1 (center) mix→0 (pure continuous reader, clean
+            // -12); off-center mix→1 (grain path) once |factor-1|>=~0.18.
+            float fmNow = m_grainFormant.factorNow();
+            float dev = fmNow > 1.0f ? (fmNow - 1.0f) : (1.0f - fmNow);
+            float mixTgt = dev < 0.01f ? 0.0f : (dev >= 0.18f ? 1.0f : (dev - 0.01f) / 0.17f);
+            m_grainMixTarget = mixTgt;   // keep field updated for telemetry
+            m_grainMix += (mixTgt - m_grainMix) * (1.0f / 480.0f);
             out[i] = y * (1.0f - m_grainMix) + gOut * m_grainMix;
 
             // ---- 7. Advance pointers ----
