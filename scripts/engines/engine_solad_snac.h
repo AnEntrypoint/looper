@@ -786,6 +786,9 @@ public:
         m_splicePhaseErrAccum = 0.0; m_splicePhaseN = 0;
         return e;
     }
+    // --- Grain-formant witnesses (Pi diagnosis: is the crossfade engaging?) ---
+    float grainMixNow()    const { return m_grainMix; }        // 0=continuous reader, 1=grain path
+    float grainFactorNow() const { return m_grainFormant.factorNow(); }  // current fm
     // --- Pre-resample (formant) stage witnesses ---
     double   m_preEffAccum = 0.0;
     unsigned m_preEffSamples = 0;

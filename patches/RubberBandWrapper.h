@@ -255,6 +255,8 @@ public:
   float enginePreEffRate()     { return m_soladL.preEffRateNow(); }
   float enginePreSplicePhaseErr() { return m_soladL.preSplicePhaseErrNow(); }
   float enginePreTargetRate()  const { return m_soladL.preTargetRateNow(); }
+  float engineGrainMix()       const { return m_soladL.grainMixNow(); }
+  float engineGrainFactor()    const { return m_soladL.grainFactorNow(); }
   int   engineGap()      const { return m_soladL.gapNow(); }
   unsigned engineEmergency() const { return m_soladL.emergencyCount(); }
   int   enginetPeakVal1000() const { return (int)(m_soladL.dbgPeakVal()*1000.0f); }
