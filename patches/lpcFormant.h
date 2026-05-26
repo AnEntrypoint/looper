@@ -194,7 +194,7 @@ private:
 
         // build the remap EQ from the SMOOTHED slots: CUT at f, BOOST at f*shift.
         float move = m_shift; float lg = fabsf(logf(move > 0.05f ? move : 0.05f));
-        float gDb = lg * 20.0f; if (gDb > 12.0f) gDb = 12.0f;  // cap ±12 dB
+        float gDb = lg * 42.0f; if (gDb > 26.0f) gDb = 26.0f;  // cap ±26 dB (was ±12; user wanted ~10x more)
         const float Q = 1.6f;   // fixed moderate Q (radius-derived Q jittered)
         int bi = 0;
         for (int s = 0; s < NBANK; s++) {

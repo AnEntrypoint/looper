@@ -177,7 +177,10 @@ public:
         // Drive the zero-latency LPC formant stage. depth ∈ [-1,+1] (or ±3 with
         // shift) → formant frequency-shift factor. +d brightens (formants up),
         // -d darkens (formants down). shift=1 at d=0 (bit-clean bypass).
-        m_formantStage.setShift(powf(1.5f, d));
+        // depth ∈ [-1,+1] → formant frequency shift. pow(2.6,d): depth -1 →
+        // 0.38× (deep/dark), +1 → 2.6× (bright). Much wider than the prior
+        // pow(1.5) which the user found ~10× too subtle.
+        m_formantStage.setShift(powf(2.6f, d));
     }
     void setFormantSampleRate(float sr) { m_formantStage.setSampleRate(sr); }
 
