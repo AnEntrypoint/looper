@@ -27,7 +27,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <vector>
-#include "lpcFormant.h"
+#include "grainFormant.h"
 
 #ifndef SOLAD_M_PI
 #define SOLAD_M_PI 3.14159265358979323846f
@@ -174,15 +174,20 @@ public:
     // formant shift = pow(pitchScale, 1-depth).
     void setFormantDepth(float d) {
         m_formantDepth = d;
-        // Drive the zero-latency LPC formant stage. depth ∈ [-1,+1] (or ±3 with
-        // shift) → formant frequency-shift factor. +d brightens (formants up),
-        // -d darkens (formants down). shift=1 at d=0 (bit-clean bypass).
-        // depth ∈ [-1,+1] → formant frequency shift. pow(2.6,d): depth -1 →
-        // 0.38× (deep/dark), +1 → 2.6× (bright). Much wider than the prior
-        // pow(1.5) which the user found ~10× too subtle.
-        m_formantStage.setShift(powf(2.6f, d));
+        // Drive the grain-playback-speed formant stage. depth in [-1,+1] ->
+        // grain resample factor pow(2.0,d): d=0 -> 1.0 (bit-clean bypass,
+        // formants ride with pitch = natural -12), d>0 -> formants up (toward
+        // preserved/bright, factor up to 2.0), d<0 -> formants down (deeper,
+        // factor down to 0.5). CONSTANT ratio = STABLE shift (not the wandering
+        // LPC-EQ that sounded like an envelope/wah). Pitch is untouched: the
+        // grain stage re-emits at the output period so only formants move.
+        // Grain-formant factor pow(2,d): d=0 -> 1.0 (formants ride with pitch),
+        // d>0 -> formants up, d<0 -> down. Crossfade mix grows with |d| (0 at
+        // center => byte-identical continuous-reader -12).
+        m_grainFormant.setFormantFactor(powf(2.0f, d));
+        float a = d < 0 ? -d : d;
+        m_grainMixTarget = a < 0.02f ? 0.0f : (a >= 0.15f ? 1.0f : (a - 0.02f) / 0.13f);
     }
-    void setFormantSampleRate(float sr) { m_formantStage.setSampleRate(sr); }
 
     void processBlock(const float* in, float* out, int n) {
         for (int i = 0; i < n; i++) {
@@ -365,6 +370,9 @@ public:
             float x = xWarped;
             m_dl[m_wr & MASK] = x;
             m_wr++;
+            // Feed grain-formant history EXACTLY once per sample (before any
+            // warmup/coast continue) so its clock stays 1:1 with m_wr.
+            m_grainFormant.write(x);
 
             // Mirror into SNAC ring.
             m_snacBuf[m_snacWr] = x;
@@ -596,10 +604,18 @@ public:
 
             float y = m_useA ? (yA * wActive + yB * wPassive)
                              : (yB * wActive + yA * wPassive);
-            // ---- Zero-latency LPC formant POST stage ----
-            // Re-colours the -12 output's spectral envelope (formants) without
-            // touching pitch. shift==1 (depth 0) is a bit-clean bypass.
-            out[i] = m_formantStage.process(y);
+            // ---- Grain-formant crossfade ----
+            // y = continuous-reader -12 (formant rides with pitch). The grain
+            // path produces the SAME -12 with formants shifted by the knob. Mix
+            // by distance-from-center: center => pure y (byte-identical), off-
+            // center => grain path. Both are -12 so the crossfade is pitch-safe.
+            if (m_haveGoodPeriod) {
+                m_grainFormant.setScale(m_scale);
+                m_grainFormant.setInputPeriod((double)m_lastGoodPeriodF);
+            }
+            float gOut = m_grainFormant.read();
+            m_grainMix += (m_grainMixTarget - m_grainMix) * (1.0f / 480.0f);
+            out[i] = y * (1.0f - m_grainMix) + gOut * m_grainMix;
 
             // ---- 7. Advance pointers ----
             // m_gapBias holds the gap near mid-buffer so no splice is ever
@@ -705,7 +721,9 @@ private:
     float    m_respliceFrac = 16.0f;
     float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
     bool     m_preBypass = false;
-    LpcFormant m_formantStage;   // zero-latency LPC envelope-remap formant post
+    GrainFormant m_grainFormant;            // gap-bounded grain-formant path
+    float  m_grainMix = 0.0f;               // smoothed crossfade (0=continuous reader)
+    float  m_grainMixTarget = 0.0f;
     bool     m_spliceSnap = true;
     bool     m_spliceMatch = true;
     int      m_driftLowBand = 8;
