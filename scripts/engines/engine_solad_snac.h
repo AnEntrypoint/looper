@@ -27,6 +27,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <vector>
+#include "lpcFormant.h"
 
 #ifndef SOLAD_M_PI
 #define SOLAD_M_PI 3.14159265358979323846f
@@ -171,15 +172,28 @@ public:
     // Implemented as a pre-resample stage feeding the delay line: pre-rate
     // = pow(pitchScale, -depth) → engine resamples back by pitchScale, net
     // formant shift = pow(pitchScale, 1-depth).
-    void setFormantDepth(float d) { m_formantDepth = d; }
+    void setFormantDepth(float d) {
+        m_formantDepth = d;
+        // Drive the zero-latency LPC formant stage. depth ∈ [-1,+1] (or ±3 with
+        // shift) → formant frequency-shift factor. +d brightens (formants up),
+        // -d darkens (formants down). shift=1 at d=0 (bit-clean bypass).
+        m_formantStage.setShift(powf(1.5f, d));
+    }
+    void setFormantSampleRate(float sr) { m_formantStage.setSampleRate(sr); }
 
     void processBlock(const float* in, float* out, int n) {
         for (int i = 0; i < n; i++) {
-            // ---- 0. Pre-resample input for formant depth control ----
-            // Write raw input into the formant-prewarp buffer at full rate;
-            // read at preRate to produce formant-warped samples for the
-            // delay line. Continuous-rate sinc-interpolated read.
-            float xWarped;
+            // ---- 0. Ingest raw input ----
+            // Formant control is now a ZERO-LATENCY LPC envelope-remap POST
+            // stage on the output (see end of loop + lpcFormant.h), NOT a
+            // pre-resample. The old pre-resample warp could not shift formants
+            // independently of pitch (it shifted both together and cancelled
+            // against the -12 stage = only doubling artifacts) — removed. The
+            // -12 pitch path below is the original great one, read at exactly
+            // m_scale with no formant compensation.
+            float xWarped = in[i];
+#if 0
+            float xWarped_unused;
             // Auto-bypass pre-resample at depth=0. At depth=0 the stage
             // should be unity passthrough (preRate = pow(scale, 0) = 1),
             // but ARM's libm powf may not return exactly 1.0, causing
@@ -342,8 +356,9 @@ public:
                 m_preEffAccum += (double)m_preRate;
                 m_preEffSamples++;
             }
+#endif
 
-            // ---- 1. Ingest the pre-warped sample ----
+            // ---- 1. Ingest ----
             float x = xWarped;
             m_dl[m_wr & MASK] = x;
             m_wr++;
@@ -578,27 +593,20 @@ public:
 
             float y = m_useA ? (yA * wActive + yB * wPassive)
                              : (yB * wActive + yA * wPassive);
-            out[i] = y;
+            // ---- Zero-latency LPC formant POST stage ----
+            // Re-colours the -12 output's spectral envelope (formants) without
+            // touching pitch. shift==1 (depth 0) is a bit-clean bypass.
+            out[i] = m_formantStage.process(y);
 
             // ---- 7. Advance pointers ----
             // m_gapBias holds the gap near mid-buffer so no splice is ever
             // needed on sustained pitch shift. The +bias makes the reader
             // advance slightly faster (shrinking an over-large gap) or
             // slightly slower (growing a too-small gap). Magnitude <0.05.
-            // Formant compensation. The pre-stage warps the delay-line content
-            // by preRate (which shifts BOTH pitch and formants by preRate). The
-            // main reader reads at the pitch rate; output pitch = bufferPitch ×
-            // readRate = (orig × preRate) × readRate. To keep the NET output
-            // pitch at exactly m_scale (the -12, independent of formant) the
-            // main read rate must be m_scale / preRate. The spectral envelope
-            // then shifts by preRate while the pitch is unchanged = a pure
-            // formant control. At depth=0 the pre-stage is bypassed and the
-            // effective preRate is 1 (m_preRate may hold a stale value, so use
-            // 1.0 explicitly) → adv == m_scale, byte-identical center path.
-            double preRateEff = (m_preBypass || m_formantDepth == 0.0f)
-                                ? 1.0 : (double)m_preRate;
-            if (preRateEff < 0.01) preRateEff = 0.01;
-            double adv = (double)m_scale / preRateEff + m_gapBias;
+            // Read at exactly m_scale (the original great -12 path). Formant is
+            // handled by the zero-latency LPC post-stage, so NO compensation
+            // here — this is the unmodified, frequency-neutral pitch reader.
+            double adv = (double)m_scale + m_gapBias;
             m_rdA += adv;
             m_rdB += adv;
             if (m_xfadeRemain > 0) m_xfadeRemain--;
@@ -694,6 +702,7 @@ private:
     float    m_respliceFrac = 16.0f;
     float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
     bool     m_preBypass = false;
+    LpcFormant m_formantStage;   // zero-latency LPC envelope-remap formant post
     bool     m_spliceSnap = true;
     bool     m_spliceMatch = true;
     int      m_driftLowBand = 8;
