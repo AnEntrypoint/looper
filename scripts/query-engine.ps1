@@ -8,7 +8,12 @@
 #
 # SET ids: 0 formantDepth, 1 grainFactor(direct), 2 grainMix(direct),
 #          3 readOffset, 4 xfadeScale, 5 fidelity, 6 preBypass
-param([string]$Msg = "GET", [switch]$Sweep, [string]$Ip = "192.168.137.100")
+param([string]$Msg = "GET", [switch]$Sweep, [switch]$WaitUp, [string]$Ip = "192.168.137.100")
+
+# The Pi currently asserts in its net stack ~90s after boot (see mutable
+# net-stack-crash-at-90s), so -WaitUp polls :4445 until it replies, then -Sweep
+# runs the WHOLE diagnostic fast inside that window. Power-cycle the Pi, then:
+#   .\query-engine.ps1 -WaitUp -Sweep
 
 function Q($m) {
     $c = New-Object System.Net.Sockets.UdpClient
@@ -20,6 +25,16 @@ function Q($m) {
     $c.Close(); return $s
 }
 function Midi($arr) { $m = New-Object System.Net.Sockets.UdpClient; $m.Send($arr, $arr.Length, $Ip, 4446) | Out-Null; $m.Close() }
+
+if ($WaitUp) {
+    Write-Host "waiting for :4445 to reply (power-cycle the Pi if hung)..."
+    $up = $false
+    for ($i = 0; $i -lt 90; $i++) {
+        if ((Q "GET") -ne "<no reply>") { $up = $true; Write-Host "UP after ~$($i)s"; break }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $up) { "still no reply after 90s — Pi likely hung, power-cycle it"; return }
+}
 
 if ($Sweep) {
     "baseline:   " + (Q "GET")
