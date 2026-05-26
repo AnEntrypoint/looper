@@ -252,12 +252,6 @@ public:
   // at target, how often are splices firing, is the period locked.
   float engineEffRate()        { return m_soladL.effRateNow(); }
   float engineSplicePhaseErr() { return m_soladL.splicePhaseErrNow(); }
-  float enginePreEffRate()     { return m_soladL.preEffRateNow(); }
-  float enginePreSplicePhaseErr() { return m_soladL.preSplicePhaseErrNow(); }
-  float enginePreTargetRate()  const { return m_soladL.preTargetRateNow(); }
-  float engineGrainMix()       const { return m_soladL.grainMixNow(); }
-  float engineGrainFactor()    const { return m_soladL.grainFactorNow(); }
-  float engineFormantDepthRaw() const { return m_soladL.formantDepthRawNow(); }
   int   engineGap()      const { return m_soladL.gapNow(); }
   unsigned engineEmergency() const { return m_soladL.emergencyCount(); }
   int   enginetPeakVal1000() const { return (int)(m_soladL.dbgPeakVal()*1000.0f); }
@@ -330,11 +324,6 @@ public:
     // GET full snapshot
     p=qPutStr(out,p,outsz,"scale=");   p=qPutF(out,p,outsz,m_soladL.scaleNow());
     p=qPutStr(out,p,outsz," eff=");    p=qPutF(out,p,outsz,m_soladL.effRateNow());
-    p=qPutStr(out,p,outsz," fdepth="); p=qPutF(out,p,outsz,m_soladL.formantDepthRawNow());
-    p=qPutStr(out,p,outsz," gFac=");   p=qPutF(out,p,outsz,m_soladL.grainFactorNow());
-    p=qPutStr(out,p,outsz," gTgt=");   p=qPutF(out,p,outsz,m_soladL.grainTargetFactorNow());
-    p=qPutStr(out,p,outsz," gMix=");   p=qPutF(out,p,outsz,m_soladL.grainMixNow());
-    p=qPutStr(out,p,outsz," gMixTgt=");p=qPutF(out,p,outsz,m_soladL.grainMixTargetNow());
     p=qPutStr(out,p,outsz," period="); p=qPutInt(out,p,outsz,m_soladL.periodNow());
     p=qPutStr(out,p,outsz," lock=");   p=qPutInt(out,p,outsz,m_soladL.periodOk()?1:0);
     p=qPutStr(out,p,outsz," gap=");    p=qPutInt(out,p,outsz,m_soladL.gapNow());
@@ -344,11 +333,6 @@ public:
 
   void applyLiveParam(int id, float v) {
     switch (id) {
-      case 0: setFormant(v); break;                 // formant depth (full path)
-      case 1: m_soladL.setGrainFactorDirect(v);     // direct factor, bypass depth
-              m_soladR.setGrainFactorDirect(v); break;
-      case 2: m_soladL.setGrainMixDirect(v);        // direct crossfade override
-              m_soladR.setGrainMixDirect(v); break;
       case 3: setEngineReadOffset((int)v); break;
       case 4: setEngineXfadeScale(v); break;
       case 5: setEngineFidelity(v); break;
