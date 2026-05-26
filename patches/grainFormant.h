@@ -38,6 +38,9 @@ public:
     void setFormantFactor(float f){ if (f<0.5f) f=0.5f; if (f>2.0f) f=2.0f; m_targetFm = f; }
 
     float factorNow() const { return m_fm; }
+    float targetFactorNow() const { return m_targetFm; }
+    double periodNow() const { return m_Tin; }
+    float scaleNow() const { return m_scale; }
     inline void write(float dry) { m_ring[m_wr & (RBUF - 1)] = dry; m_wr++; }
     inline float process(float dry) { write(dry); return read(); }
 

@@ -257,6 +257,7 @@ public:
   float enginePreTargetRate()  const { return m_soladL.preTargetRateNow(); }
   float engineGrainMix()       const { return m_soladL.grainMixNow(); }
   float engineGrainFactor()    const { return m_soladL.grainFactorNow(); }
+  float engineFormantDepthRaw() const { return m_soladL.formantDepthRawNow(); }
   int   engineGap()      const { return m_soladL.gapNow(); }
   unsigned engineEmergency() const { return m_soladL.emergencyCount(); }
   int   enginetPeakVal1000() const { return (int)(m_soladL.dbgPeakVal()*1000.0f); }
@@ -274,6 +275,86 @@ public:
 
   DebugState getDebugState() const {
     return { m_pitchScale, m_processedFrames, m_retrievedFrames };
+  }
+
+  // ---- On-demand observability + runtime control ----
+  // Called from the Core-2 control plane (pollSockets) ONLY when a UDP query
+  // arrives — never from the audio path, so it has zero steady cost. Parses a
+  // tiny verb protocol and writes a text reply. EXPANDABLE: add a GET field by
+  // extending the snprintf; add a SET param by adding an `id` case.
+  //   "GET"            -> full atomic state snapshot
+  //   "SET <id> <val>" -> set a live param (see ids below)
+  // SET ids: 0 formantDepth, 1 grainFactor(direct, bypasses depth path),
+  //          2 grainMix(direct override 0..1), 3 readOffset, 4 xfadeScale,
+  //          5 fidelity, 6 preBypass.
+  // no-stdio string builders (firmware has no <stdio.h>)
+  static int qPutStr(char* o, int pos, int sz, const char* s) {
+    while (*s && pos < sz - 1) o[pos++] = *s++;
+    o[pos] = 0; return pos;
+  }
+  static int qPutInt(char* o, int pos, int sz, long v) {
+    char t[16]; int n=0; bool neg=v<0; unsigned long u = neg? (unsigned long)(-v):(unsigned long)v;
+    if (u==0) t[n++]='0'; while(u){ t[n++]='0'+(u%10); u/=10; }
+    if (neg && pos<sz-1) o[pos++]='-';
+    while(n && pos<sz-1) o[pos++]=t[--n];
+    o[pos]=0; return pos;
+  }
+  static int qPutF(char* o, int pos, int sz, float v) {  // 4 decimals
+    if (v < 0 && pos<sz-1) { o[pos++]='-'; v=-v; }
+    long ip=(long)v; float fr=v-(float)ip;
+    pos=qPutInt(o,pos,sz,ip);
+    if (pos<sz-1) o[pos++]='.';
+    long f4=(long)(fr*10000.0f+0.5f);
+    for(int d=1000; d>=1; d/=10){ if(pos<sz-1) o[pos++]='0'+(char)((f4/d)%10); }
+    o[pos]=0; return pos;
+  }
+  void engineQuery(const char* req, char* out, int outsz) {
+    if (!out || outsz < 8) return;
+    int p = 0;
+    if (req[0]=='S' && req[1]=='E' && req[2]=='T') {
+      const char* s = req + 3;
+      while (*s==' ') s++;
+      int id=0; bool haveId=false;
+      while (*s>='0'&&*s<='9'){ id=id*10+(*s-'0'); s++; haveId=true; }
+      while (*s==' ') s++;
+      bool neg=false; if(*s=='-'){neg=true;s++;}
+      float ip=0,fp=0,fs=1;
+      while (*s>='0'&&*s<='9'){ ip=ip*10+(*s-'0'); s++; }
+      if(*s=='.'){ s++; while(*s>='0'&&*s<='9'){ fs*=0.1f; fp+=(*s-'0')*fs; s++; } }
+      float v=(ip+fp)*(neg?-1.0f:1.0f);
+      if (haveId) applyLiveParam(id, v);
+      p=qPutStr(out,p,outsz,"OK id="); p=qPutInt(out,p,outsz,id);
+      p=qPutStr(out,p,outsz," v="); p=qPutF(out,p,outsz,v);
+      return;
+    }
+    // GET full snapshot
+    p=qPutStr(out,p,outsz,"scale=");   p=qPutF(out,p,outsz,m_soladL.scaleNow());
+    p=qPutStr(out,p,outsz," eff=");    p=qPutF(out,p,outsz,m_soladL.effRateNow());
+    p=qPutStr(out,p,outsz," fdepth="); p=qPutF(out,p,outsz,m_soladL.formantDepthRawNow());
+    p=qPutStr(out,p,outsz," gFac=");   p=qPutF(out,p,outsz,m_soladL.grainFactorNow());
+    p=qPutStr(out,p,outsz," gTgt=");   p=qPutF(out,p,outsz,m_soladL.grainTargetFactorNow());
+    p=qPutStr(out,p,outsz," gMix=");   p=qPutF(out,p,outsz,m_soladL.grainMixNow());
+    p=qPutStr(out,p,outsz," gMixTgt=");p=qPutF(out,p,outsz,m_soladL.grainMixTargetNow());
+    p=qPutStr(out,p,outsz," period="); p=qPutInt(out,p,outsz,m_soladL.periodNow());
+    p=qPutStr(out,p,outsz," lock=");   p=qPutInt(out,p,outsz,m_soladL.periodOk()?1:0);
+    p=qPutStr(out,p,outsz," gap=");    p=qPutInt(out,p,outsz,m_soladL.gapNow());
+    p=qPutStr(out,p,outsz," splice="); p=qPutInt(out,p,outsz,(long)m_soladL.m_spliceCount);
+    p=qPutStr(out,p,outsz," emerg=");  p=qPutInt(out,p,outsz,(long)m_soladL.emergencyCount());
+  }
+
+  void applyLiveParam(int id, float v) {
+    switch (id) {
+      case 0: setFormant(v); break;                 // formant depth (full path)
+      case 1: m_soladL.setGrainFactorDirect(v);     // direct factor, bypass depth
+              m_soladR.setGrainFactorDirect(v); break;
+      case 2: m_soladL.setGrainMixDirect(v);        // direct crossfade override
+              m_soladR.setGrainMixDirect(v); break;
+      case 3: setEngineReadOffset((int)v); break;
+      case 4: setEngineXfadeScale(v); break;
+      case 5: setEngineFidelity(v); break;
+      case 6: setEnginePreBypass(v >= 0.5f); break;
+      default: break;
+    }
   }
 };
 

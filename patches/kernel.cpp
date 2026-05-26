@@ -107,6 +107,13 @@ boolean CKernel::Initialize(void)
 	};
 	p9chan_set_firmware(s_wlanFW, 3);
 
+	// WLAN/plan9 + Ableton-Link disabled by default: the p9 stack overflows
+	// (~90s after boot under audio load) and asserts, taking down networking
+	// and blocking live engine diagnosis. WLAN/Link is non-essential for the
+	// audio/formant work; Ethernet (boot/syslog/debug/MIDI sockets) is
+	// independent and stays up. Define LOOPER_ENABLE_WLAN to re-enable once the
+	// p9 stack-size/recursion bug is fixed.
+#ifdef LOOPER_ENABLE_WLAN
 	s_wlanOK = m_WLAN.Initialize();
 	if (s_wlanOK)
 	{
@@ -128,6 +135,7 @@ boolean CKernel::Initialize(void)
 		};
 		m_WLAN.SetMulticastFilter(mcastGroups);
 	}
+#endif
 	m_ActLED.Blink(1);
 
 	if (bOK) bOK = m_Net.Initialize(FALSE);
@@ -147,7 +155,9 @@ TShutdownMode CKernel::Run(void)
 		s_wlanOK ? (s_wlanJoined ? "OK" : "FAILED") : "N/A",
 		s_wlanIsAP ? "yes" : "no");
 
+#ifdef LOOPER_ENABLE_WLAN
 	linkInit(&m_WLAN);
+#endif
 
 	CSocket *pRebootSocket = new CSocket(&m_Net, IPPROTO_UDP);
 	if (pRebootSocket->Bind(4444) < 0)

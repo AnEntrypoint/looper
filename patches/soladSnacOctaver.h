@@ -788,7 +788,15 @@ public:
     }
     // --- Grain-formant witnesses (Pi diagnosis: is the crossfade engaging?) ---
     float grainMixNow()    const { return m_grainMix; }        // 0=continuous reader, 1=grain path
-    float grainFactorNow() const { return m_grainFormant.factorNow(); }  // current fm
+    float grainMixTargetNow() const { return m_grainMixTarget; }
+    float grainFactorNow() const { return m_grainFormant.factorNow(); }       // smoothed m_fm
+    float grainTargetFactorNow() const { return m_grainFormant.targetFactorNow(); }
+    float formantDepthRawNow() const { return m_formantDepth; } // raw depth last set
+    // Direct overrides for live diagnosis — bypass the depth->factor/mixTarget
+    // mapping so we can drive the grain stage straight from a UDP query and see
+    // exactly what the audio thread does with it.
+    void setGrainFactorDirect(float f) { m_grainFormant.setFormantFactor(f); }
+    void setGrainMixDirect(float m) { if(m<0)m=0; if(m>1)m=1; m_grainMixTarget = m; }
     // --- Pre-resample (formant) stage witnesses ---
     double   m_preEffAccum = 0.0;
     unsigned m_preEffSamples = 0;

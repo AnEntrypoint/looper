@@ -8,6 +8,7 @@
 #include <circle/net/socket.h>
 
 extern void usbMidiInjectMidi(u8 status, u8 data1, u8 data2);
+extern "C" int engineQueryDispatch(const char *req, char *out, int outsz);
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
 extern void loop(void);
 
@@ -41,9 +42,12 @@ void coreControlPlaneTick(void)
 	k->m_Net.Process();
 	usbMidiProcess(bPnP);
 	loop();
+#ifdef LOOPER_ENABLE_WLAN
+	// WLAN/plan9 + Link disabled by default (p9 stack-assert crash ~90s in).
 	if (!s_dhcpDone) s_dhcpDone = wlanDhcpPoll(&k->m_WLAN);
 	wlanDhcpServe();
 	linkProcess();
+#endif
 	k->m_Scheduler.Yield();
 }
 
@@ -73,12 +77,22 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 		if (n > 0)
 		{
 			buf[n] = 0;
-			CString reply;
-			reply.Format("link=%s bpm=%d uptime=%u",
-				linkIsSynced() ? "synced" : "no",
-				(int)linkGetBPM(),
-				m_Timer.GetClockTicks() / CLOCKHZ);
-			pDebug->SendTo((u8 *)(const char *)reply, reply.GetLength(), MSG_DONTWAIT, sender, port);
+			// On-demand engine observability/control (Core 2 plane, zero audio
+			// impact — only reads/writes plain fields when a query arrives).
+			// Routed via a thin extern in audio.cpp so this file needn't include
+			// the audio engine header.
+			char rep[256];
+			int rn = engineQueryDispatch((const char *)buf, rep, sizeof rep);
+			if (rn <= 0) {
+				CString s;
+				s.Format("link=%s bpm=%d uptime=%u",
+					linkIsSynced() ? "synced" : "no",
+					(int)linkGetBPM(),
+					m_Timer.GetClockTicks() / CLOCKHZ);
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			} else {
+				pDebug->SendTo((u8 *)rep, rn, MSG_DONTWAIT, sender, port);
+			}
 		}
 	}
 

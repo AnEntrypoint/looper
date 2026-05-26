@@ -96,6 +96,19 @@
 RubberBandWrapper *pLivePitchWrapper = 0;
 apcEffectsProcessor *pEffectsProcessor = 0;
 
+// On-demand engine query/control entry point, called from the Core-2 debug
+// socket (kernel_run pollSockets). Returns reply length, or 0 to fall through
+// to the legacy link/bpm reply. Only GET/SET requests are handled here. Zero
+// audio-path impact: it just reads/writes plain engine fields on request.
+extern "C" int engineQueryDispatch(const char *req, char *out, int outsz)
+{
+	if (!pLivePitchWrapper || !req || !out) return 0;
+	if (!((req[0]=='G'||req[0]=='S') && req[1]=='E' && req[2]=='T')) return 0;
+	pLivePitchWrapper->engineQuery(req, out, outsz);
+	int len = 0; while (len < outsz && out[len]) len++;
+	return len;
+}
+
 loopMachine *pTheLoopMachine = 0;
 publicLoopMachine *pTheLooper = 0;
 
@@ -361,11 +374,12 @@ void loop()
 			// crossfade isn't engaging = formant inaudible.
 			int gmixi = (int)(pLivePitchWrapper->engineGrainMix() * 1000.0f);
 			int fmfi  = (int)(pLivePitchWrapper->engineGrainFactor() * 1000.0f);
+			int fdrawi = (int)(pLivePitchWrapper->engineFormantDepthRaw() * 1000.0f);
 			CLogger::Get()->Write(log_name, LogNotice,
-				"eng scale=%d.%03d eff=%d.%04d perr=%d gmix=%d fmf=%d gap=%d period=%d lock=%d peakV=%d peakTau=%d splice+%u emerg+%u dtms=%u",
+				"eng scale=%d.%03d eff=%d.%04d perr=%d fdraw=%d gmix=%d fmf=%d gap=%d period=%d lock=%d peakV=%d peakTau=%d splice+%u emerg+%u dtms=%u",
 				sci/1000, sci%1000,
 				effi/10000, effi%10000, perri,
-				gmixi, fmfi,
+				fdrawi, gmixi, fmfi,
 				pLivePitchWrapper->engineGap(),
 				pLivePitchWrapper->enginePeriod(),
 				pLivePitchWrapper->enginePeriodOk() ? 1 : 0,
