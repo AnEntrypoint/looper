@@ -162,6 +162,12 @@ foreach ($p in $patches) {
     }
 }
 
+# circle-clone net-race fix: patched CNetBufferQueue::Dequeue (reads m_pFirst
+# inside the spinlock) — targets circle/lib/net, not the _prh tree.
+$netSrc = Join-Path $RepoRoot 'patches/circle_netbufferqueue.cpp'
+$netDst = Join-Path $circle 'lib/net/netbufferqueue.cpp'
+if (Test-Path $netSrc) { Copy-Item -Path $netSrc -Destination $netDst -Force }
+
 # app-dir-internal patches (Makefile expects these next to itself, not in patches/)
 $appInternal = @(
     'kernel.h','kernel.cpp','kernel_run.cpp','multicore.cpp',

@@ -57,6 +57,10 @@ jobs:
       - name: Apply patches
         run: |
           ln -sf bcm_pcm.h circle/_prh/audio/BCM_PCM.h
+          # Net-race fix: CNetBufferQueue::Dequeue read m_pFirst outside the
+          # spinlock -> cross-core (RX IRQ vs Process) race -> assert(m_nEntries)
+          # crash ~15-90s after boot. Patched copy reads m_pFirst inside the lock.
+          cp circle/_prh/_apps/Looper/patches/circle_netbufferqueue.cpp circle/lib/net/netbufferqueue.cpp
           cp circle/_prh/_apps/Looper/patches/miniuart.cpp circle/_prh/utils/miniuart.cpp
           cp circle/_prh/_apps/Looper/patches/AudioTypes.h circle/_prh/audio/AudioTypes.h
           cp circle/_prh/_apps/Looper/patches/audio_Makefile circle/_prh/audio/Makefile
