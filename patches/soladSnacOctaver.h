@@ -204,71 +204,72 @@ public:
                 m_preEnv += (aIn - m_preEnv) * (1.0f / 64.0f);
                 bool preTransient = (aIn > m_preEnv * 2.5f && aIn > 0.02f);
 
-                // Period for phase-coherent wraps (reuse cached SNAC period).
+                // Cached SNAC period if pitch-locked; 0 on unpitched material
+                // (drums/noise) where SNAC cannot lock.
                 double per = (m_periodValid && m_periodF >= (float)MIN_PERIOD)
                              ? (double)m_periodF : 0.0;
-                // Single-reader integer-period splice (same proven design as
-                // the main pitch stage). One active reader m_preRd advances at
-                // m_preRate; when it drifts toward a buffer bound we jump it by
-                // a value+slope-matched WHOLE number of periods and crossfade
-                // from the pre-jump grain (held in m_preRdB) to the new
-                // position. Whole-period displacement keeps the warp ratio
-                // exact; value+slope match keeps the splice click-free even
-                // when consecutive periods DIFFER (real Pi input). The prior
-                // dual-reader/frozen-crossfade design stormed at preRate=2
-                // (depth=+1) because both readers kept advancing through a long
-                // frozen fade while the gap collapsed — replaced wholesale.
-                //
-                // Trigger band scales with preRate so the splice fires with
-                // enough headroom before the gap actually reaches a bound: at
-                // preRate>1 the reader outruns write (gap shrinks), at
-                // preRate<1 it lags (gap grows). gapLo/gapHi bracket a safe
-                // operating band; gapTarget is where a jump aims.
+
+                // WSOLA-style best-match crossfaded splice. ONE active reader
+                // m_preRd advances at m_preRate; when it drifts toward a buffer
+                // bound we relocate it to the position (within a search window)
+                // whose short grain best CORRELATES with the grain the active
+                // reader is currently playing, then crossfade. This is
+                // material-agnostic:
+                //   - pitched tone: the best correlation lands ~1 period away,
+                //     so the displacement is naturally a whole period =
+                //     frequency-neutral (no detune).
+                //   - drums/noise: there is no period, but the correlation
+                //     search still finds the most-similar splice point, so the
+                //     transient is not scrambled and the jump is crossfaded
+                //     (NOT a bare reset). The old per<=0 bare-reset was the
+                //     formant-DOWN drum-scramble: every gap-bound hit on
+                //     unpitched material was a raw discontinuity.
+                // The crossfade is ALWAYS applied (never a bare jump), which
+                // also smooths the formant-UP stutter (frequent backward jumps
+                // when preRate>1 now land on correlated, crossfaded points).
                 double gapTarget = (per > 0.0) ? per * 4.0 : 1024.0;
-                double gapLo = (per > 0.0) ? per * 1.5  : 256.0;
-                double gapHi = (per > 0.0) ? per * 8.0  : 4096.0;
+                double gapLo     = (per > 0.0) ? per * 2.0 : 384.0;
+                double gapHi     = (per > 0.0) ? per * 10.0 : 5120.0;
                 double pgap = (double)m_preWr - m_preRd;
 
                 bool nearBound = (pgap < gapLo) || (pgap > gapHi);
-                if (per > 0.0 && nearBound && m_preXfadeRemain == 0 && !preTransient) {
+                if (nearBound && m_preXfadeRemain == 0 && !preTransient) {
                     double a = m_preRd;
-                    double target = (double)m_preWr - gapTarget;
-                    double diff = target - a;
-                    int periods = (int)(diff / per + (diff > 0 ? 0.5 : -0.5));
-                    if (periods == 0) periods = (diff > 0 ? 1 : -1);
                     double aMax = (double)m_preWr - 4.0;
                     double aMin = (double)m_preWr - (double)(PRE_DL - 16);
-                    float  vA  = readPre(a);
-                    float  vAn = readPre(a + (double)m_preRate);
-                    float  dA  = vAn - vA;
-                    int    nBest = periods;
+                    // Aim the relocation back toward gapTarget behind write.
+                    double center = (double)m_preWr - gapTarget;
+                    // Search half-window: ~1 period for pitched, fixed for
+                    // unpitched. Correlate GRAIN_N samples at preRate stride.
+                    double srch = (per > 0.0) ? per * 0.75 : 256.0;
+                    const int GRAIN_N = 24;
+                    // Reference grain = what the active reader is playing now.
+                    float ref[GRAIN_N];
+                    for (int k = 0; k < GRAIN_N; k++)
+                        ref[k] = readPre(a + (double)k * (double)m_preRate);
+                    double bestPos = center;
                     float  bestErr = 1e30f;
-                    for (int nn = periods - 3; nn <= periods + 3; nn++) {
-                        if (nn == 0) continue;
-                        double cand = a + (double)nn * per;
+                    const int STEPS = 32;
+                    for (int s = 0; s <= STEPS; s++) {
+                        double cand = center - srch + (2.0 * srch) * (double)s / (double)STEPS;
                         if (cand < aMin || cand > aMax) continue;
-                        float vT  = readPre(cand);
-                        float vTn = readPre(cand + (double)m_preRate);
-                        float dT  = vTn - vT;
-                        float err = fabsf(vT - vA) + fabsf(dT - dA) * 80.0f;
-                        if (err < bestErr) { bestErr = err; nBest = nn; }
+                        float err = 0.0f;
+                        for (int k = 0; k < GRAIN_N; k++) {
+                            float vt = readPre(cand + (double)k * (double)m_preRate);
+                            float e = vt - ref[k];
+                            err += e * e;
+                        }
+                        if (err < bestErr) { bestErr = err; bestPos = cand; }
                     }
-                    double newPos = a + (double)nBest * per;
-                    while (newPos > aMax && nBest > 1) { nBest--; newPos = a + (double)nBest * per; }
-                    if (newPos < aMin) newPos = aMin;
-                    // m_preRdB holds the pre-jump grain for the crossfade; the
-                    // fade is short relative to a period so neither reader
-                    // moves far during it (preRate*len < ~1 period).
-                    m_preRdB = a;
-                    m_preRd  = newPos;
-                    int len = (int)(per * 0.25 / (m_preRate > 0.01f ? m_preRate : 0.01f));
+                    if (bestPos > aMax) bestPos = aMax;
+                    if (bestPos < aMin) bestPos = aMin;
+                    m_preRdB = a;          // pre-jump grain, fades out
+                    m_preRd  = bestPos;    // new position, fades in
+                    // Fade length ~ GRAIN_N output samples, scaled so neither
+                    // reader moves far in source during the fade.
+                    int len = (int)(GRAIN_N / (m_preRate > 0.01f ? m_preRate : 0.01f));
                     if (len < 16) len = 16; if (len > 256) len = 256;
                     m_preXfadeLen = len; m_preXfadeRemain = len;
-                } else if (per <= 0.0 && (pgap < 8.0 || pgap > (double)(PRE_DL - 16))) {
-                    // No period lock (silence/noise) — bare reset, inaudible.
-                    m_preRd = (double)m_preWr - gapTarget;
-                    m_preRdB = m_preRd;
-                    m_preXfadeRemain = 0;
                 }
 
                 float yA = readPre(m_preRd);      // new position (active)
