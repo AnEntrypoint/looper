@@ -51,6 +51,12 @@ Write-Host "[build-local] using toolchain: $armBin"
 # bash from git-for-windows is required to run patches/patch_rules_mk.py-style POSIX commands
 $bash = (Get-Command bash -ErrorAction SilentlyContinue).Path
 if (-not $bash) { Write-Error 'bash not found (install git-for-windows)'; exit 1 }
+# git-bash starts with its own PATH from its profile and does NOT reliably
+# inherit the Windows-style $armBin we prepended above, so `make` can't find
+# arm-none-eabi-g++. Convert the toolchain dir to a bash path and prepend it
+# inside every `make` invocation via $makeEnv.
+$armBinBash = '/' + ($armBin -replace ':','' -replace '\\','/')   # C:\x\bin -> /C/x/bin
+$makeEnv = "export PATH=`"$armBinBash`:`$PATH`"; "
 
 New-Item -ItemType Directory -Force -Path $BuildRoot | Out-Null
 $circle = Join-Path $BuildRoot 'circle'
@@ -93,6 +99,13 @@ $rcArgs = @($RepoRoot, $appDir, '/MIR', '/NJH', '/NJS', '/NDL', '/NP', '/NC', '/
 if ($LASTEXITCODE -ge 8) { throw "robocopy failed: $LASTEXITCODE" }
 
 # 3. Apply patches (mirror of build.yml)
+# Restore the circle-prh tree first: a prior interrupted run can leave tracked
+# upstream files (e.g. audio/bcm_pcm.h) deleted, which breaks the case-symlink.
+# `git checkout` brings them all back so patching starts from a clean upstream.
+Write-Host '[build-local] restoring circle-prh working tree ...'
+Push-Location $prh
+& git checkout -- . 2>&1 | Out-Null
+Pop-Location
 Write-Host '[build-local] applying patches ...'
 $patches = @(
     # Audio path
@@ -128,9 +141,22 @@ foreach ($p in $patches) {
     $dstDir = Split-Path $dst -Parent
     New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
     if ($mode -eq 'symlink') {
-        # Use a copy on Windows (junction-on-file isn't a thing without symbolic links + admin)
-        if (Test-Path $dst) { Remove-Item $dst -Force }
-        Copy-Item -Path $src -Destination $dst -Force
+        # CI does `ln -sf bcm_pcm.h circle/_prh/audio/BCM_PCM.h` to satisfy the
+        # uppercase #include on Linux's case-SENSITIVE filesystem. Windows is
+        # case-INSENSITIVE: "BCM_PCM.h" already resolves to bcm_pcm.h, so the
+        # case-copy is unnecessary — and worse, Copy-Item/Remove-Item of the
+        # uppercase name operates on the SAME inode as the lowercase file,
+        # deleting the real source. So on Windows: ensure the lowercase source
+        # exists (restore from the prh git tree if a prior run removed it) and
+        # SKIP the case-copy entirely.
+        $leaf = Split-Path $p[0] -Leaf
+        $linkSrc = Join-Path $dstDir $leaf
+        if (-not (Test-Path $linkSrc)) {
+            Push-Location $prh
+            & git checkout -- (Join-Path 'audio' $leaf) 2>&1 | Out-Null
+            Pop-Location
+        }
+        # no copy: case-insensitive FS makes the uppercase include resolve already
     } else {
         Copy-Item -Path $src -Destination $dst -Force
     }
@@ -175,8 +201,11 @@ $sysconfig = Join-Path $circle 'include\circle\sysconfig.h'
 (Get-Content $sysconfig -Raw) -replace '//#define ARM_ALLOW_MULTI_CORE', '#define ARM_ALLOW_MULTI_CORE' |
     Set-Content -Encoding utf8 -NoNewline $sysconfig
 
-# Rules.mk patch (Python)
+# Rules.mk patch (Python) — opens 'circle/Rules.mk' relative, so run from the
+# build root (the dir that contains circle/), not the looper repo cwd.
+Push-Location $BuildRoot
 & python (Join-Path $RepoRoot 'patches\patch_rules_mk.py')
+Pop-Location
 
 # 4. Build circle libs (incremental: skip if .a exists)
 if (-not $AppOnly) {
@@ -195,7 +224,7 @@ if (-not $AppOnly) {
     foreach ($t in $libTargets) {
         Push-Location (Join-Path $circle $t.dir)
         try {
-            $cmd = "make RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j$Jobs"
+            $cmd = "$makeEnv make RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j$Jobs"
             Write-Host "[build-local] $($t.dir): $cmd"
             & $bash -c $cmd
             if ($LASTEXITCODE -ne 0) { throw "make failed in $($t.dir)" }
@@ -203,10 +232,10 @@ if (-not $AppOnly) {
     }
     # circle-prh libs
     Push-Location (Join-Path $prh 'utils')
-    & $bash -c "make RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j$Jobs"
+    & $bash -c "$makeEnv make RASPPI=4 AARCH=32 ARM_ALLOW_MULTI_CORE=1 -j$Jobs"
     Pop-Location
     Push-Location (Join-Path $prh 'audio')
-    & $bash -c "make RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 -j$Jobs"
+    & $bash -c "$makeEnv make RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 -j$Jobs"
     Pop-Location
 }
 
@@ -233,6 +262,9 @@ foreach ($f in $fwFiles) {
 # 6. Generate embedded firmware
 $wlanS = Join-Path $env:TEMP 'wlan_firmware.S'
 & python (Join-Path $RepoRoot 'patches\gen_wlan_firmware.py') $fwDir $wlanS
+# gen_wlan_firmware.py emits .incbin paths with Windows backslashes, which the
+# GNU assembler reads as escapes -> "file not found". Rewrite to forward slashes.
+(Get-Content $wlanS -Raw) -replace '\\','/' | Set-Content $wlanS -Encoding ascii
 & arm-none-eabi-as -mcpu=cortex-a72 -mfpu=neon-fp-armv8 -mfloat-abi=hard `
     -o (Join-Path $appDir 'wlan_firmware.o') $wlanS
 
@@ -241,7 +273,7 @@ Copy-Item -Recurse -Force (Join-Path $appDir 'patches\rubberband')  $appDir
 Copy-Item -Recurse -Force (Join-Path $appDir 'patches\signalsmith') $appDir
 Push-Location $appDir
 try {
-    & $bash -c "make RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 -j$Jobs"
+    & $bash -c "$makeEnv make RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 -j$Jobs"
     if ($LASTEXITCODE -ne 0) { throw 'Looper build failed' }
 } finally { Pop-Location }
 
