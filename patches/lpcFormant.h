@@ -50,6 +50,7 @@ public:
         m_shift = 1.0f; m_targetShift = 1.0f;
         m_sr = 48000.0f;
         m_nActive = 0;
+        for (int s = 0; s < NBANK; s++) { m_slotF[s] = 0.0f; m_slotActive[s] = false; }
     }
     LpcFormant() { reset(); }
     void setSampleRate(float sr) { m_sr = sr; }
@@ -111,6 +112,8 @@ private:
     Biquad m_bq[2 * NBANK];     // a cut + a boost per formant
     unsigned m_wr; int m_sinceHop, m_nActive;
     float m_shift, m_targetShift, m_sr;
+    float m_slotF[NBANK];       // per-slot smoothed formant freq (Hz), 0=unseeded
+    bool  m_slotActive[NBANK];
 
     void analyse() {
         float w[WIN];
@@ -148,44 +151,63 @@ private:
         double pr[P], pi[P];
         if (!findRoots(a, pr, pi)) { m_nActive = 0; return; }
 
-        // collect resonant poles (positive freq, radius>0.6 = a real peak),
-        // sorted by radius (strongest first), up to NBANK.
-        float pf[P]; float pq[P]; int np = 0;
-        for (int k = 0; k < P; k++) {
-            if (pi[k] < 0) continue;                       // one of each conj pair
-            double rad = sqrt(pr[k]*pr[k] + pi[k]*pi[k]);
-            double ang = atan2(pi[k], pr[k]);
-            if (rad < 0.6 || ang <= 0.02 || ang >= 3.10) continue;
-            float fc = (float)(ang * m_sr / (2.0 * 3.14159265));
-            // Floor at 150Hz: a high-Q EQ near the (post -12) fundamental rings
-            // and injects a spurious low resonance that corrupts pitch.
-            if (fc < 150.0f || fc > m_sr * 0.45f) continue;
-            // sharper pole (radius→1) = higher Q, but capped moderate so the
-            // peaking EQ never rings audibly.
-            float Q = 1.0f / (2.0f * (1.0f - (float)rad) + 0.1f);
-            if (Q > 3.5f) Q = 3.5f; if (Q < 0.7f) Q = 0.7f;
-            pf[np] = fc; pq[np] = Q; np++;
-            if (np >= P) break;
-        }
-        int n = np < NBANK ? np : NBANK;
+        // Confidence gate: on noisy real Pi input the per-hop pole estimate
+        // jitters and jerks the EQ = clicks. err is the LPC residual energy; a
+        // strongly-resonant (formant-rich) frame has err << r[0]. When the
+        // frame is weakly predictable (err/r0 high = noise-like, or signal is
+        // too quiet), DON'T re-estimate — hold the previous smoothed formants
+        // so the EQ never jerks on an unreliable estimate.
+        float predGain = err / (r[0] + 1e-9f);   // ~0 = strong formants, ~1 = noise
+        bool confident = (predGain < 0.5f) && (r[0] > 1e-4f);
 
-        // build the remap EQ: per formant, CUT at f, BOOST at f*shift. The
-        // boost/cut magnitude scales with how far the peak moves (more shift =
-        // stronger remap) but is bounded so it stays musical.
+        if (confident) {
+            // collect resonant poles, sort by FREQUENCY (stable identity across
+            // hops, unlike radius-order), map to NBANK fixed slots.
+            float cand[P]; int nc = 0;
+            for (int k = 0; k < P; k++) {
+                if (pi[k] < 0) continue;
+                double rad = sqrt(pr[k]*pr[k] + pi[k]*pi[k]);
+                double ang = atan2(pi[k], pr[k]);
+                if (rad < 0.7 || ang <= 0.02 || ang >= 3.10) continue;
+                float fc = (float)(ang * m_sr / (2.0 * 3.14159265));
+                if (fc < 200.0f || fc > m_sr * 0.45f) continue;
+                cand[nc++] = fc;
+            }
+            // insertion sort by freq
+            for (int i = 1; i < nc; i++) { float v=cand[i]; int j=i-1; while(j>=0&&cand[j]>v){cand[j+1]=cand[j];j--;} cand[j+1]=v; }
+            // 1-pole smooth each slot's target freq toward the matched candidate
+            // (so a one-hop bad estimate barely nudges it = no jerk/click).
+            const float FS = 0.25f;   // freq smoothing per hop
+            for (int s = 0; s < NBANK; s++) {
+                if (s < nc) {
+                    if (m_slotF[s] <= 0.0f) m_slotF[s] = cand[s];     // seed
+                    else m_slotF[s] += (cand[s] - m_slotF[s]) * FS;
+                    m_slotActive[s] = true;
+                } else {
+                    m_slotActive[s] = false;   // fade this slot to identity
+                }
+            }
+        }
+        // (if not confident: keep previous m_slotF / m_slotActive → EQ frozen)
+
+        // build the remap EQ from the SMOOTHED slots: CUT at f, BOOST at f*shift.
         float move = m_shift; float lg = fabsf(logf(move > 0.05f ? move : 0.05f));
         float gDb = lg * 20.0f; if (gDb > 12.0f) gDb = 12.0f;  // cap ±12 dB
+        const float Q = 1.6f;   // fixed moderate Q (radius-derived Q jittered)
         int bi = 0;
-        for (int p = 0; p < n; p++) {
-            float f0 = pf[p];
-            float f1 = f0 * move;
-            if (f1 < 60.0f) f1 = 60.0f;
-            if (f1 > m_sr * 0.45f) f1 = m_sr * 0.45f;
-            float Q = pq[p];
-            m_bq[bi].setPeak(f0, -gDb, Q, m_sr); bi++;   // remove energy at old freq
-            m_bq[bi].setPeak(f1, +gDb, Q, m_sr); bi++;   // add it at the new freq
+        for (int s = 0; s < NBANK; s++) {
+            if (m_slotActive[s] && m_slotF[s] > 0.0f) {
+                float f0 = m_slotF[s];
+                float f1 = f0 * move;
+                if (f1 < 60.0f) f1 = 60.0f;
+                if (f1 > m_sr * 0.45f) f1 = m_sr * 0.45f;
+                m_bq[bi].setPeak(f0, -gDb, Q, m_sr); bi++;
+                m_bq[bi].setPeak(f1, +gDb, Q, m_sr); bi++;
+            } else {
+                m_bq[bi].setIdentityTarget(); bi++;
+                m_bq[bi].setIdentityTarget(); bi++;
+            }
         }
-        // unused slots → identity target (fade out smoothly, no click)
-        for (; bi < 2 * NBANK; bi++) m_bq[bi].setIdentityTarget();
         m_nActive = 2 * NBANK;
     }
 
