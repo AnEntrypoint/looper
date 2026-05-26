@@ -192,10 +192,15 @@ TShutdownMode CKernel::Run(void)
 	}
 
 #ifdef ARM_ALLOW_MULTI_CORE
-	// Hand off control plane to Core 2. Only socket polling + reboot return
-	// stay on Core 0; USB completion ISRs target Core 0 via GIC.
+	// Hand off control plane to Core 2. Socket polling now ALSO runs on Core 2
+	// (alongside m_Net.Process) so all net-queue access is single-core — fixes
+	// the cross-core ~CNetBuffer assert(!m_pNext) crash. Core 0 keeps only WFE +
+	// USB completion ISRs + the reboot return (Core 2 sets g_netRebootRequested).
 	extern void coreControlPlaneSetKernel(CKernel *pKernel);
+	extern void coreControlPlaneSetSockets(CSocket *, CSocket *, CSocket *);
+	extern volatile bool g_netRebootRequested;
 	coreControlPlaneSetKernel(this);
+	coreControlPlaneSetSockets(pRebootSocket, pDebugSocket, pMidiSocket);
 
 	m_Logger.Write(log_name, LogNotice, "audio ready, releasing cores 1+2");
 	coreSignalAudioReady();
@@ -203,8 +208,7 @@ TShutdownMode CKernel::Run(void)
 
 	while (TRUE)
 	{
-		TShutdownMode mode = pollSockets(pRebootSocket, pDebugSocket, pMidiSocket);
-		if (mode != ShutdownNone) return mode;
+		if (g_netRebootRequested) return ShutdownReboot;
 		asm volatile ("wfe" ::: "memory");
 	}
 #else

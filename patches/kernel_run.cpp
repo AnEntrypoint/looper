@@ -27,6 +27,28 @@ static CKernel *s_pKernel = nullptr;
 static bool     s_dhcpDone = false;
 static bool     s_dhcpDiscoverSent = false;
 
+// Socket polling MUST run on the SAME core as m_Net.Process() (Core 2). The
+// net buffer queues are Enqueued by Process() (IP demux -> per-socket RX queue)
+// and Dequeued by CSocket::ReceiveFrom(); doing those on two different cores
+// (Process on Core 2, pollSockets on Core 0) is a cross-core race that frees a
+// still-linked CNetBuffer -> netbuffer.cpp(102) assert(!m_pNext) crash (seen at
+// 17s with v2, pushed to 66s with the Flush v3 lock fix but never eliminated,
+// because the locking can't make a buffer dequeued-on-Core-0 safe against a
+// concurrent Process-on-Core-2). Pinning ALL net access to Core 2 removes the
+// race at the source. Core 0 keeps only WFE + USB completion ISRs + the reboot
+// return; Core 2 sets s_rebootRequested which Core 0's loop polls.
+static CSocket *s_pReboot = nullptr;
+static CSocket *s_pDebug  = nullptr;
+static CSocket *s_pMidi   = nullptr;
+volatile bool   g_netRebootRequested = false;
+
+void coreControlPlaneSetSockets(CSocket *pReboot, CSocket *pDebug, CSocket *pMidi)
+{
+	s_pReboot = pReboot;
+	s_pDebug  = pDebug;
+	s_pMidi   = pMidi;
+}
+
 void coreControlPlaneSetKernel(CKernel *pKernel)
 {
 	s_pKernel = pKernel;
@@ -40,6 +62,10 @@ void coreControlPlaneTick(void)
 	bool bPnP = k->m_USBHCI.UpdatePlugAndPlay();
 	k->m_AudioGadget.UpdatePlugAndPlay();
 	k->m_Net.Process();
+	// Poll the UDP sockets on THIS core (same as Process) so all net-queue
+	// Enqueue/Dequeue is single-core — no cross-core ~CNetBuffer race.
+	if (k->pollSockets(s_pReboot, s_pDebug, s_pMidi) == ShutdownReboot)
+		g_netRebootRequested = true;
 	usbMidiProcess(bPnP);
 	loop();
 #ifdef LOOPER_ENABLE_WLAN
