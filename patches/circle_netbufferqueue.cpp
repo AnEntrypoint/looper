@@ -145,19 +145,27 @@ void CNetBufferQueue::Enqueue (CNetBuffer *pNetBuffer)
 
 CNetBuffer *CNetBufferQueue::Dequeue (void)
 {
-	// Looper fix (net-race-dequeue-unlocked-read): acquire the lock BEFORE
-	// reading m_pFirst. The upstream code read m_pFirst outside the lock, then
-	// locked only the mutation — under the 4-core split (RX in the Ethernet
-	// IRQ on Core 0, Process() on Core 2) another context could empty the queue
-	// between the unlocked read and the lock, so Dequeue proceeded with
-	// m_nEntries==0 and `assert(m_nEntries)` halted the box ~15-90s after boot.
-	// Reading m_pFirst inside the lock makes the whole dequeue atomic.
+	// Looper net-race fix (v2). The upstream code read m_pFirst, then locked
+	// only the mutation — under the 4-core split (RX in the Ethernet IRQ vs
+	// Process() on Core 2) the queue could empty between the unlocked read and
+	// the lock, so Dequeue ran with m_nEntries==0 and asserted (~50-90s crash).
+	// v1 (always-lock-first) deadlocked at USB init because Dequeue is polled
+	// on an empty queue very early and locking unconditionally then contended.
+	// v2: keep the unlocked fast-path skip when empty (no lock, no deadlock),
+	// but on the non-empty path acquire the lock and RE-VALIDATE m_pFirst under
+	// it — if it became null meanwhile, release and return null. The whole
+	// dequeue is then atomic and m_nEntries can never be 0 here.
+	if (!m_pFirst)
+	{
+		return nullptr;            // unlocked fast path — empty, nothing to do
+	}
+
 	if (m_bProtected)
 	{
 		m_SpinLock.Acquire ();
 	}
 
-	CNetBuffer *pEntry = m_pFirst;
+	CNetBuffer *pEntry = m_pFirst; // re-read INSIDE the lock (race-safe)
 	if (pEntry)
 	{
 		m_pFirst = pEntry->m_pNext;

@@ -109,6 +109,11 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/audioTelemetry.h circle/_prh/audio/audioTelemetry.h
           cp circle/_prh/_apps/Looper/patches/audioTelemetry.cpp circle/_prh/audio/audioTelemetry.cpp
           sed -i 's|//#define ARM_ALLOW_MULTI_CORE|#define ARM_ALLOW_MULTI_CORE|' circle/include/circle/sysconfig.h
+          # Bigger stacks: Core-2 (4-core control plane) runs net/TCP scheduler
+          # tasks whose deep call chains overflowed the 32KB task stack ->
+          # Core-2 crashes ~50-90s in (netbufferqueue asserts, prefetch-abort).
+          sed -i 's|#define TASK_STACK_SIZE\t\t0x8000|#define TASK_STACK_SIZE\t\t0x20000|' circle/include/circle/sysconfig.h
+          sed -i 's|#define KERNEL_STACK_SIZE\t0x20000|#define KERNEL_STACK_SIZE\t0x40000|' circle/include/circle/sysconfig.h
           python3 circle/_prh/_apps/Looper/patches/patch_rules_mk.py
 
       - name: Build circle libraries

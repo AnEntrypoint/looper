@@ -204,8 +204,13 @@ Copy-Item (Join-Path $RepoRoot 'patches\p9chan.cpp') (Join-Path $circle 'addon\w
 
 # ARM_ALLOW_MULTI_CORE flip
 $sysconfig = Join-Path $circle 'include\circle\sysconfig.h'
-(Get-Content $sysconfig -Raw) -replace '//#define ARM_ALLOW_MULTI_CORE', '#define ARM_ALLOW_MULTI_CORE' |
-    Set-Content -Encoding utf8 -NoNewline $sysconfig
+# Enable multi-core + enlarge stacks: Core 2 (control plane) runs net/TCP
+# scheduler tasks that overflowed the 32KB task stack -> Core-2 crashes
+# (netbufferqueue asserts, prefetch-abort) ~50-90s after boot.
+$sc = (Get-Content $sysconfig -Raw) -replace '//#define ARM_ALLOW_MULTI_CORE', '#define ARM_ALLOW_MULTI_CORE'
+$sc = $sc -replace '#define TASK_STACK_SIZE\s+0x8000', "#define TASK_STACK_SIZE`t`t0x20000"
+$sc = $sc -replace '#define KERNEL_STACK_SIZE\s+0x20000', "#define KERNEL_STACK_SIZE`t0x40000"
+$sc | Set-Content -Encoding utf8 -NoNewline $sysconfig
 
 # Rules.mk patch (Python) — opens 'circle/Rules.mk' relative, so run from the
 # build root (the dir that contains circle/), not the looper repo cwd.
