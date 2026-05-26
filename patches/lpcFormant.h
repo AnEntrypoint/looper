@@ -29,8 +29,10 @@
 
 #ifndef LPC_FORMANT_H
 #define LPC_FORMANT_H
-#include <cmath>
-#include <cstring>
+// Bare-metal firmware toolchain has NO C++ stdlib headers (<cmath>/<cstring>);
+// soladSnacOctaver.h uses the C headers <math.h>/<stdint.h>. Match that.
+#include <math.h>
+#include <string.h>
 
 class LpcFormant {
 public:
