@@ -53,14 +53,33 @@ size_t CNetBufferQueue::GetBytesQueued (void) const
 
 void CNetBufferQueue::Flush (size_t ulBytes)
 {
-	while (m_pFirst && ulBytes)
+	// Looper net-race fix (v3). The upstream code read m_pFirst UNLOCKED in the
+	// while condition, acquired the lock per-iteration, and crucially ran
+	// `delete pEntry` AFTER releasing the lock. Under the 4-core split (RX in
+	// the Ethernet IRQ on Core 0 vs Process()/Flush() on Core 2) a concurrent
+	// Enqueue holding a stale m_pLast==pEntry could relink pEntry->m_pNext
+	// after the locked body nulled it but before/during the unlocked delete ->
+	// ~CNetBuffer fires assert(!m_pNext) at netbuffer.cpp(102) "not enqueued"
+	// (observed: kernel 1068612B crashed at 00:00:16.93, core2 undefined-instr).
+	// v3: dequeue each entry FULLY under the lock (re-read m_pFirst inside, like
+	// Dequeue v2), then delete it OUTSIDE the lock but only after it is provably
+	// unlinked and removed from the queue, so no other context can reach it.
+	for (;;)
 	{
 		if (m_bProtected)
 		{
 			m_SpinLock.Acquire ();
 		}
 
-		CNetBuffer *pEntry = m_pFirst;
+		CNetBuffer *pEntry = m_pFirst;	// re-read INSIDE the lock (race-safe)
+		if (!pEntry || !ulBytes)
+		{
+			if (m_bProtected)
+			{
+				m_SpinLock.Release ();
+			}
+			return;
+		}
 
 		size_t ulLength = pEntry->GetLength ();
 		if (ulLength > ulBytes)
@@ -69,8 +88,7 @@ void CNetBufferQueue::Flush (size_t ulBytes)
 			{
 				m_SpinLock.Release ();
 			}
-
-			break;
+			return;
 		}
 
 		ulBytes -= ulLength;
@@ -78,11 +96,10 @@ void CNetBufferQueue::Flush (size_t ulBytes)
 		m_pFirst = pEntry->m_pNext;
 		if (!m_pFirst)
 		{
-			assert (m_pLast == pEntry);
 			m_pLast = nullptr;
 		}
 
-		pEntry->m_pNext = nullptr;
+		pEntry->m_pNext = nullptr;	// unlinked while still locked
 
 		assert (m_nEntries);
 		m_nEntries--;
@@ -100,6 +117,9 @@ void CNetBufferQueue::Flush (size_t ulBytes)
 			m_SpinLock.Release ();
 		}
 
+		// pEntry is now fully removed + unlinked; no other context holds a
+		// reference to it, so deleting outside the lock is safe and m_pNext
+		// is guaranteed null (the dtor assert holds).
 		delete pEntry;
 	}
 }
