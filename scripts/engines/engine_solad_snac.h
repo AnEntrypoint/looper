@@ -237,37 +237,70 @@ public:
                     double a = m_preRd;
                     double aMax = (double)m_preWr - 4.0;
                     double aMin = (double)m_preWr - (double)(PRE_DL - 16);
-                    // Aim the relocation back toward gapTarget behind write.
-                    double center = (double)m_preWr - gapTarget;
-                    // Search half-window: ~1 period for pitched, fixed for
-                    // unpitched. Correlate GRAIN_N samples at preRate stride.
-                    double srch = (per > 0.0) ? per * 0.75 : 256.0;
-                    const int GRAIN_N = 24;
-                    // Reference grain = what the active reader is playing now.
-                    float ref[GRAIN_N];
-                    for (int k = 0; k < GRAIN_N; k++)
-                        ref[k] = readPre(a + (double)k * (double)m_preRate);
-                    double bestPos = center;
-                    float  bestErr = 1e30f;
-                    const int STEPS = 32;
-                    for (int s = 0; s <= STEPS; s++) {
-                        double cand = center - srch + (2.0 * srch) * (double)s / (double)STEPS;
-                        if (cand < aMin || cand > aMax) continue;
-                        float err = 0.0f;
-                        for (int k = 0; k < GRAIN_N; k++) {
-                            float vt = readPre(cand + (double)k * (double)m_preRate);
-                            float e = vt - ref[k];
-                            err += e * e;
+                    double bestPos;
+                    if (per > 0.0) {
+                        // PITCHED: anchor FIRST, refine SECOND (robust at large
+                        // period / high preRate). Compute the integer number of
+                        // periods that lands the reader nearest gapTarget behind
+                        // write, then refine ONLY among the 3 nearest whole-
+                        // period candidates by value+slope match. This keeps the
+                        // displacement an exact integer*per (frequency-neutral,
+                        // no detune = no "slowing down") AND cannot pick a wrong
+                        // far multiple the way a wide ±0.75-period correlation
+                        // search could at 82Hz/preRate=2 (pre_perr was 11.9).
+                        double target = (double)m_preWr - gapTarget;
+                        double diff = target - a;
+                        long nC = (long)(diff / per + (diff >= 0.0 ? 0.5 : -0.5));
+                        if (nC == 0) nC = (diff >= 0.0 ? 1 : -1);
+                        float vA  = readPre(a);
+                        float vAn = readPre(a + (double)m_preRate);
+                        float dA  = vAn - vA;
+                        long  nBest = nC; float bestErr = 1e30f;
+                        for (long nn = nC - 1; nn <= nC + 1; nn++) {
+                            if (nn == 0) continue;
+                            double cand = a + (double)nn * per;
+                            if (cand < aMin || cand > aMax) continue;
+                            float vT  = readPre(cand);
+                            float vTn = readPre(cand + (double)m_preRate);
+                            float dT  = vTn - vT;
+                            float err = fabsf(vT - vA) + fabsf(dT - dA) * 80.0f;
+                            if (err < bestErr) { bestErr = err; nBest = nn; }
                         }
-                        if (err < bestErr) { bestErr = err; bestPos = cand; }
+                        bestPos = a + (double)nBest * per;
+                        while (bestPos > aMax && nBest > 1) { nBest--; bestPos = a + (double)nBest * per; }
+                        while (bestPos < aMin) { nBest++; bestPos = a + (double)nBest * per; }
+                        // Displacement is exactly nBest*per → frequency-neutral.
+                        m_preSplicePhaseN++;   // perr accumulates 0 by construction
+                    } else {
+                        // UNPITCHED (drums/noise): no period to anchor to — pure
+                        // GRAIN_N correlation search to the best-match splice.
+                        double center = (double)m_preWr - gapTarget;
+                        double srch = 256.0;
+                        const int GRAIN_N = 24;
+                        float ref[GRAIN_N];
+                        for (int k = 0; k < GRAIN_N; k++)
+                            ref[k] = readPre(a + (double)k * (double)m_preRate);
+                        bestPos = center; float bestErr = 1e30f;
+                        const int STEPS = 32;
+                        for (int s = 0; s <= STEPS; s++) {
+                            double cand = center - srch + (2.0*srch) * (double)s / (double)STEPS;
+                            if (cand < aMin || cand > aMax) continue;
+                            float err = 0.0f;
+                            for (int k = 0; k < GRAIN_N; k++) {
+                                float vt = readPre(cand + (double)k * (double)m_preRate);
+                                float e = vt - ref[k];
+                                err += e * e;
+                            }
+                            if (err < bestErr) { bestErr = err; bestPos = cand; }
+                        }
+                        if (bestPos > aMax) bestPos = aMax;
+                        if (bestPos < aMin) bestPos = aMin;
                     }
-                    if (bestPos > aMax) bestPos = aMax;
-                    if (bestPos < aMin) bestPos = aMin;
                     m_preRdB = a;          // pre-jump grain, fades out
                     m_preRd  = bestPos;    // new position, fades in
-                    // Fade length ~ GRAIN_N output samples, scaled so neither
-                    // reader moves far in source during the fade.
-                    int len = (int)(GRAIN_N / (m_preRate > 0.01f ? m_preRate : 0.01f));
+                    // Fade length ~24 output samples, scaled so neither reader
+                    // moves far in source during the fade.
+                    int len = (int)(24.0 / (m_preRate > 0.01f ? m_preRate : 0.01f));
                     if (len < 16) len = 16; if (len > 256) len = 256;
                     m_preXfadeLen = len; m_preXfadeRemain = len;
                 }
@@ -280,6 +313,13 @@ public:
                 m_preRd  += (double)m_preRate;
                 m_preRdB += (double)m_preRate;
                 if (m_preXfadeRemain > 0) m_preXfadeRemain--;
+                // Pre-stage net-rate witness: continuous advance only. With
+                // integer-period-anchored splices the jumps advance phase by
+                // zero, so mean continuous advance == net read rate == the warp
+                // ratio. pre_eff must read == m_preRate (e.g. 2.000 at depth=+1,
+                // 0.500 at depth=-1) on the Pi; a deviation = detune leak.
+                m_preEffAccum += (double)m_preRate;
+                m_preEffSamples++;
             }
 
             // ---- 1. Ingest the pre-warped sample ----
@@ -524,7 +564,20 @@ public:
             // needed on sustained pitch shift. The +bias makes the reader
             // advance slightly faster (shrinking an over-large gap) or
             // slightly slower (growing a too-small gap). Magnitude <0.05.
-            double adv = (double)m_scale + m_gapBias;
+            // Formant compensation. The pre-stage warps the delay-line content
+            // by preRate (which shifts BOTH pitch and formants by preRate). The
+            // main reader reads at the pitch rate; output pitch = bufferPitch ×
+            // readRate = (orig × preRate) × readRate. To keep the NET output
+            // pitch at exactly m_scale (the -12, independent of formant) the
+            // main read rate must be m_scale / preRate. The spectral envelope
+            // then shifts by preRate while the pitch is unchanged = a pure
+            // formant control. At depth=0 the pre-stage is bypassed and the
+            // effective preRate is 1 (m_preRate may hold a stale value, so use
+            // 1.0 explicitly) → adv == m_scale, byte-identical center path.
+            double preRateEff = (m_preBypass || m_formantDepth == 0.0f)
+                                ? 1.0 : (double)m_preRate;
+            if (preRateEff < 0.01) preRateEff = 0.01;
+            double adv = (double)m_scale / preRateEff + m_gapBias;
             m_rdA += adv;
             m_rdB += adv;
             if (m_xfadeRemain > 0) m_xfadeRemain--;
@@ -682,6 +735,32 @@ public:
         m_splicePhaseErrAccum = 0.0; m_splicePhaseN = 0;
         return e;
     }
+    // --- Pre-resample (formant) stage witnesses ---
+    double   m_preEffAccum = 0.0;
+    unsigned m_preEffSamples = 0;
+    double   m_preSplicePhaseErrAccum = 0.0;
+    unsigned m_preSplicePhaseN = 0;
+    // Net read rate of the formant pre-stage. == m_preRate when splices are
+    // integer-anchored (no detune). Returns 1.0 when the stage is bypassed
+    // (depth==0), which is the correct "no formant warp" reading.
+    float preEffRateNow() {
+        float r = (m_preEffSamples > 0)
+                  ? (float)(m_preEffAccum / (double)m_preEffSamples)
+                  : 1.0f;
+        m_preEffAccum = 0.0; m_preEffSamples = 0;
+        return r;
+    }
+    // Mean |fractional-period error| of pre-stage splice jumps (in samples).
+    // Must read ~0 when pitched = pre-splices are frequency-neutral.
+    float preSplicePhaseErrNow() {
+        float e = (m_preSplicePhaseN > 0)
+                  ? (float)(m_preSplicePhaseErrAccum / (double)m_preSplicePhaseN)
+                  : 0.0f;
+        m_preSplicePhaseErrAccum = 0.0; m_preSplicePhaseN = 0;
+        return e;
+    }
+    // Current target warp rate (pow(scale,-depth)); pre_eff should track this.
+    float preTargetRateNow() const { return m_preRate; }
     float    scaleNow()  const { return m_scale; }
     int      periodNow() const { return m_period; }
     bool     periodOk()  const { return m_periodValid; }

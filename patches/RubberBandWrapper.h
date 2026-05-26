@@ -252,6 +252,9 @@ public:
   // at target, how often are splices firing, is the period locked.
   float engineEffRate()        { return m_soladL.effRateNow(); }
   float engineSplicePhaseErr() { return m_soladL.splicePhaseErrNow(); }
+  float enginePreEffRate()     { return m_soladL.preEffRateNow(); }
+  float enginePreSplicePhaseErr() { return m_soladL.preSplicePhaseErrNow(); }
+  float enginePreTargetRate()  const { return m_soladL.preTargetRateNow(); }
   int   engineGap()      const { return m_soladL.gapNow(); }
   unsigned engineEmergency() const { return m_soladL.emergencyCount(); }
   int   enginetPeakVal1000() const { return (int)(m_soladL.dbgPeakVal()*1000.0f); }
