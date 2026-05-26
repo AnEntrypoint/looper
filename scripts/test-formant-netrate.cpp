@@ -67,9 +67,12 @@ int main() {
             double target = f / 2.0;
             double outF = measureFund(out, sr);
             double ferr = (outF - target)/target*100.0;
+            // preRate is clamped to [0.7,1.3] (smooth-formant band) so the
+            // witness target is the clamped value, not the raw pow().
             float preRate = powf(0.5f, -d);
-            // pre_eff must track preRate (net rate, no detune leak); pitch must
-            // stay exact (-12) regardless of formant.
+            if (preRate < 0.7f) preRate = 0.7f;
+            if (preRate > 1.3f) preRate = 1.3f;
+            // pre_eff must track the (clamped) preRate; pitch must stay exact.
             bool rateOk = fabsf(preEff - preRate) < 0.02f * (preRate > 1 ? preRate : 1);
             bool pitchOk = fabs(ferr) < 1.5;
             bool ok = rateOk && pitchOk;

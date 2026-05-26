@@ -194,7 +194,21 @@ public:
                 m_preWr++;
                 float scale = m_scale;
                 if (scale < 0.01f) scale = 0.01f;
-                float targetPreRate = powf(scale, -m_formantDepth);
+                // The pre-resample warp ratio is the SOLE driver of the
+                // reposition (splice) rate, and that rate is what gurgles: it
+                // stays musically smooth (<=~7/s) for preRate in [0.7,1.3] but
+                // EXPLODES above (preRate=2 → ~66 grain-jumps/s = crackle /
+                // doubling / warble). So clamp the warp ratio into the smooth
+                // band. The knob still sweeps its full travel and the formant
+                // motion is clearly audible across [0.7,1.3]; we just refuse the
+                // extreme ratios that can only ever sound garbled on a bounded
+                // single-buffer resampler. -12 pitch is unaffected (this only
+                // bounds the formant pre-stage, never the main read).
+                float rawPreRate = powf(scale, -m_formantDepth);
+                const float PRE_RATE_LO = 0.7f, PRE_RATE_HI = 1.3f;
+                float targetPreRate = rawPreRate < PRE_RATE_LO ? PRE_RATE_LO
+                                    : rawPreRate > PRE_RATE_HI ? PRE_RATE_HI
+                                    : rawPreRate;
                 m_preRate += (targetPreRate - m_preRate) * (1.0f / 480.0f);
 
                 // Cheap rising-transient flag from the input stream — used to
@@ -227,9 +241,11 @@ public:
                 // The crossfade is ALWAYS applied (never a bare jump), which
                 // also smooths the formant-UP stutter (frequent backward jumps
                 // when preRate>1 now land on correlated, crossfaded points).
-                double gapTarget = (per > 0.0) ? per * 4.0 : 1024.0;
+                // Wide headroom so the single read head free-runs as long as
+                // possible between repositions (fewer repositions = smoother).
+                double gapTarget = (per > 0.0) ? per * 6.0 : 1536.0;
                 double gapLo     = (per > 0.0) ? per * 2.0 : 384.0;
-                double gapHi     = (per > 0.0) ? per * 10.0 : 5120.0;
+                double gapHi     = (per > 0.0) ? per * 14.0 : 6144.0;
                 double pgap = (double)m_preWr - m_preRd;
 
                 bool nearBound = (pgap < gapLo) || (pgap > gapHi);
@@ -300,9 +316,14 @@ public:
                     m_preRd  = bestPos;    // new position, fades in
                     // Fade length ~24 output samples, scaled so neither reader
                     // moves far in source during the fade.
-                    int len = (int)(24.0 / (m_preRate > 0.01f ? m_preRate : 0.01f));
-                    if (len < 16) len = 16; if (len > 256) len = 256;
+                    // Longer crossfade (~half a period) for a gentler, less
+                    // clicky reposition; scaled by preRate so the heads don't
+                    // drift far apart in source during the fade.
+                    int len = (int)((per > 0.0 ? per * 0.5 : 48.0)
+                                    / (m_preRate > 0.01f ? m_preRate : 0.01f));
+                    if (len < 24) len = 24; if (len > 384) len = 384;
                     m_preXfadeLen = len; m_preXfadeRemain = len;
+                    m_preSpliceCount++;
                 }
 
                 float yA = readPre(m_preRd);      // new position (active)
@@ -761,6 +782,8 @@ public:
     }
     // Current target warp rate (pow(scale,-depth)); pre_eff should track this.
     float preTargetRateNow() const { return m_preRate; }
+    unsigned m_preSpliceCount = 0;
+    unsigned preSpliceCountNow() { unsigned c = m_preSpliceCount; m_preSpliceCount = 0; return c; }
     float    scaleNow()  const { return m_scale; }
     int      periodNow() const { return m_period; }
     bool     periodOk()  const { return m_periodValid; }
