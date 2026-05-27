@@ -86,3 +86,8 @@ docs/junk/
 # <<< gm managed
 .plugkit-browser-profile-*/
 .plugkit-agent-worktree/
+
+# local audition sweep artifacts
+scripts/sweep-out/
+scripts/candidates/
+scripts/*.exe

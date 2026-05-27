@@ -119,6 +119,7 @@ public:
     }
     int  getInitialReadOffset() const { return m_initialReadOffset; }
 
+    void setRespliceFrac(float f) { if(f<2.0f)f=2.0f; if(f>128.0f)f=128.0f; m_respliceFrac = f; }
     // Splice crossfade scale factor over the per-period default.
     //   1.0 = 2*period (default), 0.5 = 1*period, 2.0 = 4*period.
     void setXfadeScale(float s) {
@@ -637,6 +638,13 @@ public:
             float fmNow = m_grainFormant.factorNow();
             float dev = fmNow > 1.0f ? (fmNow - 1.0f) : (1.0f - fmNow);
             float mixTgt = dev < 0.01f ? 0.0f : (dev >= 0.18f ? 1.0f : (dev - 0.01f) / 0.17f);
+            // UP-SHIFT OVERRIDE: the continuous reader (y) garbles on up-shift
+            // (scale>1) — at scale~2 it advances 2x the writer and overruns it,
+            // doubling/garbling transients (heard on all +12 'med'). The grain
+            // path (gOut) handles up-shift cleanly. So force the grain path for
+            // any up-shift regardless of formant; down-shift keeps the clean
+            // continuous reader at formant-center.
+            if (m_scale > 1.02f) mixTgt = 1.0f;
             m_grainMixTarget = mixTgt;   // keep field updated for telemetry
             m_grainMix += (mixTgt - m_grainMix) * (1.0f / 480.0f);
             out[i] = y * (1.0f - m_grainMix) + gOut * m_grainMix;
@@ -742,7 +750,7 @@ private:
     // splice, so splicing RARELY is fine: frac=8 => ~7 splices/s (8x fewer
     // dips), pitch still exact (host 55Hz=0.44 THD 0.4%). Reader lags up to 8
     // periods before reset — inherent PSOLA-downshift lag, as in the host renders.
-    float    m_respliceFrac = 16.0f;
+    float    m_respliceFrac = 8.0f;   // user A/B: 8 smoother than 16 (jumping starts at 16)
     float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
     bool     m_preBypass = false;
     GrainFormant m_grainFormant;            // gap-bounded grain-formant path
