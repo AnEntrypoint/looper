@@ -188,7 +188,17 @@ public:
         // center => byte-identical continuous-reader -12).
         m_grainFormant.setFormantFactor(powf(2.0f, d));
         float a = d < 0 ? -d : d;
-        m_grainMixTarget = a < 0.02f ? 0.0f : (a >= 0.15f ? 1.0f : (a - 0.02f) / 0.13f);
+        // Wide clean deadband + gentle, CAPPED grain ramp. The old map snapped
+        // grainMix 0->1 over |d| 0.02..0.15 — leaving center => instantly full
+        // grain (audibly grainy at min formant) and full grain at max losing the
+        // bass fundamental (thin/choppy). Now: stay 100% on the clean continuous
+        // reader (the validated +12.4 dB -12) until |d| > DEAD=0.35, then ramp
+        // grain in linearly only up to MIXCAP=0.6 across 0.35..1.0 — so even at
+        // full formant the clean fundamental is always >=40% present (no thin
+        // collapse), and normal near-center playing is byte-clean -12.
+        const float DEAD = 0.35f, MIXCAP = 0.6f;
+        if (a <= DEAD) m_grainMixTarget = 0.0f;
+        else           m_grainMixTarget = MIXCAP * (a - DEAD) / (1.0f - DEAD);
     }
 
     void processBlock(const float* in, float* out, int n) {
@@ -637,7 +647,17 @@ public:
             // -12); off-center mix→1 (grain path) once |factor-1|>=~0.18.
             float fmNow = m_grainFormant.factorNow();
             float dev = fmNow > 1.0f ? (fmNow - 1.0f) : (1.0f - fmNow);
-            float mixTgt = dev < 0.01f ? 0.0f : (dev >= 0.18f ? 1.0f : (dev - 0.01f) / 0.17f);
+            // Wide clean deadband + gentle CAPPED grain ramp (the real control
+            // path — m_grainMixTarget from setFormantDepth() read stale here).
+            // dev = |grainFactor-1|, factor=pow(2,depth): depth 0.35 => dev 0.27,
+            // depth 1.0 => dev 1.0. Stay 100% clean continuous-reader -12 until
+            // dev>DEAD=0.27 (knob ~1/3 off center), then ramp grain only up to
+            // MIXCAP=0.6 so even at full formant the +12dB bass fundamental is
+            // always >=40% present (no thin/choppy collapse). Fixes "grainy at
+            // min / choppy at max" — normal playing stays byte-clean -12.
+            const float DEAD = 0.27f, MIXCAP = 0.6f;
+            float mixTgt = dev <= DEAD ? 0.0f : (MIXCAP * (dev - DEAD) / (1.0f - DEAD));
+            if (mixTgt > MIXCAP) mixTgt = MIXCAP;
             // UP-SHIFT OVERRIDE: the continuous reader (y) garbles on up-shift
             // (scale>1) — at scale~2 it advances 2x the writer and overruns it,
             // doubling/garbling transients (heard on all +12 'med'). The grain

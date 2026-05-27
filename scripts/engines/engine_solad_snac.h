@@ -190,7 +190,12 @@ public:
         // center => byte-identical continuous-reader -12).
         m_grainFormant.setFormantFactor(powf(2.0f, d));
         float a = d < 0 ? -d : d;
-        m_grainMixTarget = a < 0.02f ? 0.0f : (a >= 0.15f ? 1.0f : (a - 0.02f) / 0.13f);
+        // Wide clean deadband + gentle, CAPPED grain ramp (mirrors firmware
+        // patches/soladSnacOctaver.h): clean continuous-reader -12 until |d|>0.35,
+        // then ramp grain to at most 0.6 so the bass fundamental never collapses.
+        const float DEAD = 0.35f, MIXCAP = 0.6f;
+        if (a <= DEAD) m_grainMixTarget = 0.0f;
+        else           m_grainMixTarget = MIXCAP * (a - DEAD) / (1.0f - DEAD);
     }
 
     void processBlock(const float* in, float* out, int n) {
@@ -630,7 +635,11 @@ public:
             // -12); off-center mix→1 (grain path) once |factor-1|>=~0.18.
             float fmNow = m_grainFormant.factorNow();
             float dev = fmNow > 1.0f ? (fmNow - 1.0f) : (1.0f - fmNow);
-            float mixTgt = dev < 0.01f ? 0.0f : (dev >= 0.18f ? 1.0f : (dev - 0.01f) / 0.17f);
+            // Wide clean deadband + capped grain ramp (mirrors firmware): clean
+            // until dev>0.27 (~1/3 knob), then ramp grain to at most 0.6.
+            const float DEAD = 0.27f, MIXCAP = 0.6f;
+            float mixTgt = dev <= DEAD ? 0.0f : (MIXCAP * (dev - DEAD) / (1.0f - DEAD));
+            if (mixTgt > MIXCAP) mixTgt = MIXCAP;
             if (m_scale > 1.02f) mixTgt = 1.0f;   // up-shift: force grain path (continuous reader garbles)
             m_grainMixTarget = mixTgt;   // keep field updated for telemetry
             m_grainMix += (mixTgt - m_grainMix) * (1.0f / 480.0f);
