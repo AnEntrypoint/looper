@@ -39,6 +39,20 @@ ifdef LOOPER_LIVE_PITCH
 DEFINE += -DLOOPER_LIVE_PITCH
 endif
 
+# WiFi + Ableton Link (join open net "ticker", else host "ticker" AP).
+# OPT-IN (LOOPER_ENABLE_WLAN=1) — NOT yet stable on hardware: with WLAN enabled
+# the box boots fine (HDMI normal, ICMP answers) but Core 2's control plane
+# (UDP :4444/:4445 + syslog) goes dead within a tick or two. Root cause is in the
+# WiFi TX path, not RX: linkProcess() calls sendAlive() -> CBcm4343Device::
+# SendFrame() unconditionally every tick, and that plan9/DWC-SDIO transmit wedges
+# Core 2 when the radio isn't fully associated (no "ticker" AP present). RX-drain
+# budgets (abletonLink/wlanDHCP/wlanDHCPServer) and the p9error.cpp self-heal are
+# in place but insufficient alone — the SendFrame wedge must be made non-blocking
+# / gated on link-up before this can default on. See AGENTS.md "WiFi" notes.
+ifdef LOOPER_ENABLE_WLAN
+DEFINE += -DLOOPER_ENABLE_WLAN
+endif
+
 include $(CIRCLEHOME)/Rules.mk
 
 .PHONY: cstdint RubberBandStretcher.h

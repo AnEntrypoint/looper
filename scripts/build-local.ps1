@@ -168,6 +168,12 @@ $netSrc = Join-Path $RepoRoot 'patches/circle_netbufferqueue.cpp'
 $netDst = Join-Path $circle 'lib/net/netbufferqueue.cpp'
 if (Test-Path $netSrc) { Copy-Item -Path $netSrc -Destination $netDst -Force }
 
+# WLAN p9 error-stack self-heal: leak-tolerant p9error.cpp (was halting the box
+# ~90s in, the reason WLAN/Link was disabled). Targets circle/addon/wlan.
+$p9Src = Join-Path $RepoRoot 'patches/p9error.cpp'
+$p9Dst = Join-Path $circle 'addon/wlan/p9error.cpp'
+if ((Test-Path $p9Src) -and (Test-Path (Split-Path $p9Dst))) { Copy-Item -Path $p9Src -Destination $p9Dst -Force }
+
 # app-dir-internal patches (Makefile expects these next to itself, not in patches/)
 $appInternal = @(
     'kernel.h','kernel.cpp','kernel_run.cpp','multicore.cpp',

@@ -131,7 +131,10 @@ bool wlanDhcpPoll(CBcm4343Device *pWLAN) {
 	}
 	u8 buf[FRAME_SZ]; unsigned rlen;
 	u8 offer[4]={0};
-	while (pWLAN->ReceiveFrame(buf, &rlen)) {
+	// Bounded drain — see abletonLink.cpp linkProcess(): unbounded WiFi RX drain
+	// starves Core 2's pollSockets()/syslog.
+	int budget = 64;
+	while (budget-- > 0 && pWLAN->ReceiveFrame(buf, &rlen)) {
 		if (parseOffer(buf, rlen, offer)) {
 			CLogger::Get()->Write("wdhcp", LogNotice, "OFFER %d.%d.%d.%d", offer[0],offer[1],offer[2],offer[3]);
 			u8 frame[FRAME_SZ]; int flen;

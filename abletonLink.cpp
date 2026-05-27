@@ -154,9 +154,22 @@ void linkProcess(void)
 {
 	if (!s_pWLAN) return;
 
+	// Gate on association: SendFrame() over an un-associated radio wedges the
+	// plan9/DWC-SDIO transmit path and freezes Core 2's control plane (box pings,
+	// :4444/:4445 + syslog dead). When the radio is up (joined "ticker" or hosting
+	// the AP) the TX path is safe. No link => no Link peers anyway, so skipping is
+	// free. IsLinkUp() is non-blocking (reads cached assoc state).
+	if (!s_pWLAN->IsLinkUp()) return;
+
 	u8 buf[FRAME_BUF];
 	unsigned len;
-	while (s_pWLAN->ReceiveFrame(buf, &len))
+	// Bound the RX drain: on a busy WiFi network ReceiveFrame can return frames
+	// faster than one tick can absorb, and the unbounded drain starved Core 2's
+	// pollSockets()/syslog so :4444/:4445 went dead (box pings but control plane
+	// frozen). Cap per-tick so Core 2 always returns to the control loop; Link
+	// only needs the rare multicast packet, so a cap can't desync it.
+	int budget = 64;
+	while (budget-- > 0 && s_pWLAN->ReceiveFrame(buf, &len))
 	{
 		if ((int)len < 42) continue;
 		if (buf[12] != 0x08 || buf[13] != 0x00) continue;

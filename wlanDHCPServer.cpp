@@ -118,7 +118,10 @@ void wlanApInit(CBcm4343Device *pWLAN) {
 void wlanDhcpServe(void) {
 	if (!s_pAP) return;
 	u8 buf[FRAME_SZ]; unsigned rlen;
-	while (s_pAP->ReceiveFrame(buf, &rlen)) {
+	// Bounded drain — see abletonLink.cpp linkProcess(): an unbounded WiFi RX
+	// drain starves Core 2's pollSockets()/syslog (box pings, control plane dead).
+	int budget = 64;
+	while (budget-- > 0 && s_pAP->ReceiveFrame(buf, &rlen)) {
 		u8 mac[6]; u32 xid; u8 type = 0;
 		if (!parseClient(buf, (int)rlen, mac, &xid, &type)) continue;
 		if (type == 1) {

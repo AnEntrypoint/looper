@@ -1,5 +1,7 @@
 param(
-    [string]$TftpRoot = "C:\tftproot",
+    # Must match tftp-server.js TFTPROOT (it serves <repo>\tftproot, NOT C:\tftproot).
+    # Deploying to the wrong root silently leaves the Pi booting a stale kernel.
+    [string]$TftpRoot = (Join-Path $PSScriptRoot "tftproot"),
     [string]$RpiSerial = ""
 )
 
@@ -23,6 +25,18 @@ Copy-Item "$tmp\*.elf" $dest -Force -ErrorAction SilentlyContinue
 Copy-Item "$tmp\*.bin" $dest -Force -ErrorAction SilentlyContinue
 Copy-Item "$tmp\cmdline.txt" $dest -Force -ErrorAction SilentlyContinue
 Copy-Item "$tmp\config.txt" $dest -Force -ErrorAction SilentlyContinue
+
+# rPi4 netboots from tftproot\<cpu-serial>\ (e.g. 7bec0617), NOT the root.
+# Mirror the kernel into every existing serial subdir so the live boot path is
+# always updated — copying to the root alone leaves the Pi on a stale kernel.
+if (-not $RpiSerial) {
+    Get-ChildItem -Path $TftpRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path (Join-Path $_.FullName 'kernel7l.img') } |
+        ForEach-Object {
+            Copy-Item "$tmp\kernel7l.img" $_.FullName -Force
+            Write-Host "Deployed kernel7l.img to $($_.FullName)"
+        }
+}
 
 Remove-Item $tmp -Recurse -Force
 Write-Host "Deployed kernel7l.img to $dest"

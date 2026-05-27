@@ -34,6 +34,15 @@ static bool s_wlanOK = false;
 static bool s_wlanJoined = false;
 static bool s_wlanIsAP = false;
 
+// WLAN status for the :4445 "WLAN" debug verb (kernel_run.cpp). Lets the
+// "must join/host ticker" requirement be verified live without relying on
+// syslog. mode: 0=off/failed, 1=joined existing "ticker", 2=hosting AP.
+extern "C" int wlanStatusCode(void)
+{
+	if (!s_wlanOK || !s_wlanJoined) return 0;
+	return s_wlanIsAP ? 2 : 1;
+}
+
 extern void setup(void);
 extern void loop(void);
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);

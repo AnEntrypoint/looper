@@ -9,6 +9,7 @@
 
 extern void usbMidiInjectMidi(u8 status, u8 data1, u8 data2);
 extern "C" int engineQueryDispatch(const char *req, char *out, int outsz);
+extern "C" int wlanStatusCode(void);   // kernel.cpp: 0 off/fail, 1 joined, 2 AP
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
 extern void loop(void);
 
@@ -107,6 +108,23 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 			// impact — only reads/writes plain fields when a query arrives).
 			// Routed via a thin extern in audio.cpp so this file needn't include
 			// the audio engine header.
+			// "WLAN" verb: report ticker join/AP state + Link sync (verifies the
+			// "must join or host ticker" requirement live, no syslog needed).
+			if (buf[0] == 'W' && buf[1] == 'L' && buf[2] == 'A' && buf[3] == 'N')
+			{
+#ifdef LOOPER_ENABLE_WLAN
+				int wc = wlanStatusCode();
+				const char *mode = wc == 2 ? "hosting-ticker"
+				                 : wc == 1 ? "joined-ticker" : "off/failed";
+#else
+				const char *mode = "disabled";
+#endif
+				CString s;
+				s.Format("wlan=%s link=%s bpm=%d", mode,
+					linkIsSynced() ? "synced" : "no", (int)linkGetBPM());
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else {
 			char rep[256];
 			int rn = engineQueryDispatch((const char *)buf, rep, sizeof rep);
 			if (rn <= 0) {
@@ -118,6 +136,7 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			} else {
 				pDebug->SendTo((u8 *)rep, rn, MSG_DONTWAIT, sender, port);
+			}
 			}
 		}
 	}
