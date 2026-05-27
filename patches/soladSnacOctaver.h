@@ -27,6 +27,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <vector>
+#include "grainFormant.h"
 
 #ifndef SOLAD_M_PI
 #define SOLAD_M_PI 3.14159265358979323846f
@@ -68,6 +69,7 @@ public:
         m_envSlow = 0.0f;
         m_envFast = 0.0f;
         m_transCool = 0;
+        m_transientHold = 0;
         for (int i = 0; i < SNAC_WIN; i++) m_snacBuf[i] = 0.0f;
         m_snacWr = 0;
         m_snacPhase = 0;   // SNAC_IDLE
@@ -171,7 +173,22 @@ public:
     // Implemented as a pre-resample stage feeding the delay line: pre-rate
     // = pow(pitchScale, -depth) → engine resamples back by pitchScale, net
     // formant shift = pow(pitchScale, 1-depth).
-    void setFormantDepth(float d) { m_formantDepth = d; }  // no-op stub (formant removed)
+    void setFormantDepth(float d) {
+        m_formantDepth = d;
+        // Drive the grain-playback-speed formant stage. depth in [-1,+1] ->
+        // grain resample factor pow(2.0,d): d=0 -> 1.0 (bit-clean bypass,
+        // formants ride with pitch = natural -12), d>0 -> formants up (toward
+        // preserved/bright, factor up to 2.0), d<0 -> formants down (deeper,
+        // factor down to 0.5). CONSTANT ratio = STABLE shift (not the wandering
+        // LPC-EQ that sounded like an envelope/wah). Pitch is untouched: the
+        // grain stage re-emits at the output period so only formants move.
+        // Grain-formant factor pow(2,d): d=0 -> 1.0 (formants ride with pitch),
+        // d>0 -> formants up, d<0 -> down. Crossfade mix grows with |d| (0 at
+        // center => byte-identical continuous-reader -12).
+        m_grainFormant.setFormantFactor(powf(2.0f, d));
+        float a = d < 0 ? -d : d;
+        m_grainMixTarget = a < 0.02f ? 0.0f : (a >= 0.15f ? 1.0f : (a - 0.02f) / 0.13f);
+    }
 
     void processBlock(const float* in, float* out, int n) {
         for (int i = 0; i < n; i++) {
@@ -354,6 +371,9 @@ public:
             float x = xWarped;
             m_dl[m_wr & MASK] = x;
             m_wr++;
+            // Feed grain-formant history EXACTLY once per sample (before any
+            // warmup/coast continue) so its clock stays 1:1 with m_wr.
+            m_grainFormant.write(x);
 
             // Mirror into SNAC ring.
             m_snacBuf[m_snacWr] = x;
@@ -421,6 +441,18 @@ public:
                 transient = true;
                 m_transCool = TRANS_REFRACTORY;
             }
+            // Transient-defer: a resplice jumps the reader BACK by whole
+            // periods (re-using already-played audio). If that fires while an
+            // attack is passing through the reader, the attack is played
+            // twice = the "doubled transient" heard at non-octave ratios
+            // (-5 etc., where the resplice cadence doesn't align to a clean
+            // sub-multiple as it does at the -12 octave). Hold off resplicing
+            // for ~2 grains after a transient so the attack passes through
+            // once, cleanly; the gap is allowed to stretch briefly (the
+            // emergency bound still protects the buffer).
+            if (transient) m_transientHold = (int)(m_lastGoodPeriodF > 0.0f
+                                                   ? m_lastGoodPeriodF * 2.0f : 512.0f);
+            if (m_transientHold > 0) m_transientHold--;
 
             // ---- 4. Smooth scale ----
             // At target=1.0, force scale to exactly 1.0 to avoid the
@@ -509,7 +541,8 @@ public:
                 double per = (double)m_lastGoodPeriodF;
                 double trigger = per * m_respliceFrac;
                 if (driftFromTarget > trigger && m_envSlow > 0.003f
-                    && m_xfadeRemain == 0 && m_spliceCooldown == 0) {
+                    && m_xfadeRemain == 0 && m_spliceCooldown == 0
+                    && m_transientHold == 0) {
                     // Refractory: after a splice, suppress new splices for ~1
                     // period. Normal -12 cadence is ~1 splice / 2 periods so
                     // this never throttles steady operation, but it HARD-CAPS
@@ -585,9 +618,28 @@ public:
 
             float y = m_useA ? (yA * wActive + yB * wPassive)
                              : (yB * wActive + yA * wPassive);
-            // Pure continuous-reader -12 (formant feature removed). y carries
-            // all the WSOLA best-match / integer-period splice transient work.
-            out[i] = y;
+            // ---- Grain-formant crossfade ----
+            // y = continuous-reader -12 (formant rides with pitch). The grain
+            // path produces the SAME -12 with formants shifted by the knob. Mix
+            // by distance-from-center: center => pure y (byte-identical), off-
+            // center => grain path. Both are -12 so the crossfade is pitch-safe.
+            if (m_haveGoodPeriod) {
+                m_grainFormant.setScale(m_scale);
+                m_grainFormant.setInputPeriod((double)m_lastGoodPeriodF);
+            }
+            float gOut = m_grainFormant.read();
+            // Derive the crossfade target ON CORE 1 from the grain factor that
+            // is actually in effect here (m_fm propagates to this core — gFac
+            // ramps — whereas the Core-2-written m_grainMixTarget read stale as
+            // 0, leaving gMix=0 and the formant inaudible). |factor-1| maps to
+            // mix: at factor==1 (center) mix→0 (pure continuous reader, clean
+            // -12); off-center mix→1 (grain path) once |factor-1|>=~0.18.
+            float fmNow = m_grainFormant.factorNow();
+            float dev = fmNow > 1.0f ? (fmNow - 1.0f) : (1.0f - fmNow);
+            float mixTgt = dev < 0.01f ? 0.0f : (dev >= 0.18f ? 1.0f : (dev - 0.01f) / 0.17f);
+            m_grainMixTarget = mixTgt;   // keep field updated for telemetry
+            m_grainMix += (mixTgt - m_grainMix) * (1.0f / 480.0f);
+            out[i] = y * (1.0f - m_grainMix) + gOut * m_grainMix;
 
             // ---- 7. Advance pointers ----
             // m_gapBias holds the gap near mid-buffer so no splice is ever
@@ -693,6 +745,9 @@ private:
     float    m_respliceFrac = 16.0f;
     float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
     bool     m_preBypass = false;
+    GrainFormant m_grainFormant;            // gap-bounded grain-formant path
+    float  m_grainMix = 0.0f;               // smoothed crossfade (0=continuous reader)
+    float  m_grainMixTarget = 0.0f;
     bool     m_spliceSnap = true;
     bool     m_spliceMatch = true;
     int      m_driftLowBand = 8;
@@ -755,6 +810,17 @@ public:
         m_splicePhaseErrAccum = 0.0; m_splicePhaseN = 0;
         return e;
     }
+    // --- Grain-formant witnesses (Pi diagnosis: is the crossfade engaging?) ---
+    float grainMixNow()    const { return m_grainMix; }        // 0=continuous reader, 1=grain path
+    float grainMixTargetNow() const { return m_grainMixTarget; }
+    float grainFactorNow() const { return m_grainFormant.factorNow(); }       // smoothed m_fm
+    float grainTargetFactorNow() const { return m_grainFormant.targetFactorNow(); }
+    float formantDepthRawNow() const { return m_formantDepth; } // raw depth last set
+    // Direct overrides for live diagnosis — bypass the depth->factor/mixTarget
+    // mapping so we can drive the grain stage straight from a UDP query and see
+    // exactly what the audio thread does with it.
+    void setGrainFactorDirect(float f) { m_grainFormant.setFormantFactor(f); }
+    void setGrainMixDirect(float m) { if(m<0)m=0; if(m>1)m=1; m_grainMixTarget = m; }
     // --- Pre-resample (formant) stage witnesses ---
     double   m_preEffAccum = 0.0;
     unsigned m_preEffSamples = 0;
@@ -793,6 +859,7 @@ private:
     float    m_envFast = 0.0f;
     float    m_envFastPrev = 0.0f;
     int      m_transCool = 0;
+    int      m_transientHold = 0;   // suppress resplice while an attack passes (anti-double)
     float    m_snacBuf[SNAC_WIN];
     int      m_snacWr = 0;
     float    m_snacWin[SNAC_WIN];   // snapshot for incremental sweep

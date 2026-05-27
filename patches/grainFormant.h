@@ -64,6 +64,13 @@ public:
             // writer (input piling up) or too close (about to read the future),
             // snap it back onto the target lag by a WHOLE number of periods so
             // phase — hence pitch — is preserved.
+            // Resplice deadband widened 2*Tin -> 5*Tin. Each snap jumps the
+            // grain source to a DIFFERENT moment of past audio; on real input
+            // the period estimate jitters so frequent snaps make the texture
+            // "jump in and out of different moments" / sound like two voices.
+            // A wider band makes snaps rare (only on genuine large drift), so
+            // the grain stream stays on one continuous stretch of audio far
+            // longer = smoother. Extra lag drift is a few ms, inaudible.
             double lag = (double)m_wr - m_inEpoch;
             if (lag > targetLag + Tin * 5.0 || lag < targetLag - Tin * 5.0) {
                 double want = (double)m_wr - targetLag;

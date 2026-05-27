@@ -20,10 +20,14 @@ apcKey25::apcKey25()
       m_driftTarget(0.0f), m_lastDriftMs(0), m_computedRatio(1.0f),
       m_liveEngaged(false), m_livePitchSemitones(0.0f), m_liveLedDirty(false),
       m_filterHP(0.0f), m_filterLP(1.0f), m_filterRes(0.0f),
-      m_reverbAmount(0.0f), m_delayAmount(0.0f), m_time(0.5f), m_formant(0.0f),
+      m_reverbAmount(0.0f), m_delayAmount(0.0f), m_time(0.5f), m_formant(1.0f),
       m_formantResonance(0.0f), m_formantFreq(800.0f)
 {
     pTheAPC = this;
+    // Boot with the formant at FULL — empirically the clean, non-grainy
+    // transient setting (grain path fully engaged). Push it to the engine
+    // immediately so the good -12 character is active without touching CC53.
+    if (pLivePitchWrapper) pLivePitchWrapper->setFormant(m_formant);
     for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
     {
         m_looperHoldStart[i]       = 0;

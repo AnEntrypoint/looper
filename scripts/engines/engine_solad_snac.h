@@ -69,6 +69,7 @@ public:
         m_envSlow = 0.0f;
         m_envFast = 0.0f;
         m_transCool = 0;
+        m_transientHold = 0;
         for (int i = 0; i < SNAC_WIN; i++) m_snacBuf[i] = 0.0f;
         m_snacWr = 0;
         m_snacPhase = 0;   // SNAC_IDLE
@@ -440,6 +441,9 @@ public:
                 transient = true;
                 m_transCool = TRANS_REFRACTORY;
             }
+            if (transient) m_transientHold = (int)(m_lastGoodPeriodF > 0.0f
+                                                   ? m_lastGoodPeriodF * 2.0f : 512.0f);
+            if (m_transientHold > 0) m_transientHold--;
 
             // ---- 4. Smooth scale ----
             // At target=1.0, force scale to exactly 1.0 to avoid the
@@ -528,7 +532,8 @@ public:
                 double per = (double)m_lastGoodPeriodF;
                 double trigger = per * m_respliceFrac;
                 if (driftFromTarget > trigger && m_envSlow > 0.003f
-                    && m_xfadeRemain == 0 && m_spliceCooldown == 0) {
+                    && m_xfadeRemain == 0 && m_spliceCooldown == 0
+                    && m_transientHold == 0) {
                     // Refractory: after a splice, suppress new splices for ~1
                     // period. Normal -12 cadence is ~1 splice / 2 periods so
                     // this never throttles steady operation, but it HARD-CAPS
@@ -845,6 +850,7 @@ private:
     float    m_envFast = 0.0f;
     float    m_envFastPrev = 0.0f;
     int      m_transCool = 0;
+    int      m_transientHold = 0;
     float    m_snacBuf[SNAC_WIN];
     int      m_snacWr = 0;
     float    m_snacWin[SNAC_WIN];   // snapshot for incremental sweep
