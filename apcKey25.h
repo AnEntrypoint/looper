@@ -73,9 +73,17 @@ public:
 
 private:
     bool          m_shift;
-    volatile bool m_cmdReady;
-    volatile ApcCmd::Type m_cmdType;
-    volatile int  m_cmdArg;
+    // Lock-free SPSC command ring: producer = MIDI ISR (_queueCmd via
+    // handleMidi/note handlers), consumer = Core-2 update(). Was a single
+    // slot (m_cmdReady/Type/Arg) that silently OVERWROTE a queued command if a
+    // second pad event arrived before update() drained it — dropping presses
+    // and adding jitter. A ring keeps every press in order so each looper
+    // responds promptly and identically.
+    static const int APC_CMD_RING = 32;
+    struct ApcCmdSlot { ApcCmd::Type type; int arg; };
+    volatile ApcCmdSlot m_cmdRing[APC_CMD_RING];
+    volatile unsigned   m_cmdHead;   // producer writes, consumer reads
+    volatile unsigned   m_cmdTail;   // consumer advances
 
     // Per-pad hold tracking for the 20 looper pads (cols 2-5, rows 0-4).
     // Index = row*4 + (col-2) ∈ [0,20). Tap = press cycle (rec/play/pause).
@@ -83,6 +91,7 @@ private:
     unsigned long m_looperHoldStart[LOOPER_NUM_TRACKS];
     bool          m_looperHeld[LOOPER_NUM_TRACKS];
     bool          m_looperClearTriggered[LOOPER_NUM_TRACKS];
+    bool          m_looperRecordedOnPress[LOOPER_NUM_TRACKS];  // armed rec on press; suppress release tap
 
     // Per-pad hold tracking for the 10 preset pads (cols 0-1, rows 0-4).
     // Index = row*2 + col ∈ [0,10). Tap = restore preset (mute all non-set

@@ -14,7 +14,7 @@ extern RubberBandWrapper *pLivePitchWrapper;
 apcKey25 *pTheAPC = 0;
 
 apcKey25::apcKey25()
-    : m_shift(false), m_cmdReady(false), m_cmdType(ApcCmd::NONE), m_cmdArg(0),
+    : m_shift(false), m_cmdHead(0), m_cmdTail(0),
       m_nowMs(0), m_bootMs(0), m_lastLedMs(0),
       m_transposeLocked(false), m_transposePitch(0), m_pitchWheelOffset(0),
       m_driftTarget(0.0f), m_lastDriftMs(0), m_computedRatio(1.0f),
@@ -33,6 +33,7 @@ apcKey25::apcKey25()
         m_looperHoldStart[i]       = 0;
         m_looperHeld[i]            = false;
         m_looperClearTriggered[i]  = false;
+        m_looperRecordedOnPress[i] = false;
     }
     for (int i = 0; i < LOOPER_NUM_PRESETS; i++)
     {
@@ -56,9 +57,14 @@ void apcKey25::_sendLed(u8 note, u8 velocity)
 
 void apcKey25::_queueCmd(ApcCmd::Type type, int arg)
 {
-    m_cmdType  = type;
-    m_cmdArg   = arg;
-    m_cmdReady = true;
+    // SPSC ring push (producer = MIDI ISR). Drop only if full (32 unread) —
+    // never overwrite an unread command. head==tail means empty.
+    unsigned head = m_cmdHead;
+    unsigned next = (head + 1) % APC_CMD_RING;
+    if (next == m_cmdTail) return;            // ring full — drop (should never happen at tap rates)
+    m_cmdRing[head].type = type;
+    m_cmdRing[head].arg  = arg;
+    m_cmdHead = next;                          // publish after fields written
 }
 
 void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
@@ -246,11 +252,13 @@ void apcKey25::update()
 
     if (m_bootMs == 0) m_bootMs = m_nowMs;
 
-    if (m_cmdReady)
+    // Drain ALL queued commands this tick (in press order) so nothing waits an
+    // extra tick or gets dropped — keeps every looper's response prompt + equal.
+    while (m_cmdTail != m_cmdHead)
     {
-        m_cmdReady = false;
-        ApcCmd::Type type = m_cmdType;
-        int arg = m_cmdArg;
+        ApcCmd::Type type = m_cmdRing[m_cmdTail].type;
+        int arg = m_cmdRing[m_cmdTail].arg;
+        m_cmdTail = (m_cmdTail + 1) % APC_CMD_RING;
 
         if (type == ApcCmd::TRACK)
         {

@@ -48,6 +48,28 @@ void apcKey25::_onPadPress(int row, int col)
         m_looperHeld[looper]            = true;
         m_looperClearTriggered[looper]  = false;
         m_looperHoldStart[looper]       = m_nowMs;
+
+        // Start recording an EMPTY looper on PRESS, not release — this is the
+        // timing-critical action ("catch the exact moment record is pressed
+        // when the bank is clear"). Release-triggered tap added the press-hold
+        // duration as jitter, making first-record starts feel imprecise. An
+        // empty pad has nothing to erase, so press-record doesn't conflict with
+        // the long-hold-erase gesture (a >1s hold still fires CLEAR_LAYER from
+        // the hold poll, which now cancels the just-armed take — desired). All
+        // OTHER transitions (finish/pause/play/erase on a pad with content)
+        // stay on release where tap-vs-hold disambiguation is needed.
+        publicTrack *pTrack = pTheLooper->getPublicTrack(looper);
+        int ts = pTrack->getTrackState();
+        int recorded = pTrack->getNumRecordedClips();
+        if (recorded == 0 && !(ts & (TRACK_STATE_RECORDING | TRACK_STATE_PENDING_RECORD)))
+        {
+            m_looperRecordedOnPress[looper] = true;   // suppress the release tap
+            _queueCmd(ApcCmd::CLEAR_LAYER, looper);   // arm record now
+        }
+        else
+        {
+            m_looperRecordedOnPress[looper] = false;
+        }
         return;
     }
     int preset = _presetFromPad(row, col);
@@ -73,6 +95,13 @@ void apcKey25::_onPadRelease(int row, int col)
     int looper = _looperFromPad(row, col);
     if (looper >= 0)
     {
+        // Already armed record on press for an empty pad — don't double-fire.
+        if (m_looperRecordedOnPress[looper])
+        {
+            m_looperRecordedOnPress[looper] = false;
+            m_looperHeld[looper] = false;
+            return;
+        }
         if (m_looperHeld[looper] && !m_looperClearTriggered[looper])
         {
             // Tap (no long-hold) — dispatch press-cycle command based on
@@ -83,7 +112,7 @@ void apcKey25::_onPadRelease(int row, int col)
 
             if (recorded == 0 && !(ts & (TRACK_STATE_RECORDING | TRACK_STATE_PENDING_RECORD)))
             {
-                // Empty looper → arm record (CLEAR_LAYER on empty track starts rec).
+                // Empty looper → arm record (fallback; normally done on press).
                 _queueCmd(ApcCmd::CLEAR_LAYER, looper);  // arg = track*NUM_LAYERS+0 = track
             }
             else if (ts & TRACK_STATE_RECORDING)
