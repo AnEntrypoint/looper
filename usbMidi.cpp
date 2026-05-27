@@ -22,20 +22,36 @@ void usbMidiProcess(bool bPlugAndPlayUpdated)
 {
     if (!bPlugAndPlayUpdated) return;
 
+    // Re-query every slot each PnP update and track the live device pointer, not
+    // a sticky "registered once" flag. A device that disappears then re-appears
+    // (re-enumeration into the same slot) gets a NEW CUSBMIDIDevice*; the old
+    // sticky flag skipped it, leaving s_pDevices[] dangling AND the LED cache
+    // never re-invalidated (post-reconnect LEDs frozen on stale colors). Now any
+    // pointer CHANGE (gone, new, or swapped) re-registers and invalidates the LED
+    // cache so the next tick re-sends every LED to match true state.
     CString name;
+    bool changed = false;
     for (int i = 1; i <= 8; i++)
     {
-        if (s_registered[i]) continue;
         name.Format("umidi%d", i);
         CUSBMIDIDevice *pDev = (CUSBMIDIDevice *)
             CDeviceNameService::Get()->GetDevice((const char *)name, FALSE);
-        if (!pDev) continue;
-        s_pDevices[i] = pDev;
-        s_registered[i] = true;
-        CLogger::Get()->Write(log_name, LogNotice, "USB MIDI device connected: %s", (const char *)name);
-        pDev->RegisterPacketHandler(packetHandler);
-        if (pTheAPC) pTheAPC->invalidateLedCache();
+        if (pDev == s_pDevices[i]) continue;          // unchanged slot
+        s_pDevices[i]  = pDev;
+        s_registered[i] = (pDev != nullptr);
+        changed = true;
+        if (pDev)
+        {
+            CLogger::Get()->Write(log_name, LogNotice, "USB MIDI device connected: %s", (const char *)name);
+            pDev->RegisterPacketHandler(packetHandler);
+        }
+        else
+        {
+            CLogger::Get()->Write(log_name, LogNotice, "USB MIDI device gone: %s", (const char *)name);
+        }
     }
+    // Any roster change re-syncs the LED cache so every pad re-sends next tick.
+    if (changed && pTheAPC) pTheAPC->invalidateLedCache();
 }
 
 bool usbMidiSendNoteOn(u8 note, u8 velocity)

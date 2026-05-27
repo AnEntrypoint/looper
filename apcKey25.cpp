@@ -244,8 +244,15 @@ void apcKey25::update()
 
     if (m_liveLedDirty)
     {
-        m_liveLedDirty = false;
-        usbMidiSend(0x90, 0x40, m_liveEngaged ? 127 : 0);
+        // Drop-retry: clear dirty ONLY if the frame was actually queued
+        // (usbMidiSendNoteOn returns false when MIDI OUT is full). Previously
+        // this used fire-and-forget usbMidiSend() and cleared the flag
+        // unconditionally, so a dropped frame left the live-engage LED stuck on
+        // its old state forever. Now a drop leaves m_liveLedDirty set and the
+        // next tick retries — same consistency guarantee the grid LEDs get from
+        // sendLedCoalesced's retry-on-drop cache.
+        if (usbMidiSendNoteOn(0x40, m_liveEngaged ? 127 : 0))
+            m_liveLedDirty = false;
     }
 
     m_nowMs = CTimer::Get()->GetClockTicks() / 1000;

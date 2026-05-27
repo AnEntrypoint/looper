@@ -142,7 +142,7 @@ void apcKey25::_updateGridLeds()
 
         u8 color = APC_VEL_LED_OFF;
         if (ts & TRACK_STATE_RECORDING) {
-            color = APC_VEL_LED_RED;
+            color = APC_VEL_LED_RED_BLINK;   // red FLASH while recording (was solid)
         } else if (ts & (TRACK_STATE_PENDING_RECORD | TRACK_STATE_PENDING_PLAY | TRACK_STATE_PENDING_STOP)) {
             color = APC_VEL_LED_YELLOW;
         } else if (ts & TRACK_STATE_PLAYING) {
