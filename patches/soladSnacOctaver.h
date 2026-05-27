@@ -724,7 +724,7 @@ private:
     static const int TRANS_REFRACTORY = 14400;  // 300 ms — keeps transient splice rare
     static constexpr float ENV_SLOW_TC = 1.0f / 4800.0f;  // 100 ms
     static constexpr float ENV_FAST_TC = 1.0f / 48.0f;    // 1 ms
-    static constexpr float FIDELITY_THRESH_DEFAULT = 0.45f;  // low so SNAC holds
+    static constexpr float FIDELITY_THRESH_DEFAULT = 0.30f;  // low so SNAC holds
         // lock on real Pi input (rig/ADC noise lowers the peak); a too-high gate
         // dropped lock every ~16s -> gap ran up -> resplice stormed on a stale
         // period -> the -12 fundamental collapsed for ~8s (the gurgle/dropout).
@@ -1139,7 +1139,7 @@ private:
         m_snacPre[W] = acc;
         float energy = acc;
         m_snacEnergy = energy;
-        if (energy < 0.001f) { m_periodValid = false; m_snacPhase = SNAC_IDLE; return; }
+        if (energy < 0.00002f) { m_periodValid = false; m_snacPhase = SNAC_IDLE; return; }
         m_snacMaxTau = MAX_PERIOD; if (m_snacMaxTau > W - 32) m_snacMaxTau = W - 32;
         m_r[0] = energy;
         m_normK[0] = 2.0f * energy;

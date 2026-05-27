@@ -91,3 +91,10 @@ docs/junk/
 scripts/sweep-out/
 scripts/candidates/
 scripts/*.exe
+
+scripts/bass/
+scripts/m12/
+scripts/m12final/
+scripts/e2grain/
+scripts/candidates/
+scripts/sweep-out/

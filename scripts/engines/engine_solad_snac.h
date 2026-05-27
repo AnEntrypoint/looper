@@ -711,7 +711,7 @@ private:
     static const int TRANS_REFRACTORY = 14400;  // 300 ms — keeps transient splice rare
     static constexpr float ENV_SLOW_TC = 1.0f / 4800.0f;  // 100 ms
     static constexpr float ENV_FAST_TC = 1.0f / 48.0f;    // 1 ms
-    static constexpr float FIDELITY_THRESH_DEFAULT = 0.45f;  // low so SNAC holds
+    static constexpr float FIDELITY_THRESH_DEFAULT = 0.30f;  // low so SNAC holds
         // lock on real Pi input (rig/ADC noise lowers the peak); a too-high gate
         // dropped lock every ~16s -> gap ran up -> resplice stormed on a stale
         // period -> the -12 fundamental collapsed for ~8s (the gurgle/dropout).
@@ -729,6 +729,7 @@ private:
     float    m_formantDepth = 0.0f;
     int      m_initialReadOffset = INITIAL_READ_OFFSET_DEFAULT;
     float    m_xfadeScale = 1.0f;
+    int      m_xfadeAbs = 0;   // >0 = absolute crossfade length in samples
     // Resplice only after drifting this many WHOLE periods past target. Each
     // splice crossfade momentarily dips amplitude (correlated-grain overlap);
     // at the old frac=1 (~55 splices/s) those dips were an audible ~55Hz
@@ -1028,9 +1029,15 @@ private:
             m_splicePhaseErrAccum += fabs(frac) * per;  // in samples
             m_splicePhaseN++;
         }
-        int len = (int)per;          // crossfade still spans ONE period
+        // Crossfade length. m_xfadeAbs > 0 forces an ABSOLUTE sample length
+        // (substantial, corrected crossfade independent of the period — key for
+        // low notes where per is huge); else m_xfadeScale * period. Clamp to the
+        // jump distance so the two readers never get >1 grain out of overlap.
+        int len = (m_xfadeAbs > 0) ? m_xfadeAbs : (int)(per * m_xfadeScale);
+        int maxFade = (int)fabs(jump); if (maxFade < 32) maxFade = 32;
+        if (len > maxFade) len = maxFade;
         if (len < 32) len = 32;
-        if (len > 2048) len = 2048;
+        if (len > 4096) len = 4096;
         m_xfadeLen = len;
         m_xfadeRemain = len;
         m_useA = !m_useA;
@@ -1126,7 +1133,7 @@ private:
         m_snacPre[W] = acc;
         float energy = acc;
         m_snacEnergy = energy;
-        if (energy < 0.001f) { m_periodValid = false; m_snacPhase = SNAC_IDLE; return; }
+        if (energy < 0.00002f) { m_periodValid = false; m_snacPhase = SNAC_IDLE; return; }
         m_snacMaxTau = MAX_PERIOD; if (m_snacMaxTau > W - 32) m_snacMaxTau = W - 32;
         m_r[0] = energy;
         m_normK[0] = 2.0f * energy;
