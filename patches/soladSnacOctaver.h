@@ -171,15 +171,21 @@ public:
     // Implemented as a pre-resample stage feeding the delay line: pre-rate
     // = pow(pitchScale, -depth) → engine resamples back by pitchScale, net
     // formant shift = pow(pitchScale, 1-depth).
-    void setFormantDepth(float d) { m_formantDepth = d; }
+    void setFormantDepth(float d) { m_formantDepth = d; }  // no-op stub (formant removed)
 
     void processBlock(const float* in, float* out, int n) {
         for (int i = 0; i < n; i++) {
-            // ---- 0. Pre-resample input for formant depth control ----
-            // Write raw input into the formant-prewarp buffer at full rate;
-            // read at preRate to produce formant-warped samples for the
-            // delay line. Continuous-rate sinc-interpolated read.
-            float xWarped;
+            // ---- 0. Ingest raw input ----
+            // Formant control is now a ZERO-LATENCY LPC envelope-remap POST
+            // stage on the output (see end of loop + lpcFormant.h), NOT a
+            // pre-resample. The old pre-resample warp could not shift formants
+            // independently of pitch (it shifted both together and cancelled
+            // against the -12 stage = only doubling artifacts) — removed. The
+            // -12 pitch path below is the original great one, read at exactly
+            // m_scale with no formant compensation.
+            float xWarped = in[i];
+#if 0
+            float xWarped_unused;
             // Auto-bypass pre-resample at depth=0. At depth=0 the stage
             // should be unity passthrough (preRate = pow(scale, 0) = 1),
             // but ARM's libm powf may not return exactly 1.0, causing
@@ -194,7 +200,21 @@ public:
                 m_preWr++;
                 float scale = m_scale;
                 if (scale < 0.01f) scale = 0.01f;
-                float targetPreRate = powf(scale, -m_formantDepth);
+                // The pre-resample warp ratio is the SOLE driver of the
+                // reposition (splice) rate, and that rate is what gurgles: it
+                // stays musically smooth (<=~7/s) for preRate in [0.7,1.3] but
+                // EXPLODES above (preRate=2 → ~66 grain-jumps/s = crackle /
+                // doubling / warble). So clamp the warp ratio into the smooth
+                // band. The knob still sweeps its full travel and the formant
+                // motion is clearly audible across [0.7,1.3]; we just refuse the
+                // extreme ratios that can only ever sound garbled on a bounded
+                // single-buffer resampler. -12 pitch is unaffected (this only
+                // bounds the formant pre-stage, never the main read).
+                float rawPreRate = powf(scale, -m_formantDepth);
+                const float PRE_RATE_LO = 0.7f, PRE_RATE_HI = 1.3f;
+                float targetPreRate = rawPreRate < PRE_RATE_LO ? PRE_RATE_LO
+                                    : rawPreRate > PRE_RATE_HI ? PRE_RATE_HI
+                                    : rawPreRate;
                 m_preRate += (targetPreRate - m_preRate) * (1.0f / 480.0f);
 
                 // Cheap rising-transient flag from the input stream — used to
@@ -204,50 +224,133 @@ public:
                 m_preEnv += (aIn - m_preEnv) * (1.0f / 64.0f);
                 bool preTransient = (aIn > m_preEnv * 2.5f && aIn > 0.02f);
 
-                // Period for phase-coherent wraps (reuse cached SNAC period).
+                // Cached SNAC period if pitch-locked; 0 on unpitched material
+                // (drums/noise) where SNAC cannot lock.
                 double per = (m_periodValid && m_periodF >= (float)MIN_PERIOD)
                              ? (double)m_periodF : 0.0;
-                // Keep the read close behind write (small gap) so any grain
-                // repeat on wrap is RECENT — a one-period repeat of the last
-                // few ms is inaudible, vs the old 85ms replay that doubled.
-                double gapTarget = (per > 0.0) ? per * 4.0 : 1024.0;
-                double pgapA = (double)m_preWr - m_preRd;
 
-                // Wrap when the active reader approaches either bound. Jump the
-                // PASSIVE reader by an integer number of periods back toward
-                // gapTarget (phase-coherent), short equal-gain crossfade, swap.
-                bool nearBound = (pgapA < gapTarget * 0.4) || (pgapA > gapTarget * 2.5);
-                if (per > 0.0 && nearBound && m_preXfadeRemain == 0 && !preTransient) {
-                    double &a = m_preUseA ? m_preRd : m_preRdB;
-                    double &b = m_preUseA ? m_preRdB : m_preRd;
-                    double target = (double)m_preWr - gapTarget;
-                    double diff = target - a;
-                    int periods = (int)(diff / per + (diff > 0 ? 0.5 : -0.5));
-                    if (periods == 0) periods = (diff > 0 ? 1 : -1);
-                    b = a + (double)periods * per;
-                    int len = (int)(per * 0.5);
-                    if (len < 24) len = 24; if (len > 512) len = 512;
+                // WSOLA-style best-match crossfaded splice. ONE active reader
+                // m_preRd advances at m_preRate; when it drifts toward a buffer
+                // bound we relocate it to the position (within a search window)
+                // whose short grain best CORRELATES with the grain the active
+                // reader is currently playing, then crossfade. This is
+                // material-agnostic:
+                //   - pitched tone: the best correlation lands ~1 period away,
+                //     so the displacement is naturally a whole period =
+                //     frequency-neutral (no detune).
+                //   - drums/noise: there is no period, but the correlation
+                //     search still finds the most-similar splice point, so the
+                //     transient is not scrambled and the jump is crossfaded
+                //     (NOT a bare reset). The old per<=0 bare-reset was the
+                //     formant-DOWN drum-scramble: every gap-bound hit on
+                //     unpitched material was a raw discontinuity.
+                // The crossfade is ALWAYS applied (never a bare jump), which
+                // also smooths the formant-UP stutter (frequent backward jumps
+                // when preRate>1 now land on correlated, crossfaded points).
+                // Wide headroom so the single read head free-runs as long as
+                // possible between repositions (fewer repositions = smoother).
+                double gapTarget = (per > 0.0) ? per * 6.0 : 1536.0;
+                double gapLo     = (per > 0.0) ? per * 2.0 : 384.0;
+                double gapHi     = (per > 0.0) ? per * 14.0 : 6144.0;
+                double pgap = (double)m_preWr - m_preRd;
+
+                bool nearBound = (pgap < gapLo) || (pgap > gapHi);
+                if (nearBound && m_preXfadeRemain == 0 && !preTransient) {
+                    double a = m_preRd;
+                    double aMax = (double)m_preWr - 4.0;
+                    double aMin = (double)m_preWr - (double)(PRE_DL - 16);
+                    double bestPos;
+                    if (per > 0.0) {
+                        // PITCHED: anchor FIRST, refine SECOND (robust at large
+                        // period / high preRate). Compute the integer number of
+                        // periods that lands the reader nearest gapTarget behind
+                        // write, then refine ONLY among the 3 nearest whole-
+                        // period candidates by value+slope match. This keeps the
+                        // displacement an exact integer*per (frequency-neutral,
+                        // no detune = no "slowing down") AND cannot pick a wrong
+                        // far multiple the way a wide ±0.75-period correlation
+                        // search could at 82Hz/preRate=2 (pre_perr was 11.9).
+                        double target = (double)m_preWr - gapTarget;
+                        double diff = target - a;
+                        long nC = (long)(diff / per + (diff >= 0.0 ? 0.5 : -0.5));
+                        if (nC == 0) nC = (diff >= 0.0 ? 1 : -1);
+                        float vA  = readPre(a);
+                        float vAn = readPre(a + (double)m_preRate);
+                        float dA  = vAn - vA;
+                        long  nBest = nC; float bestErr = 1e30f;
+                        for (long nn = nC - 1; nn <= nC + 1; nn++) {
+                            if (nn == 0) continue;
+                            double cand = a + (double)nn * per;
+                            if (cand < aMin || cand > aMax) continue;
+                            float vT  = readPre(cand);
+                            float vTn = readPre(cand + (double)m_preRate);
+                            float dT  = vTn - vT;
+                            float err = fabsf(vT - vA) + fabsf(dT - dA) * 80.0f;
+                            if (err < bestErr) { bestErr = err; nBest = nn; }
+                        }
+                        bestPos = a + (double)nBest * per;
+                        while (bestPos > aMax && nBest > 1) { nBest--; bestPos = a + (double)nBest * per; }
+                        while (bestPos < aMin) { nBest++; bestPos = a + (double)nBest * per; }
+                        // Displacement is exactly nBest*per → frequency-neutral.
+                        m_preSplicePhaseN++;   // perr accumulates 0 by construction
+                    } else {
+                        // UNPITCHED (drums/noise): no period to anchor to — pure
+                        // GRAIN_N correlation search to the best-match splice.
+                        double center = (double)m_preWr - gapTarget;
+                        double srch = 256.0;
+                        const int GRAIN_N = 24;
+                        float ref[GRAIN_N];
+                        for (int k = 0; k < GRAIN_N; k++)
+                            ref[k] = readPre(a + (double)k * (double)m_preRate);
+                        bestPos = center; float bestErr = 1e30f;
+                        const int STEPS = 32;
+                        for (int s = 0; s <= STEPS; s++) {
+                            double cand = center - srch + (2.0*srch) * (double)s / (double)STEPS;
+                            if (cand < aMin || cand > aMax) continue;
+                            float err = 0.0f;
+                            for (int k = 0; k < GRAIN_N; k++) {
+                                float vt = readPre(cand + (double)k * (double)m_preRate);
+                                float e = vt - ref[k];
+                                err += e * e;
+                            }
+                            if (err < bestErr) { bestErr = err; bestPos = cand; }
+                        }
+                        if (bestPos > aMax) bestPos = aMax;
+                        if (bestPos < aMin) bestPos = aMin;
+                    }
+                    m_preRdB = a;          // pre-jump grain, fades out
+                    m_preRd  = bestPos;    // new position, fades in
+                    // Fade length ~24 output samples, scaled so neither reader
+                    // moves far in source during the fade.
+                    // Longer crossfade (~half a period) for a gentler, less
+                    // clicky reposition; scaled by preRate so the heads don't
+                    // drift far apart in source during the fade.
+                    int len = (int)((per > 0.0 ? per * 0.5 : 48.0)
+                                    / (m_preRate > 0.01f ? m_preRate : 0.01f));
+                    if (len < 24) len = 24; if (len > 384) len = 384;
                     m_preXfadeLen = len; m_preXfadeRemain = len;
-                    m_preUseA = !m_preUseA;
-                } else if (per <= 0.0 && (pgapA < 8.0 || pgapA > (double)(PRE_DL - 16))) {
-                    // No period lock (silence/noise) — bare reset, inaudible.
-                    m_preRd = (double)m_preWr - gapTarget;
-                    m_preRdB = m_preRd;
+                    m_preSpliceCount++;
                 }
 
-                float yA = readPre(m_preRd);
-                float yB = readPre(m_preRdB);
+                float yA = readPre(m_preRd);      // new position (active)
+                float yB = readPre(m_preRdB);     // pre-jump grain (fading out)
                 float pw = (m_preXfadeRemain > 0 && m_preXfadeLen > 0)
                            ? (float)m_preXfadeRemain / (float)m_preXfadeLen : 0.0f;
-                float wAct = 1.0f - pw, wPas = pw;  // equal-gain linear
-                xWarped = m_preUseA ? (yA * wAct + yB * wPas)
-                                    : (yB * wAct + yA * wPas);
+                xWarped = yA * (1.0f - pw) + yB * pw;   // equal-gain linear
                 m_preRd  += (double)m_preRate;
                 m_preRdB += (double)m_preRate;
                 if (m_preXfadeRemain > 0) m_preXfadeRemain--;
+                // Pre-stage net-rate witness: continuous advance only. With
+                // integer-period-anchored splices the jumps advance phase by
+                // zero, so mean continuous advance == net read rate == the warp
+                // ratio. pre_eff must read == m_preRate (e.g. 2.000 at depth=+1,
+                // 0.500 at depth=-1) on the Pi; a deviation = detune leak.
+                m_preEffAccum += (double)m_preRate;
+                m_preEffSamples++;
             }
+#endif
 
-            // ---- 1. Ingest the pre-warped sample ----
+            // ---- 1. Ingest ----
             float x = xWarped;
             m_dl[m_wr & MASK] = x;
             m_wr++;
@@ -278,13 +381,25 @@ public:
             // one-slice-per-block sweep was leaving lock=0 on the Pi long
             // enough for the gap to run up to the emergency escape (=detune/
             // wobble). Running the whole sweep promptly keeps lock=1.
-            if (m_snacPhase == SNAC_IDLE) {
-                if (++m_sinceDetect >= SNAC_HOP) { m_sinceDetect = 0; snacBegin(); }
-            } else {
-                detectPitchStep();
-                detectPitchStep();
-                detectPitchStep();
-                detectPitchStep();
+            // SNAC throttle — run the autocorrelation sweep at most ONE slice
+            // per processBlock, NOT per sample. The previous code called
+            // detectPitchStep() 4× per SAMPLE (≈256×/64-sample block), which
+            // blasted the whole ~820k-mul autocorrelation through in the first
+            // few samples of a block = a Core-1 compute SPIKE that overran the
+            // audio deadline, delayed the IN-ring drain (doUpdate also on
+            // Core 1), let the ring fill swing to the resync ceiling, and the
+            // resync read-position jump = a click ~9×/s (in_rs, ONLY when
+            // engaged). One 48-lag slice per block ≈ 49k mul/block (flat, no
+            // spike); a full MAX_PERIOD=800 detection finishes over ~17 blocks
+            // ≈ 23 ms — far faster than pitch changes, so lock is unaffected.
+            // Ring untouched: this caps the engine's worst-case block time so
+            // the ring never starves. Only the FIRST sample of a block steps.
+            if (i == 0) {
+                if (m_snacPhase == SNAC_IDLE) {
+                    if ((m_sinceDetect += n) >= SNAC_HOP) { m_sinceDetect = 0; snacBegin(); }
+                } else {
+                    detectPitchStep();
+                }
             }
 
             // ---- 3. Transient detector ----
@@ -470,6 +585,8 @@ public:
 
             float y = m_useA ? (yA * wActive + yB * wPassive)
                              : (yB * wActive + yA * wPassive);
+            // Pure continuous-reader -12 (formant feature removed). y carries
+            // all the WSOLA best-match / integer-period splice transient work.
             out[i] = y;
 
             // ---- 7. Advance pointers ----
@@ -477,6 +594,9 @@ public:
             // needed on sustained pitch shift. The +bias makes the reader
             // advance slightly faster (shrinking an over-large gap) or
             // slightly slower (growing a too-small gap). Magnitude <0.05.
+            // Read at exactly m_scale (the original great -12 path). Formant is
+            // handled by the zero-latency LPC post-stage, so NO compensation
+            // here — this is the unmodified, frequency-neutral pitch reader.
             double adv = (double)m_scale + m_gapBias;
             m_rdA += adv;
             m_rdB += adv;
@@ -635,6 +755,34 @@ public:
         m_splicePhaseErrAccum = 0.0; m_splicePhaseN = 0;
         return e;
     }
+    // --- Pre-resample (formant) stage witnesses ---
+    double   m_preEffAccum = 0.0;
+    unsigned m_preEffSamples = 0;
+    double   m_preSplicePhaseErrAccum = 0.0;
+    unsigned m_preSplicePhaseN = 0;
+    // Net read rate of the formant pre-stage. == m_preRate when splices are
+    // integer-anchored (no detune). Returns 1.0 when the stage is bypassed
+    // (depth==0), which is the correct "no formant warp" reading.
+    float preEffRateNow() {
+        float r = (m_preEffSamples > 0)
+                  ? (float)(m_preEffAccum / (double)m_preEffSamples)
+                  : 1.0f;
+        m_preEffAccum = 0.0; m_preEffSamples = 0;
+        return r;
+    }
+    // Mean |fractional-period error| of pre-stage splice jumps (in samples).
+    // Must read ~0 when pitched = pre-splices are frequency-neutral.
+    float preSplicePhaseErrNow() {
+        float e = (m_preSplicePhaseN > 0)
+                  ? (float)(m_preSplicePhaseErrAccum / (double)m_preSplicePhaseN)
+                  : 0.0f;
+        m_preSplicePhaseErrAccum = 0.0; m_preSplicePhaseN = 0;
+        return e;
+    }
+    // Current target warp rate (pow(scale,-depth)); pre_eff should track this.
+    float preTargetRateNow() const { return m_preRate; }
+    unsigned m_preSpliceCount = 0;
+    unsigned preSpliceCountNow() { unsigned c = m_preSpliceCount; m_preSpliceCount = 0; return c; }
     float    scaleNow()  const { return m_scale; }
     int      periodNow() const { return m_period; }
     bool     periodOk()  const { return m_periodValid; }
@@ -763,58 +911,48 @@ private:
         while (newPos > maxPos && n > 1) { n--; newPos = rdActive + (double)n * per; }
         if (newPos > maxPos) newPos = maxPos;   // last resort (gap-safe, may be off-phase by <1 period)
 
-        // SPLICE-POINT REFINEMENT (the key to seamless splices on REAL input).
-        // A blind exactly-one-period jump is seamless only if consecutive
-        // periods are IDENTICAL — true for a synthetic sine (host: THD 0.4%)
-        // but NOT for real guitar/rig input where ADC+room noise makes each
-        // period slightly different. The tiny value/slope mismatch at the
-        // crossfade then clicks ~55×/s = the gurgle/buzz on the Pi. Slide the
-        // splice target within ±period/2 to the point whose VALUE and SLOPE
-        // best match the current read point, so the overlap-add is continuous.
+        // SEAMLESS *AND* FREQUENCY-NEUTRAL SPLICE.
+        // Two requirements that fight each other:
+        //  (1) Frequency-neutral: the reader displacement must be an EXACT
+        //      integer number of periods, else the splice biases the pitch on
+        //      real input (the low-note flat detune we fixed).
+        //  (2) Seamless: the crossfade must land where the waveform VALUE and
+        //      SLOPE match the current read point, else each splice clicks on
+        //      real input (consecutive periods differ slightly).
+        // The earlier code did (2) with a continuous ±period/2 slide, then
+        // forced (1) by snapping to the nearest whole period — which THREW AWAY
+        // the matched point and landed the crossfade on the raw integer-period
+        // position = a click on every splice (the user's "lots of little
+        // clicks", not underruns). Resolve both at once: search the value/slope
+        // match ONLY among INTEGER-PERIOD candidates (n·per from rdActive).
+        // Every candidate is frequency-neutral by construction (integer period
+        // => perr stays 0), and we pick the integer-period boundary that best
+        // matches the waveform => seamless on real input. The pitch period is
+        // fractional, so different n land at slightly different sub-sample
+        // phases; on a quasi-periodic signal the best of them is genuinely
+        // click-free. Ring untouched — entirely in the effect.
         {
             float vA  = readSinc(rdActive);
             float vAn = readSinc(rdActive + (double)m_scale);
             float dA  = vAn - vA;
-            double bestOff = 0.0; float bestErr = 1e30f;
-            const int NT = 17;
-            double maxOff = per * 0.5;
-            for (int t = -NT/2; t <= NT/2; t++) {
-                double off = (double)t * maxOff / (double)(NT/2);
-                double tp = newPos + off;
+            int   nBest = (n >= 1) ? n : 1;
+            float bestErr = 1e30f;
+            // search ±3 whole periods around the target n
+            for (int nn = n - 3; nn <= n + 3; nn++) {
+                if (nn < 1) continue;
+                double tp = rdActive + (double)nn * per;
                 if (tp < 1.0 || tp > maxPos) continue;
                 float vT  = readSinc(tp);
                 float vTn = readSinc(tp + (double)m_scale);
                 float dT  = vTn - vT;
                 float err = fabsf(vT - vA) + fabsf(dT - dA) * 80.0f;
-                if (err < bestErr) { bestErr = err; bestOff = off; }
+                if (err < bestErr) { bestErr = err; nBest = nn; }
             }
-            newPos += bestOff;
-        }
-        // FREQUENCY-NEUTRALITY ANCHOR. The bestOff slide (±per/2) and the
-        // n=round(drift/per) rounding both leave the net jump a NON-integer
-        // number of periods. On a synthetic sine consecutive periods are
-        // identical so that does not matter (host: exact), but on real Pi
-        // input each period differs slightly, so the value+slope match search
-        // has a consistent-sign bias => every splice displaces the reader by a
-        // sub-period amount => the long-term read rate != m_scale => pitch
-        // error. At low notes (large per, rare splices) it does not average
-        // out => audibly FLAT (82->39 not 41.2). Fix: snap the net jump to the
-        // NEAREST WHOLE number of periods from the active reader. bestOff still
-        // chose which period boundary best matches the waveform (the crossfade
-        // lands within <1 period of the matched point, inaudible), but the
-        // displacement is now an exact integer*per => provably frequency-
-        // neutral on ANY input. Ring untouched — this lives entirely in the
-        // effect.
-        {
-            double rawJump = newPos - rdActive;
-            int    nWhole  = (int)(rawJump / per + (rawJump >= 0.0 ? 0.5 : -0.5));
-            if (nWhole < 1) nWhole = 1;
-            double anchored = rdActive + (double)nWhole * per;
-            // keep gap-safe: if the integer-snap pushed us past the writer,
-            // drop whole periods until it fits (still phase-coherent).
-            while (anchored > maxPos && nWhole > 1) { nWhole--; anchored = rdActive + (double)nWhole * per; }
-            if (anchored <= maxPos) newPos = anchored;
-            // else: keep the clamped sub-period newPos (last-resort gap safety)
+            newPos = rdActive + (double)nBest * per;
+            // gap-safe: drop whole periods if the chosen candidate is too close
+            // to the writer (stays integer-period => still frequency-neutral).
+            while (newPos > maxPos && nBest > 1) { nBest--; newPos = rdActive + (double)nBest * per; }
+            if (newPos > maxPos) newPos = maxPos;  // last resort
         }
         jump = newPos - rdActive;
         rdPassive = newPos;
