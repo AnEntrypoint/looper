@@ -189,6 +189,16 @@ public:
   }
   bool isEngaged() const { return m_engaged; }
 
+  // Algorithmic latency (samples) this engine currently adds to the signal.
+  // The solad-snac pitch stage delays output by its initial read offset
+  // (default 192 @ 48k, CC100-tunable). When NOT engaged the path bypasses
+  // the engine entirely (zero added latency), so report 0. The continuous
+  // record buffer uses this to backdate the press anchor onto the processed
+  // (post-pitch) stream it now captures.
+  int latencySamples() const {
+    return m_engaged ? m_soladL.getInitialReadOffset() : 0;
+  }
+
   // Single-knob formant depth control, ∈ [-1, +1].
   // Drives the solad-snac pre-resample stage. Also pushes the value into
   // the legacy signalsmith formant factor for any caller that still uses

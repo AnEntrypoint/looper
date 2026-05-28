@@ -530,13 +530,6 @@ void loopMachine::update(void)
 
 	}
 
-	// ALWAYS-ON continuous record buffer (continuousBuffer.h): store the DRY
-	// input block (before live-pitch/effects mutate m_input_buffer in place)
-	// into the 3-min rolling buffer. This is the single staging area every
-	// looper copies its clip out of, and the source for latency-backdated
-	// record start/stop. Advances g_cbWriteBlock once per audio block.
-	cbWriteBlock(m_input_buffer);
-
 	LiveParams lp = paramSnapshotLoad();
 	if (pLivePitchWrapper)
 	{
@@ -601,6 +594,17 @@ void loopMachine::update(void)
 			m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = (s32)(fx_R[i] * 32768.0f);
 		}
 	}
+
+	// ALWAYS-ON continuous record buffer (continuousBuffer.h): store the WET
+	// block — AFTER live-pitch + effects have mutated m_input_buffer — so loops
+	// record exactly what the musician hears. This is the single staging area
+	// every looper copies its clip out of, and the source for latency-backdated
+	// record start/stop. Publish the engine's current added latency first so the
+	// backdate anchor stays sample-true on the processed stream: the pitch
+	// engine's read-offset when engaged, 0 when transpose is off (bypassed).
+	g_cbExtraLagSamples = (pLivePitchWrapper && pLivePitchWrapper->isEngaged())
+	                    ? (u32)pLivePitchWrapper->latencySamples() : 0;
+	cbWriteBlock(m_input_buffer);
 
 	if (lp.linkSynced)
 	{

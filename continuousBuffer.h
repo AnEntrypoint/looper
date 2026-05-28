@@ -45,7 +45,9 @@ void cbInit(void);
 
 // Write one stereo block (interleaved L,R,L,R... AUDIO_BLOCK_SAMPLES frames)
 // into the rolling buffer and advance the write head. Called every audio block
-// from loopMachine::update, always-on, before any per-track processing.
+// from loopMachine::update, always-on, AFTER the live-pitch + effects stages so
+// loops record the processed (wet) signal the musician hears. The added pitch
+// latency is compensated via g_cbExtraLagSamples in cbBackdatedBlock.
 void cbWriteBlock(const s32 *interleavedStereoBlock);
 
 // Pointer to the stored stereo block at absolute index `block` (interleaved
@@ -76,6 +78,27 @@ void cbCopyRange(u32 startBlock, u32 stopBlock, s16 *dst);
 // (IN_TARGET_LAG=96, input_usb.cpp) plus the ADC/USB transport. Kept as one
 // documented constant; predictable over clever.
 #define CB_FIXED_LAG_SAMPLES 96
+
+// Upper bound on the press->process latency we will honor when backdating. Real
+// transport/queue latency is sub-100ms; anything beyond this is NOT latency, it
+// is a stalled command (queue backlog, or a long-hold whose press_ticks was
+// stamped at finger-down but whose command only dispatches on release seconds
+// later). Honoring such a gap backdates the record start seconds into the past
+// and pulls unrelated rolling-buffer audio into the clip — heard as "random
+// noise / unrecorded buffer playback". Beyond this bound we drop to fixed lag
+// only (record from the press-as-processed instant). 250ms @ internal rate.
+#define CB_MAX_LATENCY_SAMPLES (AUDIO_SAMPLE_RATE / 4)
+
+// Extra processing latency (samples) currently baked into the audio the
+// continuous buffer captures, ON TOP of CB_FIXED_LAG_SAMPLES. The buffer now
+// stores the POST-effects (wet) block, so when the live-pitch engine is
+// engaged its algorithmic read-offset (~192 @ 48k, CC100-tunable) delays the
+// stream; the press anchor must backdate by that much more to still land
+// sample-true on the processed audio. Written once per audio block by Core 1
+// (loopMachine::update, right after the pitch stage) — 0 when transpose is
+// off (engine bypassed, zero added latency). Read by cbBackdatedBlock on
+// Core 2; same single-writer/cross-core pattern as g_cbWriteBlock.
+extern volatile u32 g_cbExtraLagSamples;
 
 // Telemetry: last applied backdate (samples) + last press->process latency (us)
 // + whether the last backdate was clamped to the history horizon. For :4445.
