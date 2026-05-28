@@ -8,6 +8,7 @@
 static const uint32_t SAMPLE_RATE = 44100;
 static const uint64_t FIXED_LAG_SAMPLES = 96;
 static const uint64_t BLOCK = 64;
+static const uint64_t MAX_LATENCY_SAMPLES = SAMPLE_RATE / 4; // 250ms; mirrors CB_MAX_LATENCY_SAMPLES
 
 static int g_fails = 0;
 
@@ -31,6 +32,9 @@ static uint64_t compute_backdate(uint32_t press_ticks, uint32_t now_ticks,
     } else {
         uint64_t us = elapsed_us(press_ticks, now_ticks);
         uint64_t elapsed_samples = us * (uint64_t)SAMPLE_RATE / 1000000ULL;
+        // Stall guard: an implausibly large gap is a stalled/long-held command,
+        // not transport latency. Drop to fixed lag only. Mirrors cbBackdatedBlock.
+        if (elapsed_samples > MAX_LATENCY_SAMPLES) elapsed_samples = 0;
         backdate = elapsed_samples + FIXED_LAG_SAMPLES;
     }
     uint64_t max_backdate = ring_blocks_available * BLOCK;
@@ -69,15 +73,38 @@ int main() {
         check("sentinel: backdate == FIXED_LAG_SAMPLES", got == FIXED_LAG_SAMPLES && !cl);
     }
 
-    // 4. Clamp: 500ms elapsed, tiny ring history -> clamps to MAX_BACKDATE.
+    // 4. Ring clamp: 100ms elapsed (within the latency bound), tiny ring history
+    //    -> clamps to MAX_BACKDATE. 100ms @ 44100 = 4410 samples + 96 = 4506,
+    //    ring of 50 blocks = 3200 samples, so the ring cap fires.
     {
         bool cl = false;
-        uint32_t now = 1000 + 500000; // 500ms after press at t=1000
-        uint64_t ring_blocks = 100;   // MAX_BACKDATE = 6400 samples
+        uint32_t now = 1000 + 100000; // 100ms after press at t=1000
+        uint64_t ring_blocks = 50;    // MAX_BACKDATE = 3200 samples
         uint64_t max_backdate = ring_blocks * BLOCK;
         uint64_t got = compute_backdate(1000, now, ring_blocks, &cl);
-        check("clamp: flag set", cl);
-        check("clamp: clamped to MAX_BACKDATE", got == max_backdate && got == 6400);
+        check("ring clamp: flag set", cl);
+        check("ring clamp: clamped to ring horizon", got == max_backdate && got == 3200);
+    }
+
+    // 4b. Stall guard: a 4.6s gap (the long-hold/queue-backlog artifact heard on
+    //     hardware) must NOT backdate seconds into the past. It falls back to
+    //     fixed lag only, so the record starts at the press-as-processed instant
+    //     instead of pulling unrelated ring audio ("random noise").
+    {
+        bool cl = false;
+        uint32_t now = 1000 + 4600000; // 4.6s after press
+        uint64_t ring_blocks = 100000; // ample history (would NOT clamp on its own)
+        uint64_t got = compute_backdate(1000, now, ring_blocks, &cl);
+        check("stall guard: 4.6s gap drops to fixed lag", got == FIXED_LAG_SAMPLES && !cl);
+    }
+
+    // 4c. Boundary: just under the bound is honored, just over drops to fixed lag.
+    {
+        // 249ms -> honored (elapsed term present); 251ms -> dropped.
+        uint64_t under = compute_backdate(1000, 1000 + 249000, 100000, nullptr);
+        uint64_t over  = compute_backdate(1000, 1000 + 251000, 100000, nullptr);
+        check("boundary: 249ms honored", under > FIXED_LAG_SAMPLES);
+        check("boundary: 251ms dropped to fixed lag", over == FIXED_LAG_SAMPLES);
     }
 
     // 5. Length invariance: start AND stop both backdated by the same latency.

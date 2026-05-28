@@ -19,6 +19,7 @@ void cbInit(void)
     CLogger::Get()->Write("cbuffer", LogNotice, "continuous buffer %u bytes @0x%08X", (unsigned)bytes, (u32)g_cbBuffer);
 }
 
+volatile u32 g_cbExtraLagSamples     = 0;
 volatile u32 g_cbLastBackdateSamples = 0;
 volatile u32 g_cbLastPressLatencyUs  = 0;
 volatile u32 g_cbLastBackdateClamped = 0;
@@ -53,8 +54,12 @@ u32 cbBackdatedBlock(unsigned press_ticks)
 {
     u32 wr = g_cbWriteBlock;                 // current write head (next-to-write)
 
-    // backdate in samples = (press->now elapsed) + fixed ring/ADC lag.
-    u32 backSamples = CB_FIXED_LAG_SAMPLES;
+    // backdate in samples = (press->now elapsed) + fixed ring/ADC lag +
+    // current processing latency baked into the captured (post-fx) stream.
+    // The extra term is 0 when transpose is off (engine bypassed); when on it
+    // is the pitch engine's read-offset, so the press anchor lands sample-true
+    // on the processed audio the buffer now stores.
+    u32 backSamples = CB_FIXED_LAG_SAMPLES + g_cbExtraLagSamples;
     if (press_ticks != 0)                    // 0 = no timestamp -> fixed lag only
     {
         u32 now = CTimer::GetClockTicks();
@@ -62,6 +67,11 @@ u32 cbBackdatedBlock(unsigned press_ticks)
         g_cbLastPressLatencyUs = elapsedUs;
         // us -> samples at the internal rate. 64-bit to avoid overflow.
         u32 elapsedSamples = (u32)(((u64)elapsedUs * (u64)AUDIO_SAMPLE_RATE) / 1000000ull);
+        // Reject implausible latency: a multi-second gap is a stalled/long-held
+        // command, not transport lag. Backdating it would pull unrelated ring
+        // history into the clip (the "random noise" artifact). Fall back to
+        // fixed lag only — record from the press-as-processed instant.
+        if (elapsedSamples > CB_MAX_LATENCY_SAMPLES) elapsedSamples = 0;
         backSamples += elapsedSamples;
     }
     else g_cbLastPressLatencyUs = 0;
