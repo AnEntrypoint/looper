@@ -31,10 +31,17 @@
 #define CB_RING_BLOCKS    (CB_RING_SECONDS * INTEGRAL_BLOCKS_PER_SECOND)
 
 // Interleaved stereo s16, AUDIO_BLOCK_SAMPLES per channel per block.
-extern s16      g_cbBuffer[CB_RING_BLOCKS * AUDIO_BLOCK_SAMPLES * LOOPER_NUM_CHANNELS];
+// HEAP-allocated (~16MB) at cbInit(), NOT a static BSS array — a 16MB static
+// array overflows the rPi4 AARCH=32 BSS region and crashes the kernel before
+// boot (blank HDMI, no syslog). Same pattern as loopBuffer's malloc.
+extern s16      *g_cbBuffer;
 // Monotonic absolute block index of the NEXT block to be written. Advanced by
 // one each audio update after the block is stored. Never resets.
 extern volatile u32 g_cbWriteBlock;
+
+// Allocate the rolling buffer from the heap. Call once at setup (before any
+// audio block runs), alongside the loopBuffer allocation.
+void cbInit(void);
 
 // Write one stereo block (interleaved L,R,L,R... AUDIO_BLOCK_SAMPLES frames)
 // into the rolling buffer and advance the write head. Called every audio block

@@ -4,9 +4,20 @@
 #include "continuousBuffer.h"
 #include <circle/util.h>
 #include <circle/timer.h>
+#include <circle/alloc.h>
+#include <circle/logger.h>
 
-s16          g_cbBuffer[CB_RING_BLOCKS * AUDIO_BLOCK_SAMPLES * LOOPER_NUM_CHANNELS];
+s16          *g_cbBuffer = 0;
 volatile u32 g_cbWriteBlock = 0;
+
+void cbInit(void)
+{
+    if (g_cbBuffer) return;
+    size_t bytes = (size_t)CB_RING_BLOCKS * AUDIO_BLOCK_SAMPLES * LOOPER_NUM_CHANNELS * sizeof(s16);
+    g_cbBuffer = (s16 *)malloc(bytes);
+    if (g_cbBuffer) memset(g_cbBuffer, 0, bytes);
+    CLogger::Get()->Write("cbuffer", LogNotice, "continuous buffer %u bytes @0x%08X", (unsigned)bytes, (u32)g_cbBuffer);
+}
 
 volatile u32 g_cbLastBackdateSamples = 0;
 volatile u32 g_cbLastPressLatencyUs  = 0;
@@ -15,6 +26,7 @@ volatile unsigned g_pendingPressTicks = 0;
 
 void cbWriteBlock(const s32 *in)
 {
+    if (!g_cbBuffer) return;             // not yet allocated (pre-setup safety)
     s16 *dst = cbBlockPtr(g_cbWriteBlock);
     // in[] is the loopMachine interleaved s32 input block (L,R per frame).
     const int n = AUDIO_BLOCK_SAMPLES * LOOPER_NUM_CHANNELS;

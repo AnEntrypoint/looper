@@ -168,6 +168,7 @@ loopMachine::loopMachine() : publicLoopMachine()
     LOG("loopMachine ctor",0);
 
     new loopBuffer();
+    cbInit();   // heap-allocate the continuous rolling record buffer (~16MB)
 
     for (int i=0; i<LOOPER_NUM_TRACKS; i++)
     {
