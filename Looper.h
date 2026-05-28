@@ -205,6 +205,7 @@ class publicClip
             m_quantizeTarget = 0;
             m_quantizeWillPlay = false;
             m_recordStartPhaseOffset = 0;
+            m_recStartBlock = 0;
             m_mute = false;
             m_volume = 1.0;
             m_mark_point = -1;
@@ -225,6 +226,7 @@ class publicClip
         u32  m_quantizeTarget;
         bool m_quantizeWillPlay;
         u32  m_recordStartPhaseOffset;
+        u32  m_recStartBlock;   // absolute rolling-buffer block of (backdated) rec start
 
         s32  m_mark_point;
         bool m_mark_point_active;
@@ -278,6 +280,7 @@ class loopClip : public publicClip
         void _endFadeOut();
 
         u32 _calcQuantizeTarget();
+        u32 _backdatedRecordLength();
 };
 
 

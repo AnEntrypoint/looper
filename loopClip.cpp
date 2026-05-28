@@ -1,5 +1,6 @@
 #include "Looper.h"
 #include "abletonLink.h"
+#include "continuousBuffer.h"
 
 #define log_name "lclip"
 
@@ -114,8 +115,30 @@ void loopClip::_startRecording()
     m_num_blocks = 0;
     m_max_blocks = (pTheLoopBuffer->getFreeBlocks() / LOOPER_NUM_CHANNELS) - CROSSFADE_BLOCKS;
     m_buffer = pTheLoopBuffer->getBuffer();
-    m_recordStartPhaseOffset = pTheLoopMachine->m_masterPhase;
-    LOOPER_LOG("startRecording: startPhase=%u masterLen=%u", m_recordStartPhaseOffset, pTheLoopMachine->m_masterLoopBlocks);
+
+    // Backdate to the press instant: m_recStartBlock is the absolute rolling-
+    // buffer block that was being written when the button was physically
+    // pressed (continuousBuffer cbBackdatedBlock compensates MIDI+queue+ring
+    // latency). The clip is filled FROM the rolling buffer starting there, so
+    // block 0 of the clip == the press moment, not the (later) process moment.
+    m_recStartBlock = cbBackdatedBlock(g_pendingPressTicks);
+
+    // Phrase-align to the PRESS instant too: convert the backdate (blocks) out
+    // of the current master phase so a loop that starts mid-phrase lands its
+    // boundary on the true press beat, not the latency-shifted process beat.
+    {
+        u32 backBlocks = g_cbWriteBlock - m_recStartBlock;   // blocks backdated
+        u32 mp = pTheLoopMachine->m_masterPhase;
+        m_recordStartPhaseOffset = mp - backBlocks;          // wrap-safe modular
+    }
+    LOOPER_LOG("startRecording: startPhase=%u masterLen=%u recStartBlock=%u", m_recordStartPhaseOffset, pTheLoopMachine->m_masterLoopBlocks, m_recStartBlock);
+
+    // FIRST loop on a clear bank (no master grid, not Link-synced to peers):
+    // mark Link "have started" and anchor the timeline origin at the backdated
+    // press instant, so this loop becomes beat 0 and replays/restarts seamlessly.
+    if (!linkIsSynced() && pTheLoopMachine->m_masterLoopBlocks == 0)
+        linkStart(g_pendingPressTicks);
+
     m_state = CS_RECORDING;
     m_pLoopTrack->incDecNumUsedClips(1);
     m_pLoopTrack->incDecRunning(1);
@@ -130,8 +153,19 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
     pTheLoopBuffer->commitBlocks(m_max_blocks * LOOPER_NUM_CHANNELS);
     if (!linkIsSynced() && m_clip_num == 0 && m_num_blocks > pTheLoopMachine->m_masterLoopBlocks)
     {
+        bool wasFirst = (pTheLoopMachine->m_masterLoopBlocks == 0);
         pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
         pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
+
+        // FIRST loop just defined the master grid: mark Link "have ended" and
+        // derive tempo+quant from this loop's length (nearest-120 subdivision),
+        // so the timeline broadcasts a clean musical grid Ableton can sync to as
+        // the song-start pattern. Quant SOURCE is this first loop, not Link peers.
+        if (wasFirst)
+        {
+            double clip_seconds = (double)m_num_blocks / (double)INTEGRAL_BLOCKS_PER_SECOND;
+            linkEnd(clip_seconds);
+        }
     }
     m_state = willPlay ? CS_RECORDING_TAIL : CS_FINISHING;
     m_play_block = 0;

@@ -80,7 +80,11 @@ private:
     // and adding jitter. A ring keeps every press in order so each looper
     // responds promptly and identically.
     static const int APC_CMD_RING = 32;
-    struct ApcCmdSlot { ApcCmd::Type type; int arg; };
+    // press_ticks = CTimer microseconds captured at the MIDI ISR (handleMidi),
+    // the EARLIEST observable moment of the press. Carried through the ring so
+    // the record-start/stop can backdate to the true press instant regardless
+    // of how long the press waited for the Core-2 drain. 0 = no timestamp.
+    struct ApcCmdSlot { ApcCmd::Type type; int arg; unsigned press_ticks; };
     volatile ApcCmdSlot m_cmdRing[APC_CMD_RING];
     volatile unsigned   m_cmdHead;   // producer writes, consumer reads
     volatile unsigned   m_cmdTail;   // consumer advances

@@ -10,4 +10,25 @@ double linkGetBPM(void);
 void linkSetBPM(double bpm);
 bool linkIsSynced(void);
 
+// ---- Timeline (train-on-first-loop) --------------------------------------
+// On rec-tap ON with no clips: mark "have started" and anchor the Link timeline
+// origin at the (backdated) press instant. originTicks = CTimer microseconds of
+// the press; 0 = now. The next sendAlive broadcasts this origin so peers (Ableton
+// Live) treat the first loop as beat 0 / song start.
+void linkStart(unsigned originTicks);
+
+// On rec-tap OFF: "have ended". Derive tempo + quant from the recorded loop
+// length (clip_seconds): choose the musical beat-count whose resulting BPM is
+// nearest 120 within [80,160], set s_bpm from it, mark the timeline finalized so
+// sendAlive broadcasts the new origin+mpb. Returns chosen beats (the quant unit).
+double linkEnd(double clip_seconds);
+
+// Pure helper (also unit-tested host-side): nearest-120 beat-count + bpm for a
+// given loop length. beats in {0.25,0.5,1,2,4,8,16}.
+void linkDeriveQuant(double clip_seconds, double *out_beats, double *out_bpm);
+
+bool   linkHasStarted(void);   // timeline anchored (rec started, not yet ended)
+bool   linkHasEnded(void);     // timeline finalized (loop length known)
+double linkQuantBeats(void);   // chosen quant subdivision in beats (0 if none)
+
 #endif

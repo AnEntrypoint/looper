@@ -2,6 +2,7 @@
 #include <circle/logger.h>
 #include <circle/synchronize.h>
 #include "abletonLink.h"
+#include "continuousBuffer.h"
 #include "patches/RubberBandWrapper.h"
 #include "patches/apcEffectsProcessor.h"
 #include "patches/paramSnapshot.h"
@@ -527,6 +528,13 @@ void loopMachine::update(void)
 			AudioSystem::release(in);
 
 	}
+
+	// ALWAYS-ON continuous record buffer (continuousBuffer.h): store the DRY
+	// input block (before live-pitch/effects mutate m_input_buffer in place)
+	// into the 3-min rolling buffer. This is the single staging area every
+	// looper copies its clip out of, and the source for latency-backdated
+	// record start/stop. Advances g_cbWriteBlock once per audio block.
+	cbWriteBlock(m_input_buffer);
 
 	LiveParams lp = paramSnapshotLoad();
 	if (pLivePitchWrapper)

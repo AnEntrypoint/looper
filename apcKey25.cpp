@@ -4,6 +4,9 @@
 #include "input_usb.h"
 #include "usbMidi.h"
 #include "abletonLink.h"
+// Only the press-ticks publish hook is needed here; avoid pulling the full
+// continuousBuffer.h (which needs Looper.h macros) into this translation unit.
+extern volatile unsigned g_pendingPressTicks;
 #include "patches/paramSnapshot.h"
 #include "patches/RubberBandWrapper.h"
 #include <circle/logger.h>
@@ -59,11 +62,16 @@ void apcKey25::_queueCmd(ApcCmd::Type type, int arg)
 {
     // SPSC ring push (producer = MIDI ISR). Drop only if full (32 unread) —
     // never overwrite an unread command. head==tail means empty.
+    // Stamp press_ticks HERE: _queueCmd runs inside handleMidi (the MIDI IN
+    // ISR), so this is the earliest observable moment of the press. One timer
+    // read, no alloc — ISR-safe (same CTimer::GetClockTicks already used by
+    // input_usb g_inLastTicks). Backdating uses this as the true press instant.
     unsigned head = m_cmdHead;
     unsigned next = (head + 1) % APC_CMD_RING;
     if (next == m_cmdTail) return;            // ring full — drop (should never happen at tap rates)
     m_cmdRing[head].type = type;
     m_cmdRing[head].arg  = arg;
+    m_cmdRing[head].press_ticks = CTimer::GetClockTicks();
     m_cmdHead = next;                          // publish after fields written
 }
 
@@ -265,6 +273,9 @@ void apcKey25::update()
     {
         ApcCmd::Type type = m_cmdRing[m_cmdTail].type;
         int arg = m_cmdRing[m_cmdTail].arg;
+        // Publish the press instant for this command so record start/stop can
+        // backdate to it (read in the same Core-2 call, single-threaded).
+        g_pendingPressTicks = m_cmdRing[m_cmdTail].press_ticks;
         m_cmdTail = (m_cmdTail + 1) % APC_CMD_RING;
 
         if (type == ApcCmd::TRACK)

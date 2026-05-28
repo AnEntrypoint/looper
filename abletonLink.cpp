@@ -22,6 +22,15 @@ static u64 s_nodeId=0, s_lastSend=0;
 static bool     s_synced=false;
 static unsigned s_lastIgmp=0;
 
+// Timeline (train-on-first-loop). s_timeOrigin = CTimer microseconds at the
+// (backdated) rec-press = beat 0; s_beatOrigin = 0 there. Broadcast in the
+// tmln TLV so a peer's transport aligns to our first loop as song start.
+static bool   s_started   = false;   // rec-on anchored the origin
+static bool   s_ended     = false;   // rec-off finalized tempo+quant
+static u64    s_timeOrigin = 0;      // us
+static s64    s_beatOrigin = 0;      // beats*? Link uses beat units; 0 = start
+static double s_quantBeats = 0.0;    // chosen subdivision (beats)
+
 static inline u16 swap16(u16 v) { return __builtin_bswap16(v); }
 static inline u32 swap32(u32 v) { return __builtin_bswap32(v); }
 static inline u64 swap64(u64 v) { return __builtin_bswap64(v); }
@@ -88,14 +97,19 @@ static void sendAlive(void)
 	{
 		s64 mpb   = (s64)(60000000.0 / s_bpm);
 		s64 mpbBE = (s64)swap64((u64)mpb);
-		s64 zero  = 0;
+		// beatOrigin + timeOrigin: once the first loop has been recorded
+		// (s_started) these anchor the timeline to the backdated press instant
+		// = beat 0, so peers treat our loop as song start. Before that they
+		// stay 0 (no anchor yet). Big-endian on the wire like mpb.
+		s64 beatBE = (s64)swap64((u64)s_beatOrigin);
+		s64 timeBE = (s64)swap64((u64)(s_started ? s_timeOrigin : 0));
 		u32 tkey  = swap32(KEY_TMLN);
 		u32 tsz   = swap32(24);
 		memcpy(payload + plen, &tkey,  4); plen += 4;
 		memcpy(payload + plen, &tsz,   4); plen += 4;
-		memcpy(payload + plen, &mpbBE, 8); plen += 8;
-		memcpy(payload + plen, &zero,  8); plen += 8;
-		memcpy(payload + plen, &zero,  8); plen += 8;
+		memcpy(payload + plen, &mpbBE,  8); plen += 8;
+		memcpy(payload + plen, &beatBE, 8); plen += 8;
+		memcpy(payload + plen, &timeBE, 8); plen += 8;
 	}
 
 	u8 frame[FRAME_BUF];
@@ -200,3 +214,59 @@ void linkProcess(void)
 double linkGetBPM(void)       { return s_bpm; }
 void   linkSetBPM(double bpm) { s_bpm = bpm; }
 bool   linkIsSynced(void)     { return s_synced; }
+
+bool   linkHasStarted(void)   { return s_started; }
+bool   linkHasEnded(void)     { return s_ended; }
+double linkQuantBeats(void)   { return s_quantBeats; }
+
+void linkStart(unsigned originTicks)
+{
+	// Anchor the timeline at the (backdated) press instant = beat 0.
+	s_timeOrigin = originTicks ? (u64)originTicks : (u64)CTimer::GetClockTicks();
+	s_beatOrigin = 0;
+	s_started    = true;
+	s_ended      = false;
+	s_quantBeats = 0.0;
+	// Until rec-off we hold the boot/default tempo; the loop length sets it.
+}
+
+void linkDeriveQuant(double clip_seconds, double *out_beats, double *out_bpm)
+{
+	// Musical beat-count candidates; choose the one whose BPM is nearest 120,
+	// preferring candidates inside [80,160]. (Mirrors scripts/test-link-quant.cpp.)
+	static const double cand[] = {0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0};
+	const int N = (int)(sizeof cand / sizeof cand[0]);
+	if (clip_seconds <= 0.0001) { *out_beats = 4.0; *out_bpm = 120.0; return; }
+
+	double bestB = 4.0, bestBpm = 120.0, bestDist = 1e18; bool haveInWin = false;
+	for (int i = 0; i < N; i++)
+	{
+		double bpm = 60.0 * cand[i] / clip_seconds;
+		double dist = bpm > 120.0 ? bpm - 120.0 : 120.0 - bpm;
+		bool inWin = (bpm >= 80.0 && bpm <= 160.0);
+		// Prefer in-window; among in-window, nearest 120. If none in window yet,
+		// track nearest overall as fallback.
+		if (inWin)
+		{
+			if (!haveInWin || dist < bestDist) { bestB = cand[i]; bestBpm = bpm; bestDist = dist; haveInWin = true; }
+		}
+		else if (!haveInWin && dist < bestDist)
+		{
+			bestB = cand[i]; bestBpm = bpm; bestDist = dist;
+		}
+	}
+	*out_beats = bestB;
+	*out_bpm   = bestBpm;
+}
+
+double linkEnd(double clip_seconds)
+{
+	double beats, bpm;
+	linkDeriveQuant(clip_seconds, &beats, &bpm);
+	s_bpm        = bpm;
+	s_quantBeats = beats;
+	s_ended      = true;
+	// Origin stays at the rec-on press (beat 0); sendAlive now broadcasts the
+	// finalized mpb + origin so peers sync to this loop as the song-start pattern.
+	return beats;
+}

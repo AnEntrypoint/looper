@@ -124,6 +124,24 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					linkIsSynced() ? "synced" : "no", (int)linkGetBPM());
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
+			else if (buf[0]=='T' && buf[1]=='I' && buf[2]=='M' && buf[3]=='E')
+			{
+				extern volatile u32 g_cbWriteBlock;
+				extern volatile u32 g_cbLastBackdateSamples;
+				extern volatile u32 g_cbLastPressLatencyUs;
+				extern volatile u32 g_cbLastBackdateClamped;
+				CString s;
+				s.Format("backdate=%u latUs=%u clamped=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d",
+					(unsigned)g_cbLastBackdateSamples,
+					(unsigned)g_cbLastPressLatencyUs,
+					(unsigned)g_cbLastBackdateClamped,
+					(unsigned)g_cbWriteBlock,
+					linkHasStarted() ? 1 : 0,
+					linkHasEnded() ? 1 : 0,
+					(int)(linkQuantBeats() * 100),
+					(int)linkGetBPM());
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
 			else {
 			char rep[256];
 			int rn = engineQueryDispatch((const char *)buf, rep, sizeof rep);

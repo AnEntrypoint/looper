@@ -1,5 +1,7 @@
 #include "Looper.h"
+#include "continuousBuffer.h"
 #include <circle/logger.h>
+#include <circle/util.h>
 
 #define log_name "lclip"
 
@@ -58,13 +60,19 @@ void loopClip::update(s32 *ip, s32 *op)
     s16 tmp_L[AUDIO_BLOCK_SAMPLES] = {0};
     s16 tmp_R[AUDIO_BLOCK_SAMPLES] = {0};
 
-    for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+    // COPY-FROM-ROLLING: the clip records by copying from the always-on 3-min
+    // continuous buffer (continuousBuffer.h), NOT the live input. The source
+    // block is the backdated rec start plus how far we are into the clip, so
+    // clip block 0 == the press instant (latency already compensated at start).
+    // ip (live input) is now ignored for recording; it stays consumed by the
+    // playback/mix below. Both clip dest and rolling source are interleaved
+    // s16 [L,R]*AUDIO_BLOCK_SAMPLES -> one memcpy per block.
+    if (rp)
     {
-        if (rp) {
-            *rp++ = *ip++;  // L
-            *rp++ = *ip++;  // R
-        }
+        const s16 *src = cbBlockPtr(m_recStartBlock + m_record_block);
+        memcpy(rp, src, AUDIO_BLOCK_SAMPLES * LOOPER_NUM_CHANNELS * sizeof(s16));
     }
+    (void)ip;
 
     double i_fade = 1.0;
     double o_fade = 1.0;

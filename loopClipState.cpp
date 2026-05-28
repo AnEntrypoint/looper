@@ -1,4 +1,5 @@
 #include "Looper.h"
+#include "continuousBuffer.h"
 
 #define log_name "lclip"
 
@@ -21,10 +22,26 @@ CString *getClipStateName(ClipState s)
     return msg;
 }
 
+// Backdated recorded length (blocks) for the FIRST loop (no master grid yet):
+// length = backdated stop block - backdated start block, so the loop duration
+// equals the press-to-press interval exactly (both ends latency-compensated),
+// not the process-to-process interval. Falls back to m_record_block if the
+// backdated stop would be <= start (degenerate / no timestamp).
+u32 loopClip::_backdatedRecordLength()
+{
+    u32 stopBlock = cbBackdatedBlock(g_pendingPressTicks);
+    if (stopBlock > m_recStartBlock)
+    {
+        u32 len = stopBlock - m_recStartBlock;
+        if (len <= m_record_block) return len;   // never beyond what's captured
+    }
+    return m_record_block;
+}
+
 u32 loopClip::_calcQuantizeTarget()
 {
     u32 M = pTheLoopMachine->m_masterLoopBlocks;
-    if (M == 0) return m_record_block;
+    if (M == 0) return _backdatedRecordLength();
 
     u32 candidates[] = { M/8, M/4, M/2, M, M*2, M*4, M*8 };
     u32 best = M;
