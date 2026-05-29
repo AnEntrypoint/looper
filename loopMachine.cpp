@@ -608,7 +608,18 @@ void loopMachine::update(void)
 	                    ? (u32)pLivePitchWrapper->latencySamples() : 0;
 	cbWriteBlock(m_input_buffer);
 
-	if (lp.linkSynced)
+	// Link grid only governs the quant once a LOCAL loop exists. On a clear bank
+	// the FIRST recording defines the grid itself (see _startEndingRecording) and
+	// must stop exactly at the backdated press, NOT snap to a Link-derived grid —
+	// otherwise the first take records past the press to the next grid beat
+	// ("plays the beat after the button press"). Gate the Link-sets-master block
+	// on having at least one recorded clip so a synced peer cannot impose a grid
+	// before the musician has laid down their own first loop.
+	bool anyRecorded = false;
+	for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
+		if (getTrack(i)->getNumRecordedClips() > 0) { anyRecorded = true; break; }
+
+	if (lp.linkSynced && anyRecorded)
 	{
 		float bpm = lp.linkBPM;
 		if (bpm > 0)
