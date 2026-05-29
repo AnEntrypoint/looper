@@ -53,7 +53,12 @@ void loopClip::doubleLength()
     m_origNumBlocks = doubled;
     m_num_blocks = doubled;
     m_max_blocks = needed;
-    if (!linkIsSynced() && m_clip_num == 0 && m_num_blocks > pTheLoopMachine->m_masterLoopBlocks)
+    // Doubling a clip must NOT redefine the master phrase reference. As with the
+    // record-finish path, only the first loop on a clear bank owns the grid;
+    // growing m_masterLoopBlocks / reslicing m_masterPhase here would shift every
+    // playing clip's phase. Set it only if no master exists yet (degenerate:
+    // doubling the very first, still-undefined loop).
+    if (!linkIsSynced() && pTheLoopMachine->m_masterLoopBlocks == 0)
     {
         pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
         pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
@@ -178,9 +183,18 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
     m_max_blocks = m_num_blocks + CROSSFADE_BLOCKS;
     LOOPER_LOG("endRecording: recorded=%u target=%u numBlocks=%u", m_record_block, trimToBlocks, m_num_blocks);
     pTheLoopBuffer->commitBlocks(m_max_blocks * LOOPER_NUM_CHANNELS);
-    if (!linkIsSynced() && m_clip_num == 0 && m_num_blocks > pTheLoopMachine->m_masterLoopBlocks)
+
+    // The master phrase reference is set EXACTLY ONCE, by the FIRST loop
+    // recorded on a clear bank (m_masterLoopBlocks == 0). Every subsequent loop
+    // — 2nd, 3rd, longer or shorter — must NEVER grow m_masterLoopBlocks or
+    // reslice m_masterPhase: both feed every playing clip's phase
+    // (play_block = (masterPhase - recordStartPhaseOffset) % num_blocks), so
+    // changing them shifts loops already playing and corrupts their phrasing
+    // (the intermittent "a 3rd loop messed up an existing loop" bug — it fired
+    // whenever the new loop happened to be longer than the established master).
+    // Later loops align TO this grid; they do not redefine it.
+    if (!linkIsSynced() && pTheLoopMachine->m_masterLoopBlocks == 0)
     {
-        bool wasFirst = (pTheLoopMachine->m_masterLoopBlocks == 0);
         pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
         pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
 
@@ -188,11 +202,8 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
         // derive tempo+quant from this loop's length (nearest-120 subdivision),
         // so the timeline broadcasts a clean musical grid Ableton can sync to as
         // the song-start pattern. Quant SOURCE is this first loop, not Link peers.
-        if (wasFirst)
-        {
-            double clip_seconds = (double)m_num_blocks / (double)INTEGRAL_BLOCKS_PER_SECOND;
-            linkEnd(clip_seconds);
-        }
+        double clip_seconds = (double)m_num_blocks / (double)INTEGRAL_BLOCKS_PER_SECOND;
+        linkEnd(clip_seconds);
     }
     m_state = willPlay ? CS_RECORDING_TAIL : CS_FINISHING;
     m_play_block = 0;
