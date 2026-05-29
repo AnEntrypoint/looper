@@ -141,15 +141,16 @@ static TMIDIOutSlot s_MIDIOutSlots[USBMIDI_OUT_SLOTS] = {};
 volatile unsigned g_midiOutDropped = 0;
 volatile unsigned g_midiOutErrors  = 0;
 static volatile unsigned s_MIDIOutInFlight = 0;
-// Allow several MIDI OUT URBs in flight so a per-tick LED burst (the grid sends
-// up to ~30 NoteOns in one 33ms refresh when many pad colors change) actually
-// goes out within the tick instead of dripping one-per-tick. Cap 1 serialized
-// every LED frame on a full USB round-trip, so a full-grid color change took
-// ~1s to settle and transient updates appeared to "not reach" the APC. Each of
-// the 8 preallocated slots has its own buffer + completion, so up to 6 in
-// flight is safe (leaves slot headroom) and well within the APC OUT endpoint's
-// pipelining. The async completion still frees slots as URBs finish.
-#define USBMIDI_OUT_MAX_INFLIGHT 6
+// Keep ONE MIDI OUT URB in flight. Raising this to pipeline LED bursts broke
+// MIDI entirely on the APC25 — queuing multiple concurrent OUT URBs on its
+// single full-speed OUT endpoint overran the device and wedged the transfer
+// path (no LEDs AND no input). Cap 1 is the proven-good serialization. The
+// stuck-LED problem is fixed instead by the drop-returns-FALSE change below:
+// the coalescer leaves the cache stale on a drop and re-sends the SAME update
+// the next 33ms tick, so updates self-heal without ever overrunning the
+// endpoint. Steady state changes few pads per tick, so cap-1 keeps up; only a
+// full-grid color change settles over a few ticks (was the prior behavior).
+#define USBMIDI_OUT_MAX_INFLIGHT 1
 
 static TMIDIOutSlot *AllocSlot (CUSBMIDIHostDevice *pOwner)
 {
