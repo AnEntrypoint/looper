@@ -130,13 +130,33 @@ void loopClip::_startRecording()
     // block 0 of the clip == the press moment, not the (later) process moment.
     m_recStartBlock = cbBackdatedBlock(g_pendingPressTicks);
 
-    // Phrase-align to the PRESS instant too: convert the backdate (blocks) out
-    // of the current master phase so a loop that starts mid-phrase lands its
+    // Phrase-align to the PRESS instant: convert the backdate (blocks) out of
+    // the current master phase so a loop that starts mid-phrase lands its
     // boundary on the true press beat, not the latency-shifted process beat.
     {
         u32 backBlocks = g_cbWriteBlock - m_recStartBlock;   // blocks backdated
         u32 mp = pTheLoopMachine->m_masterPhase;
-        m_recordStartPhaseOffset = mp - backBlocks;          // wrap-safe modular
+        u32 startPhase = mp - backBlocks;                    // wrap-safe modular
+
+        // When a master grid exists, SNAP the start phase to the nearest BEAT
+        // grid multiple (gridStep = M/16) so every consecutive recording slices
+        // to a moment on a multiple/division of the quant — offbeats are not
+        // multiples. The latch already fired at a beat boundary; the backdate
+        // reintroduces a sub-beat offset that we round to the nearest grid
+        // point (forward when just before, backward/backdated when just after).
+        // First loop (M==0) is left sample-true: it DEFINES the grid.
+        u32 M = pTheLoopMachine->m_masterLoopBlocks;
+        if (M > 0)
+        {
+            u32 gridStep = (M >= 16) ? (M / 16) : M;
+            if (gridStep > 0)
+            {
+                u32 rem = startPhase % gridStep;
+                startPhase -= rem;                           // floor to grid
+                if (rem * 2 >= gridStep) startPhase += gridStep; // round up if past midpoint
+            }
+        }
+        m_recordStartPhaseOffset = startPhase;
     }
     LOOPER_LOG("startRecording: startPhase=%u masterLen=%u recStartBlock=%u", m_recordStartPhaseOffset, pTheLoopMachine->m_masterLoopBlocks, m_recStartBlock);
 

@@ -309,7 +309,13 @@ void apcKey25::update()
             {
                 m_looperClearTriggered[n] = true;
                 m_looperHeld[n] = false;
-                pTheLooper->command(LOOP_COMMAND_CLEAR_LAYER_BASE + n);
+                // Hold = stop+clear, ALWAYS ends with the LED off. Route to
+                // ERASE_TRACK (not CLEAR_LAYER): ERASE_TRACK unconditionally
+                // clears content + cancels any pending deferred-record and
+                // never re-arms, whereas CLEAR_LAYER on an empty/just-erased
+                // track re-arms a pending RECORD when a master grid exists,
+                // leaving the pad yellow (the "LED didn't disappear" bug).
+                pTheLooper->command(LOOP_COMMAND_ERASE_TRACK_BASE + n);
             }
         }
     }

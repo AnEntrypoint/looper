@@ -131,12 +131,16 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				extern volatile u32 g_cbLastPressLatencyUs;
 				extern volatile u32 g_cbLastBackdateClamped;
 				extern volatile u32 g_cbExtraLagSamples;
+				extern volatile u32 g_lastGridStep;
+				extern volatile u32 g_lastLatchPhase;
 				CString s;
-				s.Format("backdate=%u latUs=%u clamped=%u extraLag=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d",
+				s.Format("backdate=%u latUs=%u clamped=%u extraLag=%u gridStep=%u latchPhase=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d",
 					(unsigned)g_cbLastBackdateSamples,
 					(unsigned)g_cbLastPressLatencyUs,
 					(unsigned)g_cbLastBackdateClamped,
 					(unsigned)g_cbExtraLagSamples,
+					(unsigned)g_lastGridStep,
+					(unsigned)g_lastLatchPhase,
 					(unsigned)g_cbWriteBlock,
 					linkHasStarted() ? 1 : 0,
 					linkHasEnded() ? 1 : 0,

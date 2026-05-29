@@ -10,6 +10,11 @@
 extern RubberBandWrapper *pLivePitchWrapper;
 extern apcEffectsProcessor *pEffectsProcessor;
 
+// Record-latch grid witnesses for the :4445 TIME verb. Published when a
+// deferred RECORD latches on the beat grid (Core 1), read by the verb (Core 2).
+volatile u32 g_lastGridStep   = 0;
+volatile u32 g_lastLatchPhase = 0;
+
 #define log_name "lmachine"
 
 #define WITH_VOLUMES       1
@@ -330,35 +335,32 @@ void loopMachine::command(u16 command)
         int track_num = command - LOOP_COMMAND_ERASE_TRACK_BASE;
         LOOPER_LOG("LOOP_COMMAND_ERASE_TRACK(%d)",track_num);
         loopTrack *pTrack = getTrack(track_num);
-        int num_running = pTrack->getNumRunningClips();
 
+        // Hold = stop+clear THIS pad unconditionally and leave it empty (LED
+        // off). Unlike CLEAR_LAYER (which re-arms a pending RECORD on an empty
+        // track when a master grid exists), ERASE_TRACK NEVER arms: it cancels
+        // any queued deferred-record for this track, stops+inits the track, and
+        // never sets pending. This is the load-bearing difference that makes a
+        // long-hold always end with the LED off.
+        m_track_pending[track_num] = LOOP_COMMAND_NONE;
 
-        if (num_running)
-        {
-            for (int i=0; i<LOOPER_NUM_TRACKS; i++)
-                getTrack(i)->stopImmediate();
-            m_running = 0;
-            m_cur_track_num = -1;
-            m_selected_track_num = -1;
-            m_pending_command = 0;
-        }
-
-
-        else if (track_num == m_selected_track_num)
+        // Drop this track's selection so a stale selected-pending can't relight.
+        if (track_num == m_selected_track_num)
         {
             m_pending_command = 0;
+            m_tracks[track_num]->setSelected(false);
+            m_selected_track_num = m_running ? m_cur_track_num : -1;
             if (m_selected_track_num != -1)
-				m_tracks[m_selected_track_num]->setSelected(false);
-            if (m_running)
-			{
-				m_selected_track_num = m_cur_track_num;
-				m_tracks[m_selected_track_num]->setSelected(true);
-			}
-			else
-				m_selected_track_num = -1;
+                m_tracks[m_selected_track_num]->setSelected(true);
         }
 
-        pTrack->init();
+        // Clear every used layer via clearClip (which decrements the machine
+        // running-count for any PLAYING/LOOPING/STOPPING clip, unlike a raw
+        // init() that would leak the running count). Scoped to THIS track only
+        // — a single-pad hold must not stop the whole rig. Clear from the top
+        // down so the clearClip compaction shift stays in-bounds.
+        for (int layer = pTrack->getNumUsedClips() - 1; layer >= 0; layer--)
+            pTrack->clearClip(layer);
 
         bool anyClips = false;
         for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
@@ -796,10 +798,19 @@ void loopMachine::updateState(void)
         loopClip  *pClip0 = pTrack->getClip(0);
         ClipState clip0_state = pClip0 ? pClip0->getClipState() : CS_IDLE;
 
-        bool at_phrase_start = (m_masterLoopBlocks > 0) && (m_masterPhase % m_masterLoopBlocks == 0);
+        // Beat grid: m_masterLoopBlocks encodes 16 beats (see the link-quantum
+        // calc, raw = INTEGRAL_BLOCKS_PER_SECOND*60*16/bpm), so one beat =
+        // M/16. A pending record latches at the nearest BEAT grid point, NOT
+        // only at the full-phrase downbeat (phase % M == 0) — waiting for the
+        // whole 16-beat phrase made a press near a beat start a whole phrase
+        // later, on the wrong subdivision (the "offbeat / one forward" bug).
+        // gridStep clamped >=1; falls back to the phrase boundary when M < 16.
+        u32 gridStep = (m_masterLoopBlocks >= 16) ? (m_masterLoopBlocks / 16) : m_masterLoopBlocks;
+        bool at_beat_grid = (m_masterLoopBlocks > 0) && gridStep > 0 &&
+                            (m_masterPhase % gridStep == 0);
         bool track_latch;
         if (m_track_pending[i] == LOOP_COMMAND_RECORD && m_masterLoopBlocks > 0)
-            track_latch = at_phrase_start;
+            track_latch = at_beat_grid;
         else
             track_latch =
                 !pTrack->getNumRunningClips() ||
@@ -810,6 +821,15 @@ void loopMachine::updateState(void)
         {
             u16 cmd = m_track_pending[i];
             m_track_pending[i] = LOOP_COMMAND_NONE;
+            // Witness the grid alignment of a record latch for the :4445 TIME
+            // verb (gridStep + the phase the latch fired at) so the
+            // offbeat-vs-beat behavior is observable on hardware without audio
+            // capture. Only meaningful for a RECORD latch on a grid.
+            if (cmd == LOOP_COMMAND_RECORD && m_masterLoopBlocks > 0)
+            {
+                g_lastGridStep   = (m_masterLoopBlocks >= 16) ? (m_masterLoopBlocks / 16) : m_masterLoopBlocks;
+                g_lastLatchPhase = m_masterPhase;
+            }
             LOOPER_LOG("TRACK(%d) latching %s", i, getLoopCommandName(cmd));
             pTrack->updateState(cmd);
         }
