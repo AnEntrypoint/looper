@@ -29,13 +29,34 @@ CString *getClipStateName(ClipState s)
 // backdated stop would be <= start (degenerate / no timestamp).
 u32 loopClip::_backdatedRecordLength()
 {
-    u32 stopBlock = cbBackdatedBlock(g_pendingPressTicks);
-    if (stopBlock > m_recStartBlock)
+    // The loop must END exactly at the (backdated) stop press. Clip block 0 is
+    // already the backdated START (m_recStartBlock = cbBackdatedBlock at start),
+    // so the length is the absolute backdated-stop block minus the start block.
+    //
+    // stopBlock = g_cbWriteBlock - backStop, and m_record_block (blocks filled
+    // since start) == g_cbWriteBlock - m_recStartBlock, so:
+    //   len = stopBlock - m_recStartBlock = m_record_block - backStop
+    // i.e. we trim the stop-side action latency (backStop blocks) off the END,
+    // which is what stops the loop at the press instead of the (later) process
+    // moment. Recording kept filling past the press by backStop blocks; we drop
+    // them. Clamp to [1, m_record_block]; fall back to m_record_block only if
+    // the backdate is degenerate (stop at/behind start, or no timestamp).
+    u32 wrNow = g_cbWriteBlock;
+    u32 stopBlock = cbBackdatedBlock(g_pendingPressTicks);   // = wrNow - backStop
+    // backStop = how many blocks the stop press is behind the write head. Trim
+    // exactly that many off the END so the loop ends at the press, not the later
+    // process moment. Computed from the write head (NOT from m_recStartBlock) so
+    // the START-side backdate does not leak into the length — mixing the two
+    // backdates was leaving the loop a little long whenever the start latency
+    // exceeded the stop latency (the "records a bit extra after stop" bug).
+    u32 backStop = (wrNow > stopBlock) ? (wrNow - stopBlock) : 0;
+    if (backStop < m_record_block)
     {
-        u32 len = stopBlock - m_recStartBlock;
-        if (len <= m_record_block) return len;   // never beyond what's captured
+        u32 len = m_record_block - backStop;
+        if (len == 0) len = 1;
+        return len;                               // trimmed to the backdated stop
     }
-    return m_record_block;
+    return m_record_block;                         // degenerate: keep what we have
 }
 
 u32 loopClip::_calcQuantizeTarget()
