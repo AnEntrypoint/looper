@@ -193,8 +193,10 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
     // (the intermittent "a 3rd loop messed up an existing loop" bug — it fired
     // whenever the new loop happened to be longer than the established master).
     // Later loops align TO this grid; they do not redefine it.
+    bool wasFirst = false;
     if (!linkIsSynced() && pTheLoopMachine->m_masterLoopBlocks == 0)
     {
+        wasFirst = true;
         pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
         pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
 
@@ -215,9 +217,15 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
     // loop play shifted by up to (m_num_blocks - beat) — heard as the playback
     // "moving about a beat" from how it was recorded. Snapping to the length grid
     // enforces the rule: a loop shorter than the phrase starts on a division of
-    // the phrase (M/2, M/4, ...), a phrase-or-longer loop on a phrase multiple —
-    // nothing else. Only when a master grid governs this loop (not the first).
-    if (pTheLoopMachine->m_masterLoopBlocks > 0 && m_num_blocks > 0)
+    // the phrase (M/2, M/4, ...), a phrase-or-longer loop on a phrase multiple.
+    //
+    // CRITICAL: skip this for the loop that JUST defined the master (wasFirst).
+    // The first loop's recordStartPhaseOffset is the sample-true press anchor and
+    // IS the grid origin; re-snapping it to a multiple of its own length shifts
+    // its phase-zero away from where its audio begins, so it loops from a "funny
+    // place" and never repeats cleanly. Only LATER loops align TO the established
+    // grid; the first loop defines it and is left exactly as recorded.
+    if (!wasFirst && pTheLoopMachine->m_masterLoopBlocks > 0 && m_num_blocks > 0)
     {
         u32 L = m_num_blocks;
         u32 off = m_recordStartPhaseOffset % L;

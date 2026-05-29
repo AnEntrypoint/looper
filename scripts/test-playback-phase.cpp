@@ -62,6 +62,26 @@ int main() {
     check("one-beat offset above half a M/8 loop snaps up",
           snap_to_length(beat, M/8) == M/8);        // M/8=690, beat=345 == half -> rounds up
 
+    // FIRST loop (wasFirst) must NOT be re-snapped: its offset is the sample-true
+    // press anchor and IS the grid origin. Model: the first loop sets the master
+    // to its own length and keeps its raw offset; play_block at the press anchor
+    // must be 0 (loops cleanly from its start), and a re-snap would move it.
+    {
+        u32 rawOffset = 3 * beat + 77;     // arbitrary sample-true press anchor
+        u32 firstLen = 4880;               // whatever was recorded (defines grid)
+        // wasFirst path: offset stays raw, master = firstLen.
+        u32 keptOffset = rawOffset;        // NOT snapped
+        // The loop's own start is its anchor, so at masterPhase == anchor the
+        // play head is 0 (clean repeat from the beginning).
+        check("first loop plays from its own start (no re-snap)",
+              play_block(rawOffset, keptOffset, firstLen) == 0);
+        // If we HAD re-snapped (the bug), the play head at the anchor would be
+        // non-zero (plays from a funny place).
+        u32 wrongSnapped = snap_to_length(rawOffset, firstLen);
+        check("re-snapping the first loop WOULD shift it (the bug)",
+              play_block(rawOffset, wrongSnapped, firstLen) != 0);
+    }
+
     if (g_fails) { printf("%d FAILURE(S)\n", g_fails); return 1; }
     printf("ALL PASS\n");
     return 0;
