@@ -205,6 +205,26 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
         double clip_seconds = (double)m_num_blocks / (double)INTEGRAL_BLOCKS_PER_SECOND;
         linkEnd(clip_seconds);
     }
+
+    // Re-align the start phase to THIS LOOP'S OWN LENGTH grid, now that the
+    // final quantized length is known. _startRecording could only snap to the
+    // beat grid (M/16) because the length was not decided yet — but playback is
+    // play_block = (masterPhase - recordStartPhaseOffset) % m_num_blocks, so the
+    // loop plays in-phase only when recordStartPhaseOffset is a MULTIPLE of
+    // m_num_blocks. A beat-aligned offset that is not a length multiple makes the
+    // loop play shifted by up to (m_num_blocks - beat) — heard as the playback
+    // "moving about a beat" from how it was recorded. Snapping to the length grid
+    // enforces the rule: a loop shorter than the phrase starts on a division of
+    // the phrase (M/2, M/4, ...), a phrase-or-longer loop on a phrase multiple —
+    // nothing else. Only when a master grid governs this loop (not the first).
+    if (pTheLoopMachine->m_masterLoopBlocks > 0 && m_num_blocks > 0)
+    {
+        u32 L = m_num_blocks;
+        u32 off = m_recordStartPhaseOffset % L;
+        m_recordStartPhaseOffset -= off;                 // floor to length grid
+        if (off * 2 >= L) m_recordStartPhaseOffset += L; // round to nearest
+    }
+
     m_state = willPlay ? CS_RECORDING_TAIL : CS_FINISHING;
     m_play_block = 0;
     m_pLoopTrack->incDecNumRecordedClips(1);
