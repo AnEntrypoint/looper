@@ -141,7 +141,15 @@ static TMIDIOutSlot s_MIDIOutSlots[USBMIDI_OUT_SLOTS] = {};
 volatile unsigned g_midiOutDropped = 0;
 volatile unsigned g_midiOutErrors  = 0;
 static volatile unsigned s_MIDIOutInFlight = 0;
-#define USBMIDI_OUT_MAX_INFLIGHT 1
+// Allow several MIDI OUT URBs in flight so a per-tick LED burst (the grid sends
+// up to ~30 NoteOns in one 33ms refresh when many pad colors change) actually
+// goes out within the tick instead of dripping one-per-tick. Cap 1 serialized
+// every LED frame on a full USB round-trip, so a full-grid color change took
+// ~1s to settle and transient updates appeared to "not reach" the APC. Each of
+// the 8 preallocated slots has its own buffer + completion, so up to 6 in
+// flight is safe (leaves slot headroom) and well within the APC OUT endpoint's
+// pipelining. The async completion still frees slots as URBs finish.
+#define USBMIDI_OUT_MAX_INFLIGHT 6
 
 static TMIDIOutSlot *AllocSlot (CUSBMIDIHostDevice *pOwner)
 {
@@ -200,15 +208,22 @@ boolean CUSBMIDIHostDevice::SendEventsHandler (const u8 *pData, unsigned nLength
 
 	if (s_MIDIOutInFlight >= USBMIDI_OUT_MAX_INFLIGHT)
 	{
+		// Dropped (transmit pipeline full). Return FALSE, not TRUE: the LED
+		// coalescer (sendLedCoalesced) only commits a pad's color to its cache
+		// when the send returns TRUE, and retries next tick otherwise. Returning
+		// TRUE on a drop made the coalescer cache a color that never went out,
+		// so the pad froze at its previous color until the value changed again
+		// ("most LED updates reach, some don't"). FALSE leaves the cache stale
+		// so the same update is re-sent ~33ms later when a slot frees.
 		g_midiOutDropped++;
-		return TRUE;
+		return FALSE;
 	}
 
 	TMIDIOutSlot *pSlot = AllocSlot (pThis);
 	if (!pSlot)
 	{
 		g_midiOutDropped++;
-		return TRUE;
+		return FALSE;
 	}
 
 	pSlot->bBusy = TRUE;
