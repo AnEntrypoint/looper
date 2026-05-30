@@ -868,3 +868,21 @@ int loopMachine::getWrapperDebugStates(publicLoopMachine::ClipWrapperDebug *out,
     }
     return count;
 }
+
+// Capture-free clip-FSM telemetry for the :4445 CLIP verb. Fills clip-0 state of
+// track `t` so the first-loop seam/wrap is witnessable live (no audio capture):
+// state, play_block, record_block, num_blocks, max_blocks. Read on Core 2.
+extern "C" void loopClipTelemetry(int t, int *state, unsigned *play, unsigned *rec,
+                                  unsigned *num, unsigned *maxb, unsigned *running)
+{
+    if (!pTheLoopMachine || t < 0 || t >= LOOPER_NUM_TRACKS) { *state=-1; return; }
+    loopTrack *pTrack = ((loopMachine*)pTheLoopMachine)->getTrack(t);
+    loopClip *pClip = pTrack ? pTrack->getClip(0) : 0;
+    *running = pTrack ? (unsigned)pTrack->getNumRunningClips() : 0;
+    if (!pClip) { *state=-1; return; }
+    *state = (int)pClip->getClipState();
+    *play  = pClip->getPlayBlockNum();
+    *rec   = pClip->getRecordBlockNum();
+    *num   = pClip->getNumBlocks();
+    *maxb  = pClip->getMaxBlocks();
+}

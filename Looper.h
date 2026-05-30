@@ -274,7 +274,7 @@ class loopClip : public publicClip
         void _startEndingRecording(u32 trimToBlocks, bool willPlay);
         void _finishRecording();
 
-        void _startPlaying();
+        void _startPlaying(bool preservePlayBlock = false);
         void _startFadeOut();
         void _startCrossFade();
         void _endFadeOut();

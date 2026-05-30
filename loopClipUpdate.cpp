@@ -174,15 +174,27 @@ void loopClip::update(s32 *ip, s32 *op)
     if (pp_main)
     {
         u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
+
+        // CS_RECORDING_TAIL plays back for immediate monitoring while the
+        // crossfade tail is still being recorded. Playback here must NEVER drive
+        // a state transition: the TAIL ends ONLY via _finishRecording (record
+        // block-count path) at m_record_block>=m_max_blocks. Previously the
+        // advance below ran during TAIL and, for the first loop (L>=masterLen),
+        // hit _startCrossFade() at play_block==num_blocks — flipping to CS_LOOPING
+        // mid-tail so _finishRecording never fired, double-counting incDecRunning
+        // and entering the loop from an ambiguous seam (the first loop "didn't
+        // repeat the exact region / played from a funny place"). During TAIL we
+        // just advance+wrap the monitor head with no state change.
+        if (m_state == CS_RECORDING_TAIL)
+        {
+            m_play_block++;
+            if (m_play_block >= m_num_blocks) m_play_block = 0;
+        }
         // Sub-phrase loops (L < M) are phase-locked to the master: their length
         // divides the phrase, so masterPhase is coherent modulo L and recomputing
-        // the play head from it keeps them tight to the grid. Phrase-or-longer
-        // loops (L >= M) CANNOT use the masterPhase formula: masterPhase only
-        // tracks the phrase grid (M), so (masterPhase - offset) % L wanders by a
-        // phrase each restart (the "3rd loop changed when restarting" bug). They
-        // self-advance monotonically from their block-0 start (set in
-        // _startPlaying) and wrap at num_blocks, exactly like the no-master case.
-        if (masterLen > 0 && m_num_blocks < masterLen)
+        // the play head from it keeps them tight to the grid. The wrap->LOOPING
+        // crossfade is gated on CS_PLAYING (only a settled, playing loop wraps).
+        else if (masterLen > 0 && m_num_blocks < masterLen)
         {
             u32 next = ((pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset) % m_num_blocks + m_num_blocks) % m_num_blocks;
             bool wrapped = (next == 0) && (m_play_block > 0);
@@ -195,10 +207,15 @@ void loopClip::update(s32 *ip, s32 *op)
             }
             m_play_block = next;
         }
+        // First loop (L==masterLen) and phrase-or-longer loops (L>=M, and the
+        // no-master case) self-advance monotonically from their block-0 start and
+        // wrap via _startCrossFade — but ONLY when actually PLAYING, never during
+        // TAIL (handled above).
         else
         {
             m_play_block++;
-            if (m_play_block == m_num_blocks) _startCrossFade();
+            if (m_play_block == m_num_blocks && m_state == CS_PLAYING) _startCrossFade();
+            else if (m_play_block >= m_num_blocks) m_play_block = 0;
         }
     }
 }

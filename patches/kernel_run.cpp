@@ -9,6 +9,7 @@
 
 extern void usbMidiInjectMidi(u8 status, u8 data1, u8 data2);
 extern "C" int engineQueryDispatch(const char *req, char *out, int outsz);
+extern "C" void loopClipTelemetry(int, int*, unsigned*, unsigned*, unsigned*, unsigned*, unsigned*);
 extern "C" int wlanStatusCode(void);   // kernel.cpp: 0 off/fail, 1 joined, 2 AP
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
 extern void loop(void);
@@ -146,6 +147,19 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					linkHasEnded() ? 1 : 0,
 					(int)(linkQuantBeats() * 100),
 					(int)linkGetBPM());
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='C' && buf[1]=='L' && buf[2]=='I' && buf[3]=='P')
+			{
+				// Clip-0 FSM telemetry for track 0 (or "CLIP<n>" for track n):
+				// state/play/rec/num/max/running — witnesses the first-loop seam
+				// and wrap live without audio capture.
+				int t = (n >= 5 && buf[4] >= '0' && buf[4] <= '9') ? (buf[4]-'0') : 0;
+				int st = -1; unsigned pl=0, rc=0, nb=0, mx=0, run=0;
+				loopClipTelemetry(t, &st, &pl, &rc, &nb, &mx, &run);
+				CString s;
+				s.Format("track=%d state=%d play=%u rec=%u num=%u max=%u running=%u",
+					t, st, pl, rc, nb, mx, run);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else {

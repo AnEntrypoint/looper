@@ -50,13 +50,17 @@ u32 loopClip::_backdatedRecordLength()
     // backdates was leaving the loop a little long whenever the start latency
     // exceeded the stop latency (the "records a bit extra after stop" bug).
     u32 backStop = (wrNow > stopBlock) ? (wrNow - stopBlock) : 0;
-    if (backStop < m_record_block)
-    {
-        u32 len = m_record_block - backStop;
-        if (len == 0) len = 1;
-        return len;                               // trimmed to the backdated stop
-    }
-    return m_record_block;                         // degenerate: keep what we have
+    u32 len = (backStop < m_record_block) ? (m_record_block - backStop)
+                                          : m_record_block;  // degenerate: keep what we have
+    // Floor at CROSSFADE_BLOCKS*2 so the loop is long enough for the seam
+    // crossfade machinery (the M>0 quantize candidates apply the same floor;
+    // the first loop, M==0, must too — otherwise a tiny loop has a crossfade
+    // longer than the loop itself and the wrap/fade misbehaves). Never exceed
+    // what was actually captured.
+    u32 floorLen = (u32)(CROSSFADE_BLOCKS * 2);
+    if (len < floorLen) len = (m_record_block >= floorLen) ? floorLen : m_record_block;
+    if (len == 0) len = 1;
+    return len;
 }
 
 u32 loopClip::_calcQuantizeTarget()

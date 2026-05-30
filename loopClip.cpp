@@ -254,13 +254,27 @@ void loopClip::_finishRecording()
     m_state = CS_RECORDED;
     m_pLoopTrack->incDecRunning(-1);
     if (willPlay)
-        _startPlaying();
+        // Hand off from TAIL to PLAYING WITHOUT resetting the play head: TAIL has
+        // been advancing m_play_block monotonically from 0 while capturing the
+        // crossfade tail, so the audio is already mid-loop at a continuous
+        // position. Preserving it makes the record->play transition seamless (no
+        // backward jump of CROSSFADE blocks); the loop then wraps cleanly at
+        // num_blocks via _startCrossFade. A FRESH play (resume from stopped) does
+        // re-anchor the start position (preservePlayBlock=false).
+        _startPlaying(/*preservePlayBlock=*/true);
 }
 
-void loopClip::_startPlaying()
+void loopClip::_startPlaying(bool preservePlayBlock)
 {
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
-    if (masterLen > 0 && m_num_blocks > 0)
+    if (preservePlayBlock)
+    {
+        // Continue from the TAIL monitor position — already a valid in-loop block
+        // in [0, m_num_blocks). Clamp defensively.
+        if (m_num_blocks > 0 && m_play_block >= m_num_blocks)
+            m_play_block %= m_num_blocks;
+    }
+    else if (masterLen > 0 && m_num_blocks > 0)
     {
         if (m_num_blocks >= masterLen)
         {
@@ -298,7 +312,17 @@ void loopClip::_startCrossFade()
 {
     LOOPER_LOG("clip(%d,%d)::startCrossFade", m_track_num, m_clip_num);
     m_state = CS_LOOPING;
-    m_crossfade_start = m_play_block;
+    // Called from the self-advance path when m_play_block has just reached
+    // m_num_blocks (the loop point). The seam crossfades the OUTGOING tail
+    // (recorded blocks num_blocks..num_blocks+CROSSFADE) against the NEW loop
+    // starting at block 0. So: crossfade_start = the tail start (= current
+    // play_block == num_blocks), and the main play head WRAPS TO 0 to restart the
+    // exact recorded region. Previously play_block was left at num_blocks, so
+    // CS_LOOPING read getBlock(num_blocks) for the main head — the tail, NOT block
+    // 0 — making the loop NOT repeat its exact region from the start (the
+    // first-loop "funny place" seam). Reset to 0 to wrap cleanly.
+    m_crossfade_start = m_play_block;   // = num_blocks: outgoing tail start
+    m_play_block = 0;                   // new loop restarts the exact region
     m_crossfade_offset = 0;
     m_pLoopTrack->incDecRunning(1);
 }
