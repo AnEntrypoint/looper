@@ -41,22 +41,27 @@ u32 loopClip::_backdatedRecordLength()
     // moment. Recording kept filling past the press by backStop blocks; we drop
     // them. Clamp to [1, m_record_block]; fall back to m_record_block only if
     // the backdate is degenerate (stop at/behind start, or no timestamp).
-    u32 wrNow = g_cbWriteBlock;
-    u32 stopBlock = cbBackdatedBlock(g_pendingPressTicks);   // = wrNow - backStop
-    // backStop = how many blocks the stop press is behind the write head. Trim
-    // exactly that many off the END so the loop ends at the press, not the later
-    // process moment. Computed from the write head (NOT from m_recStartBlock) so
-    // the START-side backdate does not leak into the length — mixing the two
-    // backdates was leaving the loop a little long whenever the start latency
-    // exceeded the stop latency (the "records a bit extra after stop" bug).
-    u32 backStop = (wrNow > stopBlock) ? (wrNow - stopBlock) : 0;
-    u32 len = (backStop < m_record_block) ? (m_record_block - backStop)
-                                          : m_record_block;  // degenerate: keep what we have
+    // The clip is anchored in ABSOLUTE ring coordinates: clip block i ==
+    // cbBlockPtr(m_recStartBlock + i), and m_recStartBlock = the backdated START
+    // press. The loop must END at the backdated STOP press = stopBlock. So the
+    // length in clip coordinates is simply stopBlock - m_recStartBlock — the
+    // press-to-press interval, both ends already latency-compensated.
+    //
+    // Do NOT derive length from m_record_block - backStop: m_record_block counts
+    // audio updates SINCE recording began, but recording starts catching up from
+    // a BACKDATED (past) m_recStartBlock, so the clip runs a fixed backStart
+    // blocks behind the live write head — m_record_block != wrNow - m_recStartBlock.
+    // That mismatch left the loop a little long at the stop (start on time, stop
+    // late). Using absolute ring coordinates removes both backdates' bookkeeping.
+    u32 stopBlock = cbBackdatedBlock(g_pendingPressTicks);     // backdated stop press (abs ring block)
+    u32 len = (stopBlock > m_recStartBlock) ? (stopBlock - m_recStartBlock) : 0;
+
+    // Never exceed what has actually been copied into the clip yet.
+    if (len > m_record_block) len = m_record_block;
+
     // Floor at CROSSFADE_BLOCKS*2 so the loop is long enough for the seam
-    // crossfade machinery (the M>0 quantize candidates apply the same floor;
-    // the first loop, M==0, must too — otherwise a tiny loop has a crossfade
-    // longer than the loop itself and the wrap/fade misbehaves). Never exceed
-    // what was actually captured.
+    // crossfade machinery (the M>0 quantize candidates apply the same floor; the
+    // first loop, M==0, must too). Never exceed what was captured.
     u32 floorLen = (u32)(CROSSFADE_BLOCKS * 2);
     if (len < floorLen) len = (m_record_block >= floorLen) ? floorLen : m_record_block;
     if (len == 0) len = 1;
