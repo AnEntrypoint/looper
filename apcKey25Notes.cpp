@@ -66,6 +66,18 @@ void apcKey25::_onPadPress(int row, int col)
             m_looperRecordedOnPress[looper] = true;   // suppress the release tap
             _queueCmd(ApcCmd::CLEAR_LAYER, looper);   // arm record now
         }
+        else if (ts & TRACK_STATE_RECORDING)
+        {
+            // FINISH recording on PRESS-DOWN, not release — SAME timing-critical
+            // reason as the arm: the stop must land on the press instant. Firing
+            // on release stamped press_ticks at the release moment and recorded
+            // the entire press-hold duration, so the first loop ran a little long
+            // past the stop press. Press-down dispatch + backdate ends the loop
+            // exactly on the press. A long-hold still erases via the hold poll
+            // (ERASE_TRACK clears regardless of state). Suppress the release tap.
+            m_looperRecordedOnPress[looper] = true;
+            _queueCmd(ApcCmd::TRACK, looper);         // finish + play now
+        }
         else
         {
             m_looperRecordedOnPress[looper] = false;
