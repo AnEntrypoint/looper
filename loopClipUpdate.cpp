@@ -174,7 +174,15 @@ void loopClip::update(s32 *ip, s32 *op)
     if (pp_main)
     {
         u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
-        if (masterLen > 0)
+        // Sub-phrase loops (L < M) are phase-locked to the master: their length
+        // divides the phrase, so masterPhase is coherent modulo L and recomputing
+        // the play head from it keeps them tight to the grid. Phrase-or-longer
+        // loops (L >= M) CANNOT use the masterPhase formula: masterPhase only
+        // tracks the phrase grid (M), so (masterPhase - offset) % L wanders by a
+        // phrase each restart (the "3rd loop changed when restarting" bug). They
+        // self-advance monotonically from their block-0 start (set in
+        // _startPlaying) and wrap at num_blocks, exactly like the no-master case.
+        if (masterLen > 0 && m_num_blocks < masterLen)
         {
             u32 next = ((pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset) % m_num_blocks + m_num_blocks) % m_num_blocks;
             bool wrapped = (next == 0) && (m_play_block > 0);

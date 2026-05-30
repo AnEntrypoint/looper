@@ -208,29 +208,38 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
         linkEnd(clip_seconds);
     }
 
-    // Re-align the start phase to THIS LOOP'S OWN LENGTH grid, now that the
-    // final quantized length is known. _startRecording could only snap to the
-    // beat grid (M/16) because the length was not decided yet — but playback is
-    // play_block = (masterPhase - recordStartPhaseOffset) % m_num_blocks, so the
-    // loop plays in-phase only when recordStartPhaseOffset is a MULTIPLE of
-    // m_num_blocks. A beat-aligned offset that is not a length multiple makes the
-    // loop play shifted by up to (m_num_blocks - beat) — heard as the playback
-    // "moving about a beat" from how it was recorded. Snapping to the length grid
-    // enforces the rule: a loop shorter than the phrase starts on a division of
-    // the phrase (M/2, M/4, ...), a phrase-or-longer loop on a phrase multiple.
+    // Re-align the start phase to the QUANT grid, now that the final quantized
+    // length is known. Playback is play_block = (masterPhase -
+    // recordStartPhaseOffset) % m_num_blocks, which is phase-stable across
+    // restarts only when the offset is aligned to a grid the free-running
+    // masterPhase is coherent on. masterPhase carries the PHRASE grid (M): it is
+    // only ever reduced modulo M, never modulo a longer period.
     //
-    // CRITICAL: skip this for the loop that JUST defined the master (wasFirst).
-    // The first loop's recordStartPhaseOffset is the sample-true press anchor and
-    // IS the grid origin; re-snapping it to a multiple of its own length shifts
-    // its phase-zero away from where its audio begins, so it loops from a "funny
-    // place" and never repeats cleanly. Only LATER loops align TO the established
-    // grid; the first loop defines it and is left exactly as recorded.
+    // The rule (user spec):
+    //   - loop SHORTER than the phrase (L < M): start on a DIVISION of the phrase
+    //     (M/2 = halfway, M/4 = any quarter, ...). Its length L divides M, so
+    //     snapping the offset to a multiple of L keeps it coherent with masterPhase.
+    //   - loop a PHRASE OR LONGER (L >= M): start on PHRASE START. Snap the offset
+    //     to a multiple of M (NOT L). A long loop (2M, 4M) snapped to its own
+    //     length L is NOT anchored — masterPhase only tracks M, so masterPhase % L
+    //     wanders and the loop restarts from a different point each time ("3rd loop
+    //     changed when restarting"). Snapping to M makes block 0 land on a phrase
+    //     downbeat, deterministic on every restart.
+    //
+    // grid = min(L, M): division grid below a phrase, phrase grid at/above it.
+    //
+    // CRITICAL: skip for the loop that JUST defined the master (wasFirst). Its
+    // offset is the sample-true press anchor and IS the grid origin; re-snapping
+    // it would move its phase-zero off where its audio begins (loops from a "funny
+    // place"). Only LATER loops align TO the established grid.
     if (!wasFirst && pTheLoopMachine->m_masterLoopBlocks > 0 && m_num_blocks > 0)
     {
+        u32 M = pTheLoopMachine->m_masterLoopBlocks;
         u32 L = m_num_blocks;
-        u32 off = m_recordStartPhaseOffset % L;
-        m_recordStartPhaseOffset -= off;                 // floor to length grid
-        if (off * 2 >= L) m_recordStartPhaseOffset += L; // round to nearest
+        u32 grid = (L < M) ? L : M;                          // division below phrase, phrase at/above
+        u32 off = m_recordStartPhaseOffset % grid;
+        m_recordStartPhaseOffset -= off;                     // floor to grid
+        if (off * 2 >= grid) m_recordStartPhaseOffset += grid; // round to nearest
     }
 
     m_state = willPlay ? CS_RECORDING_TAIL : CS_FINISHING;
@@ -252,7 +261,29 @@ void loopClip::_startPlaying()
 {
     u32 masterLen = pTheLoopMachine->m_masterLoopBlocks;
     if (masterLen > 0 && m_num_blocks > 0)
-        m_play_block = ((pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset) % m_num_blocks + m_num_blocks) % m_num_blocks;
+    {
+        if (m_num_blocks >= masterLen)
+        {
+            // Phrase-or-longer loop (L = M, 2M, 4M): ALWAYS resume from its OWN
+            // BEGINNING (block 0), beginning on the next phrase downbeat. The
+            // free-running masterPhase only tracks the phrase grid (M), so
+            // (masterPhase - offset) % L for a long L wanders by a phrase on each
+            // restart depending on which phrase you happened to restart in ("3rd
+            // loop changed when restarting"). There is no stable absolute L-anchor
+            // to resume mid-loop against, and the user rule is explicit: a loop a
+            // phrase or longer starts from phrase start. So we restart it at block
+            // 0; play continues 0..L-1 across the following phrases. Deterministic
+            // every time. (The phase-locked sub-phrase branch is for L < M only.)
+            m_play_block = 0;
+        }
+        else
+        {
+            // Sub-phrase loop: L divides M, so the free-running masterPhase is
+            // coherent modulo L and this is phase-stable across restarts. Starts on
+            // a division of the phrase (M/2 halfway, M/4 quarter, ...).
+            m_play_block = ((pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset) % m_num_blocks + m_num_blocks) % m_num_blocks;
+        }
+    }
     else
         m_play_block = 0;
     LOOPER_LOG("startPlaying: play_block=%u startPhase=%u masterPhase=%u numBlocks=%u", m_play_block, m_recordStartPhaseOffset, pTheLoopMachine->m_masterPhase, m_num_blocks);

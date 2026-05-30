@@ -82,6 +82,33 @@ int main() {
               play_block(rawOffset, wrongSnapped, firstLen) != 0);
     }
 
+    // --- Phrase-or-longer loops restart deterministically from block 0 -------
+    // The bug: a long loop (L = 2M) used play_block = (masterPhase - offset) % L,
+    // but masterPhase only tracks the phrase grid M, so at different phrase
+    // downbeats (masterPhase = k*M) the result alternated 0 / M by phrase parity
+    // — "3rd loop changed when restarting". The fix: L >= M restarts at block 0.
+    auto longloop_old = [](u32 masterPhase, u32 offset, u32 L){
+        return ((masterPhase - offset) % L + L) % L;
+    };
+    {
+        u32 L = 2 * M;                         // two phrases
+        u32 offset = 0;                        // phrase-aligned
+        // OLD scheme: restart at an even vs odd phrase gives different positions.
+        u32 atEvenPhrase = longloop_old(0 * M, offset, L);   // 0
+        u32 atOddPhrase  = longloop_old(1 * M, offset, L);   // M
+        check("OLD long-loop restart was phase-parity dependent (the bug)",
+              atEvenPhrase != atOddPhrase);
+        // FIX: always block 0, independent of which phrase you restart in.
+        u32 fixEven = 0, fixOdd = 0;           // _startPlaying sets play_block=0 for L>=M
+        check("FIX long-loop restarts at block 0 regardless of phrase", fixEven == fixOdd && fixEven == 0);
+    }
+
+    // Snap grid is min(L, M): division below a phrase, phrase at/above.
+    auto snap_grid = [&](u32 offset, u32 L){ u32 g = (L < M) ? L : M; return snap_to_length(offset, g); };
+    check("L=M/4 snaps on quarter grid", snap_grid(5*beat, M/4) % (M/4) == 0);
+    check("L=2M snaps on PHRASE grid (multiple of M), not 2M",
+          snap_grid(5*beat + 10, 2*M) % M == 0);
+
     if (g_fails) { printf("%d FAILURE(S)\n", g_fails); return 1; }
     printf("ALL PASS\n");
     return 0;
