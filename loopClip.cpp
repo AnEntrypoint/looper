@@ -128,44 +128,37 @@ void loopClip::_startRecording()
     m_max_blocks = (pTheLoopBuffer->getFreeBlocks() / LOOPER_NUM_CHANNELS) - CROSSFADE_BLOCKS;
     m_buffer = pTheLoopBuffer->getBuffer();
 
-    // Backdate to the press instant: m_recStartBlock is the absolute rolling-
-    // buffer block that was being written when the button was physically
-    // pressed (continuousBuffer cbBackdatedBlock compensates MIDI+queue+ring
-    // latency). The clip is filled FROM the rolling buffer starting there, so
-    // block 0 of the clip == the press moment, not the (later) process moment.
-    m_recStartBlock = cbBackdatedBlock(g_pendingPressTicks);
-
-    // Phrase-align to the PRESS instant, and CRITICALLY keep the clip's audio
-    // content-start (m_recStartBlock) and its phase anchor (recordStartPhaseOffset)
-    // on the SAME grid point. They must be tied: clip block 0's audio comes from
-    // ring block m_recStartBlock, and playback treats masterPhase==recordStartPhaseOffset
-    // as the loop's block 0 — if those name different instants the loop plays
-    // off by their difference (a sub-beat/division drift = "consecutive loops off
-    // by a quantized amount"). So: snap m_recStartBlock to the beat grid, then
-    // DERIVE recordStartPhaseOffset from the same snapped block, never snap them
-    // independently.
+    // Anchor the clip's content-start (m_recStartBlock = ring block of clip block
+    // 0) and its phase (m_recordStartPhaseOffset = the masterPhase playback treats
+    // as block 0) to the SAME instant. There are two regimes:
+    if (pTheLoopMachine->m_masterLoopBlocks > 0)
     {
-        u32 backBlocks = g_cbWriteBlock - m_recStartBlock;   // blocks backdated
-        u32 mp = pTheLoopMachine->m_masterPhase;
-        u32 startPhase = mp - backBlocks;                    // masterPhase at the (raw) content start
-        u32 M = pTheLoopMachine->m_masterLoopBlocks;
-        if (M > 0)
-        {
-            // Snap the start to the nearest BEAT grid point (M/16). First loop
-            // (M==0) is left sample-true — it DEFINES the grid.
-            u32 gridStep = (M >= 16) ? (M / 16) : M;
-            if (gridStep > 0)
-            {
-                u32 rem = startPhase % gridStep;
-                u32 snapDelta = (rem * 2 >= gridStep) ? (gridStep - rem)  // round up
-                                                      : (u32)0 - rem;     // round down (subtract rem)
-                // Apply the SAME delta to both the phase anchor and the content
-                // start block, so clip block 0's audio == the grid instant.
-                startPhase += snapDelta;                     // (gridStep-rem) up, or -rem down
-                m_recStartBlock += snapDelta;                // wrap-safe modular on u32
-            }
-        }
-        m_recordStartPhaseOffset = startPhase;
+        // CONSECUTIVE loop (a master grid exists): this _startRecording was fired
+        // by the pending-record LATCH in loopMachine::updateState, which triggers
+        // EXACTLY at a beat-grid downbeat (m_masterPhase % gridStep == 0). So the
+        // true start IS this instant: g_cbWriteBlock is the ring block being
+        // written now, and m_masterPhase is a clean beat. Anchor to them directly,
+        // with NO backdate and NO re-snap.
+        //   - NO backdate: the wait-for-grid latch already absorbed the press->grid
+        //     latency; backdating here would use g_pendingPressTicks, which is
+        //     STALE at latch time (it is only set in the APC cmd drain when the
+        //     pending was SET, never refreshed for the later latch) — backdating a
+        //     stale tick moved the content start to the wrong instant.
+        //   - NO re-snap: round-to-nearest on the backdated phase could land on a
+        //     neighboring (later) beat than the latch downbeat, shifting the loop
+        //     late off the first-loop start. The latch IS the grid point already.
+        m_recStartBlock          = g_cbWriteBlock;
+        m_recordStartPhaseOffset = pTheLoopMachine->m_masterPhase;
+    }
+    else
+    {
+        // FIRST loop (clear bank, no master): started IMMEDIATELY on the press
+        // (no latch wait), so backdate to the press instant — clip block 0 ==
+        // the backdated press. It DEFINES the grid; left sample-true, no snap.
+        // Phase = masterPhase at that backdated content start.
+        m_recStartBlock = cbBackdatedBlock(g_pendingPressTicks);
+        u32 backBlocks = g_cbWriteBlock - m_recStartBlock;
+        m_recordStartPhaseOffset = pTheLoopMachine->m_masterPhase - backBlocks;
     }
     LOOPER_LOG("startRecording: startPhase=%u masterLen=%u recStartBlock=%u", m_recordStartPhaseOffset, pTheLoopMachine->m_masterLoopBlocks, m_recStartBlock);
 
