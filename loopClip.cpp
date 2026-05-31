@@ -135,30 +135,34 @@ void loopClip::_startRecording()
     // block 0 of the clip == the press moment, not the (later) process moment.
     m_recStartBlock = cbBackdatedBlock(g_pendingPressTicks);
 
-    // Phrase-align to the PRESS instant: convert the backdate (blocks) out of
-    // the current master phase so a loop that starts mid-phrase lands its
-    // boundary on the true press beat, not the latency-shifted process beat.
+    // Phrase-align to the PRESS instant, and CRITICALLY keep the clip's audio
+    // content-start (m_recStartBlock) and its phase anchor (recordStartPhaseOffset)
+    // on the SAME grid point. They must be tied: clip block 0's audio comes from
+    // ring block m_recStartBlock, and playback treats masterPhase==recordStartPhaseOffset
+    // as the loop's block 0 — if those name different instants the loop plays
+    // off by their difference (a sub-beat/division drift = "consecutive loops off
+    // by a quantized amount"). So: snap m_recStartBlock to the beat grid, then
+    // DERIVE recordStartPhaseOffset from the same snapped block, never snap them
+    // independently.
     {
         u32 backBlocks = g_cbWriteBlock - m_recStartBlock;   // blocks backdated
         u32 mp = pTheLoopMachine->m_masterPhase;
-        u32 startPhase = mp - backBlocks;                    // wrap-safe modular
-
-        // When a master grid exists, SNAP the start phase to the nearest BEAT
-        // grid multiple (gridStep = M/16) so every consecutive recording slices
-        // to a moment on a multiple/division of the quant — offbeats are not
-        // multiples. The latch already fired at a beat boundary; the backdate
-        // reintroduces a sub-beat offset that we round to the nearest grid
-        // point (forward when just before, backward/backdated when just after).
-        // First loop (M==0) is left sample-true: it DEFINES the grid.
+        u32 startPhase = mp - backBlocks;                    // masterPhase at the (raw) content start
         u32 M = pTheLoopMachine->m_masterLoopBlocks;
         if (M > 0)
         {
+            // Snap the start to the nearest BEAT grid point (M/16). First loop
+            // (M==0) is left sample-true — it DEFINES the grid.
             u32 gridStep = (M >= 16) ? (M / 16) : M;
             if (gridStep > 0)
             {
                 u32 rem = startPhase % gridStep;
-                startPhase -= rem;                           // floor to grid
-                if (rem * 2 >= gridStep) startPhase += gridStep; // round up if past midpoint
+                u32 snapDelta = (rem * 2 >= gridStep) ? (gridStep - rem)  // round up
+                                                      : (u32)0 - rem;     // round down (subtract rem)
+                // Apply the SAME delta to both the phase anchor and the content
+                // start block, so clip block 0's audio == the grid instant.
+                startPhase += snapDelta;                     // (gridStep-rem) up, or -rem down
+                m_recStartBlock += snapDelta;                // wrap-safe modular on u32
             }
         }
         m_recordStartPhaseOffset = startPhase;
@@ -227,6 +231,16 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
     //     downbeat, deterministic on every restart.
     //
     // grid = min(L, M): division grid below a phrase, phrase grid at/above it.
+    // FLOOR (not round-to-nearest) the offset to the grid: m_recordStartPhaseOffset
+    // is the backdated masterPhase at the PRESS — the moment the clip's audio
+    // content begins (clip block 0). The loop's phase-zero must coincide with that
+    // content start, so we floor the press phase DOWN to the grid point at/just
+    // before it; play_block=(masterPhase-offset)%L is then 0 exactly when the
+    // content's grid point comes round. Round-to-nearest could push phase-zero a
+    // grid step PAST where the audio started, mis-aligning content vs phase by a
+    // division — one source of the "consecutive loops off by a quantized amount".
+    // All four touchpoints (latch, length, this offset, playback) now share the
+    // one M-power-of-two grid anchored to masterPhase%M==0 (phrase 0).
     //
     // CRITICAL: skip for the loop that JUST defined the master (wasFirst). Its
     // offset is the sample-true press anchor and IS the grid origin; re-snapping
@@ -237,9 +251,13 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
         u32 M = pTheLoopMachine->m_masterLoopBlocks;
         u32 L = m_num_blocks;
         u32 grid = (L < M) ? L : M;                          // division below phrase, phrase at/above
-        u32 off = m_recordStartPhaseOffset % grid;
-        m_recordStartPhaseOffset -= off;                     // floor to grid
-        if (off * 2 >= grid) m_recordStartPhaseOffset += grid; // round to nearest
+        u32 floorBack = m_recordStartPhaseOffset % grid;     // blocks to floor to the L-grid
+        m_recordStartPhaseOffset -= floorBack;               // phase anchor -> grid point
+        // Keep clip block 0's AUDIO tied to the same grid point: move the content
+        // start back by the same amount so block 0 == the grid instant, not a
+        // point floorBack blocks later. (Both were beat-aligned at _startRecording;
+        // this floors the finer beat grid to the coarser L grid in lockstep.)
+        m_recStartBlock -= floorBack;
     }
 
     m_state = willPlay ? CS_RECORDING_TAIL : CS_FINISHING;
