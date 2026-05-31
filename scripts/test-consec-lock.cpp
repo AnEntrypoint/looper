@@ -26,12 +26,14 @@ static Rec start_recording(u32 pressRingBlock, u32 wrNow, u32 masterPhase, u32 M
     }
     return { recStart, startPhase };
 }
-// _startEndingRecording: floor offset AND content to L-grid (tied).
-static void end_recording(Rec& r, u32 L, u32 M) {
+// _startEndingRecording: NO stop-time floor (removed). The clip buffer was
+// filled from the beat-snapped record-start, so the offset already names buffer
+// block 0; flooring here would shift the phase off the (already-recorded) audio.
+static void end_recording(Rec& /*r*/, u32 /*L*/, u32 /*M*/) { /* no-op: no floor */ }
+// The buggy old floor, kept to PROVE it shifted the phase off the audio.
+static u32 old_floor_offset(u32 offset, u32 L, u32 M) {
     u32 grid = (L < M) ? L : M;
-    u32 floorBack = r.offset % grid;
-    r.offset   -= floorBack;
-    r.recStart -= floorBack;
+    return offset - (offset % grid);
 }
 // playback head at a given masterPhase.
 static u32 play_block(u32 masterPhase, u32 offset, u32 L) {
@@ -48,28 +50,32 @@ int main() {
         Rec r = start_recording(pressRing, wrNow, masterPhase, M);
         end_recording(r, L, M);
 
-        // INVARIANT 1: offset is a multiple of the grid (L for sub-phrase, M for >=phrase)
-        u32 grid = (L < M) ? L : M;
-        check("offset on grid", (r.offset % grid) == 0);
+        // INVARIANT 1: offset is on the BEAT grid (M/16) — finer than L, but L is a
+        // multiple of M/16, so this is coherent. (Not required to be on the L grid.)
+        check("offset on beat grid (M/16)", (r.offset % (M/16)) == 0);
 
-        // INVARIANT 2: play_block == 0 at every phrase boundary (masterPhase = k*M),
-        // i.e. the loop shares the first loop's start.
+        // INVARIANT 2 (THE FIX): the played downbeat == the recorded downbeat.
+        // Buffer block 0 audio sits at masterPhase == r.offset (record-start). So
+        // play_block at masterPhase==offset MUST be 0 (reads buffer[0] = the audio
+        // the operator played on the downbeat). No offbeat shift.
+        check("play_block==0 at offset -> reads recorded downbeat (no offbeat shift)",
+              play_block(r.offset, r.offset, L) == 0);
+
+        // INVARIANT 3: phase 0 recurs at every L-boundary (and L|M sub-phrase or
+        // L=jM multiple => coincides with the shared phrase grid).
         bool lockedAtPhrase = true;
         for (u32 k = 0; k < 8; k++)
-            if (play_block(r.offset + k*M, r.offset, L) != 0) {
-                // for sub-phrase L|M: phase 0 at every L AND every M boundary;
-                // for L>=M (L=jM): phase 0 at every L boundary which is every j-th phrase.
-                if (L < M) { lockedAtPhrase=false; break; }
-                else if ((k*M) % L == 0 && play_block(r.offset + k*M, r.offset, L)!=0){ lockedAtPhrase=false; break; }
-            }
-        check("locked to phrase grid (shares first-loop start)", lockedAtPhrase);
+            if (play_block(r.offset + k*L, r.offset, L) != 0) { lockedAtPhrase=false; break; }
+        check("phase 0 at every L-boundary (locked)", lockedAtPhrase);
 
-        // INVARIANT 3: content start tied to phase — recStart and offset moved by
-        // the same deltas, so clip block 0 audio == the grid instant. Check the
-        // offset-from-recStart relationship is preserved (both shifted equally).
-        // (Model: recStart and offset always shift together, so their difference
-        //  from the initial backdate is identical — verified structurally.)
-        check("content-start tied to phase anchor", true);
+        // PROOF the old stop-time floor was the bug: it moved the offset to a
+        // DIFFERENT value than buffer-block-0, so play_block at the true content
+        // downbeat (masterPhase==r.offset) would be NON-zero => offbeat shift.
+        u32 floored = old_floor_offset(r.offset, L, M);
+        if (floored != r.offset)
+            check("old floor WOULD have shifted playback off the audio (the bug)",
+                  play_block(r.offset, floored, L) != 0);
+
         printf("   L=%u offset=%u recStart=%u\n", L, r.offset, r.recStart);
     }
 
