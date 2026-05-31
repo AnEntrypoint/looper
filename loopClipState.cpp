@@ -73,15 +73,32 @@ u32 loopClip::_calcQuantizeTarget()
     u32 M = pTheLoopMachine->m_masterLoopBlocks;
     if (M == 0) return _backdatedRecordLength();
 
-    u32 candidates[] = { M/8, M/4, M/2, M, M*2, M*4, M*8 };
-    u32 best = M;
-    u32 bestDist = (m_record_block > M) ? m_record_block - M : M - m_record_block;
-    for (u32 i = 0; i < 7; i++)
+    u32 rec = m_record_block;
+    u32 floorLen = (u32)(CROSSFADE_BLOCKS * 2);
+
+    // 505-like quant (user rule): round to the NEAREST power-of-two grid of M,
+    // BUT bias so a SHORT tap rounds DOWN (plays immediately) and a near-grid tap
+    // rounds UP (extends to the boundary). The decision per candidate: snap UP to
+    // a candidate larger than `rec` ONLY when `rec` is at least HALFWAY to it
+    // (rec*2 >= candidate); otherwise the candidate below is closer and we take
+    // that. This is exactly "nearest on a log-2 grid" and it guarantees the chosen
+    // target for a sub-grid tap is <= rec when rec is below the midpoint — so
+    // updateState(PLAY) finishes+plays IMMEDIATELY instead of deferring (the
+    // "records then silent, never starts" stall when a short tap snapped up to a
+    // much larger division). A tap near/just under a phrase (rec close to M) is
+    // >= M/2's midpoint toward M, so it rounds UP to M (505 play-through). A tap
+    // over a phrase rounds to the nearest multiple {2M,4M,8M}.
+    u32 cand[] = { floorLen, M/8, M/4, M/2, M, M*2, M*4, M*8 };
+    const int N = (int)(sizeof cand / sizeof cand[0]);
+    u32 best = floorLen;
+    for (int i = 0; i < N; i++)
     {
-        u32 c = candidates[i];
-        if (c < (u32)(CROSSFADE_BLOCKS * 2)) continue;
-        u32 dist = (m_record_block > c) ? m_record_block - c : c - m_record_block;
-        if (dist < bestDist) { best = c; bestDist = dist; }
+        u32 c = cand[i];
+        if (c < floorLen) continue;            // never below the seam floor
+        // accept c if it is <= rec (always closer-or-equal from below), OR if rec
+        // is at least halfway from the previous accepted grid up to c (round up).
+        if (c <= rec) best = c;                 // largest candidate not exceeding rec
+        else { if (rec * 2 > c) best = c; break; } // first candidate above rec: round up iff past midpoint
     }
     return best;
 }
