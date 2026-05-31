@@ -147,7 +147,16 @@ void loopClip::_startRecording()
         //   - NO re-snap: round-to-nearest on the backdated phase could land on a
         //     neighboring (later) beat than the latch downbeat, shifting the loop
         //     late off the first-loop start. The latch IS the grid point already.
-        m_recStartBlock          = g_cbWriteBlock;
+        //
+        // Content anchor uses cbBackdatedBlock(0), NOT g_cbWriteBlock: g_cbWriteBlock
+        // is the NEXT-to-write block (cbWriteBlock writes dst THEN increments), so
+        // anchoring there made clip block 0 read the UNWRITTEN/stale ring head =
+        // silence -> the consecutive clip recorded nothing and played no audio.
+        // cbBackdatedBlock(0) (press_ticks==0 -> fixed-lag only = g_cbWriteBlock -
+        // CB_FIXED_LAG_SAMPLES/AUDIO_BLOCK_SAMPLES) lands on WRITTEN history with the
+        // same fixed ring/ADC lag the first loop uses — real audio at block 0. It
+        // ignores the stale g_pendingPressTicks. Phase stays the latch beat.
+        m_recStartBlock          = cbBackdatedBlock(0);
         m_recordStartPhaseOffset = pTheLoopMachine->m_masterPhase;
     }
     else
