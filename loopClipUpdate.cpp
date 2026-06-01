@@ -190,11 +190,20 @@ void loopClip::update(s32 *ip, s32 *op)
             m_play_block++;
             if (m_play_block >= m_num_blocks) m_play_block = 0;
         }
-        // Sub-phrase loops (L < M) are phase-locked to the master: their length
-        // divides the phrase, so masterPhase is coherent modulo L and recomputing
-        // the play head from it keeps them tight to the grid. The wrap->LOOPING
-        // crossfade is gated on CS_PLAYING (only a settled, playing loop wraps).
-        else if (masterLen > 0 && m_num_blocks < masterLen)
+        // Sub-phrase loops (L < M) AND the first loop (L == M) are phase-locked to
+        // the master: play_block = (masterPhase - recordStartPhaseOffset) % L,
+        // recomputed from masterPhase every block. Block i was recorded at phase
+        // offset+i, so (phase-offset)%L == i is the TRUE block-to-phase mapping —
+        // it advances by 1 per block and wraps at L exactly like a self-advance,
+        // but because it is re-derivable from masterPhase, PAUSE/RESUME lands on the
+        // SAME grid position a never-paused clip would (resume must not change phrase
+        // sync). The old code self-advanced L==M, so _startPlaying's phase formula
+        // and the self-advancing head DIVERGED on resume when recordStartPhaseOffset
+        // != 0 (first loop recorded mid-phrase) => the clip resumed OFFBEAT by up to
+        // ~L blocks. Witnessed by scripts/test-resume-phase.cpp. Only L > M (and the
+        // no-master case) still self-advances below. The wrap->LOOPING crossfade is
+        // gated on CS_PLAYING (only a settled, playing loop wraps).
+        else if (masterLen > 0 && m_num_blocks <= masterLen)
         {
             u32 next = ((pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset) % m_num_blocks + m_num_blocks) % m_num_blocks;
             bool wrapped = (next == 0) && (m_play_block > 0);
