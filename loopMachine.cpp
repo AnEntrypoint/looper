@@ -674,12 +674,34 @@ void loopMachine::update(void)
 	}
 	if (outPeak > m_outputPeakLevel) m_outputPeakLevel = outPeak;
 
+	// SHIFT-held monitor mode: ramp the loop-output contribution toward 0 so
+	// only the live (transposed + effected) input is heard for temporary
+	// record/effect; release ramps back to 1. The clips keep advancing
+	// (m_play_block tracks masterPhase above, untouched here), so release lands
+	// every loop exactly on the phrase grid — phase-seamless. The ramp is
+	// per-sample-interpolated across the block (block-constant endpoints) so the
+	// gate transition is click-free. ~MONITOR_GATE_BLOCKS blocks ~= 21ms full
+	// travel. The gate touches ONLY the output sum, never the record source
+	// (cbWriteBlock already ran above) or the clip phase, so recording during
+	// monitor captures the live input and loops resume in phase.
+	m_monitorActive = lp.monitorMode;
+	const float MONITOR_GATE_STEP = 1.0f / 16.0f;   // full 1<->0 travel in 16 blocks
+	float gateStart = m_loopOutputGain;
+	float gateTarget = lp.monitorMode ? 0.0f : 1.0f;
+	float gateEnd = gateStart;
+	if (gateEnd < gateTarget) { gateEnd += MONITOR_GATE_STEP; if (gateEnd > gateTarget) gateEnd = gateTarget; }
+	else if (gateEnd > gateTarget) { gateEnd -= MONITOR_GATE_STEP; if (gateEnd < gateTarget) gateEnd = gateTarget; }
+	m_loopOutputGain = gateEnd;
+	const float gateSampStep = (AUDIO_BLOCK_SAMPLES > 0)
+	                         ? (gateEnd - gateStart) / (float)AUDIO_BLOCK_SAMPLES : 0.0f;
+
 	s32 *iip = m_input_buffer;
 	s32 *iop = m_output_buffer;
 
 	for (u16 channel=0; channel<LOOPER_NUM_CHANNELS; channel++)
 	{
 		s16 *op = out[channel]->data;
+		float gate = gateStart;
 
 		#if WITH_METERS
 			s16 *thru_max   = &(m_meter[METER_THRU].max_sample[channel]);
@@ -701,6 +723,11 @@ void loopMachine::update(void)
 					oval32 = ((double)oval32) * loop_level;
 			#endif
 
+			// Apply the monitor gate to the loop contribution only. Input
+			// (ival32) always passes at full level. gate ramps per-sample
+			// across the block from gateStart to gateEnd (click-free).
+			oval32 = (s32)((float)oval32 * gate);
+			gate += gateSampStep;
 
 			s32 mval32 = ival32 + oval32;
 
@@ -885,4 +912,14 @@ extern "C" void loopClipTelemetry(int t, int *state, unsigned *play, unsigned *r
     *rec   = pClip->getRecordBlockNum();
     *num   = pClip->getNumBlocks();
     *maxb  = pClip->getMaxBlocks();
+}
+
+// Capture-free SHIFT-hold monitor telemetry for the :4445 TIME verb. monitor=1
+// while the loop-output gate is ramping toward / held at 0; loopGate100 is the
+// current loop-output gain * 100 (100 = loops at full level, 0 = fully muted).
+extern "C" void loopMonitorTelemetry(int *monitor, int *loopGate100)
+{
+    if (!pTheLoopMachine) { *monitor = 0; *loopGate100 = 100; return; }
+    *monitor = pTheLoopMachine->m_monitorActive ? 1 : 0;
+    *loopGate100 = (int)(pTheLoopMachine->m_loopOutputGain * 100.0f);
 }

@@ -20,6 +20,10 @@ struct LiveParams {
     bool      linkSynced;
     float     linkBPM;
     u32       masterLoopBlocks;  // recomputed when bpm changes
+    bool      monitorMode;       // SHIFT held: temporarily gate loop output to
+                                 // 0 so only the live (effected) input is heard
+                                 // for record/effect; clips keep advancing so
+                                 // release is phase-seamless.
 };
 
 extern volatile u32 g_paramActiveIdx;

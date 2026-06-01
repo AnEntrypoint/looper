@@ -162,6 +162,28 @@ slots. NUM_TRACKS=20, NUM_LAYERS=1 (each pad = one independent looper).
 - paused/stopped tap → `LOOP_COMMAND_TRACK_BASE + n` (resume play)
 - long-hold ≥ `APC_HOLD_ERASE_MS` (1000 ms) → `LOOP_COMMAND_CLEAR_LAYER_BASE + n` (full erase)
 
+**SHIFT-hold = temporary input-monitor (commit follows)**: while the APC25 SHIFT
+button is held, loop output is gated to silence so only the LIVE (transposed +
+effected) input is heard — for temporarily recording/effecting the input over
+the running loops. Release un-gates and the loops come back. Path:
+`apcKey25::update` publishes `m_shift` -> `LiveParams.monitorMode` (paramSnapshot)
+-> `loopMachine::update` ramps `m_loopOutputGain` toward 0 (held) / 1 (released)
+and multiplies the loop contribution (`oval32`) by it in the final mix; the live
+input (`ival32`) ALWAYS passes at full level. **Phase-seamless invariant
+(load-bearing):** the gate touches ONLY the output sum — clips keep advancing
+(`m_play_block` tracks `m_masterPhase`, unconditional on the gate), `cbWriteBlock`
+runs BEFORE the gate so the record source is untouched, and `m_masterPhase`
+advances independently. So a clip armed/recorded while SHIFT is held captures the
+live input, and on release every loop resumes exactly on its phrase grid. The
+ramp is per-sample-interpolated across the block (block-constant endpoints, 1/16
+per-block step = ~21ms full travel) so engage/release is click-free even mid-ramp
+(rapid chord-stabs just retarget, gate stays in [0,1]). SHIFT also still modifies
+the transport chords (`shift+STOP/RECORD/PLAY`) and CC53 formant range — monitor
+mode is a passive read of `m_shift` and does not consume the press. Surfaced in
+the `:4445 TIME` verb as `monitor=<0/1> loopGate=<gain*100>`. Witnessed by
+`scripts/test-monitor-gate.cpp` (`ALL PASS`: click-free ramp, phase-neutral,
+input-transparent, [0,1]-bounded under rapid toggle).
+
 **Preset pad gestures**:
 - tap → `_applyPreset(p)`: for each looper, play if bit set in stored mask, pause if not. Empty loopers ignored. No-op if preset never captured.
 - long-hold → `_capturePreset(p)`: snapshot 32-bit `m_presetMask[p]` of which loopers are currently playing or pending-play. Sets `m_presetUsed[p] = true`.

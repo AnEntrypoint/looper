@@ -383,6 +383,13 @@ class publicLoopMachine : public AudioStream
         u32 m_masterLoopBlocks;
         u32 m_masterPhase;
         volatile u32 m_outputPeakLevel;
+        // Ramped gain on the loop-output contribution to the mix. SHIFT-held
+        // monitor mode ramps this toward 0 (hear only live input), release
+        // ramps back to 1. Click-free, Core-1-private (only loopMachine::update
+        // writes it). Read by telemetry as loopGate. monitor=1 when ramping
+        // toward/at 0.
+        float m_loopOutputGain;
+        bool  m_monitorActive;
 
         virtual publicTrack *getPublicTrack(u16 num) = 0;
 
@@ -420,6 +427,8 @@ class publicLoopMachine : public AudioStream
             m_masterLoopBlocks = 0;
             m_masterPhase = 0;
             m_outputPeakLevel = 0;
+            m_loopOutputGain = 1.0f;
+            m_monitorActive = false;
             m_pending_command = 0;
             m_selected_track_num = -1;
             m_dub_mode = false;

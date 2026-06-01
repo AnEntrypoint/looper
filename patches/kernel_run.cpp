@@ -10,6 +10,7 @@
 extern void usbMidiInjectMidi(u8 status, u8 data1, u8 data2);
 extern "C" int engineQueryDispatch(const char *req, char *out, int outsz);
 extern "C" void loopClipTelemetry(int, int*, unsigned*, unsigned*, unsigned*, unsigned*, unsigned*);
+extern "C" void loopMonitorTelemetry(int*, int*);
 extern "C" int wlanStatusCode(void);   // kernel.cpp: 0 off/fail, 1 joined, 2 AP
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
 extern void loop(void);
@@ -134,8 +135,10 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				extern volatile u32 g_cbExtraLagSamples;
 				extern volatile u32 g_lastGridStep;
 				extern volatile u32 g_lastLatchPhase;
+				int monitor = 0, loopGate100 = 100;
+				loopMonitorTelemetry(&monitor, &loopGate100);
 				CString s;
-				s.Format("backdate=%u latUs=%u clamped=%u extraLag=%u gridStep=%u latchPhase=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d",
+				s.Format("backdate=%u latUs=%u clamped=%u extraLag=%u gridStep=%u latchPhase=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d monitor=%d loopGate=%d",
 					(unsigned)g_cbLastBackdateSamples,
 					(unsigned)g_cbLastPressLatencyUs,
 					(unsigned)g_cbLastBackdateClamped,
@@ -146,7 +149,9 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					linkHasStarted() ? 1 : 0,
 					linkHasEnded() ? 1 : 0,
 					(int)(linkQuantBeats() * 100),
-					(int)linkGetBPM());
+					(int)linkGetBPM(),
+					monitor,
+					loopGate100);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='C' && buf[1]=='L' && buf[2]=='I' && buf[3]=='P')

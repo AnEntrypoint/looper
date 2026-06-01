@@ -247,6 +247,8 @@ void apcKey25::update()
         p.linkSynced         = linkIsSynced();
         p.linkBPM            = (float)linkGetBPM();
         p.masterLoopBlocks   = pTheLooper->m_masterLoopBlocks;
+        p.monitorMode        = m_shift;   // SHIFT held = temporary input-monitor
+                                          // (gate loop output, hear live input)
         paramSnapshotPublish(p);
     }
 
