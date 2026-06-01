@@ -119,7 +119,7 @@ public:
     }
     int  getInitialReadOffset() const { return m_initialReadOffset; }
 
-    void setRespliceFrac(float f) { if(f<2.0f)f=2.0f; if(f>128.0f)f=128.0f; m_respliceFrac = f; }
+    void setRespliceFrac(float f) { if(f<0.25f)f=0.25f; if(f>128.0f)f=128.0f; m_respliceFrac = f; }
     // Splice crossfade scale factor over the per-period default.
     //   1.0 = 2*period (default), 0.5 = 1*period, 2.0 = 4*period.
     void setXfadeScale(float s) {
@@ -719,12 +719,21 @@ private:
     static const int MASK = DL - 1;
     static const int SINC_TAPS = 16;
     static const int SINC_HALF = SINC_TAPS / 2;
-    // 192 samples = 4 ms @ 48 kHz. Matches host engine default which has
-    // been tested clean (0.06% THD, 41Hz lock from 82Hz input). The 64-
-    // sample setting from the earlier sweep was measuring passthrough
-    // (engine never actually engaged because ch2 MIDI handler was missing)
-    // — that sweep's "best at 64" conclusion is invalid.
-    static const int INITIAL_READ_OFFSET_DEFAULT = 192;
+    // 64 samples = 1.3 ms @ 48 kHz of FIXED algorithmic headroom. The total
+    // downshift monitoring latency = this offset + the irreducible ~1-period
+    // PSOLA reader lag (the lag IS the pitch shift, with frac=1 the gap is held
+    // at offset + <=1 period). At offset=64, frac=1, host-measured on noisy
+    // input: 220Hz=3.6ms, 330Hz=4.3ms, 110Hz=5.9ms, 82Hz low-E=7.4ms — at/near
+    // the ~4ms budget across the playing range; the low-E floor is one period
+    // (cannot be beaten without a different algorithm). perr=0 (exact -12),
+    // maxStep unchanged (seamless), emerg=0 at this offset on the host sweep.
+    // Was 192 (4ms of REDUNDANT headroom ADDED ON TOP of the 1-period lag) which
+    // — together with the frac=8 multi-period swing — pushed total latency to
+    // 22-53ms. 64 is well above the 16-tap sinc margin (SINC_HALF+2=10); 48 was
+    // measured fine too but leaves too little tap headroom. The historical
+    // "64 was invalid (measured passthrough)" note predates the ch2 MIDI fix;
+    // this sweep drives the engine ENGAGED at scale=0.5, so 64 is now valid.
+    static const int INITIAL_READ_OFFSET_DEFAULT = 64;
     static const int SNAC_WIN = 1024;
     static const int SNAC_HOP = 2048;  // 43ms period-refresh cadence. The
                                        // micro-splice path reuses the cached
@@ -762,15 +771,27 @@ private:
     float    m_formantDepth = 0.0f;
     int      m_initialReadOffset = INITIAL_READ_OFFSET_DEFAULT;
     float    m_xfadeScale = 1.0f;
-    // Resplice only after drifting this many WHOLE periods past target. Each
-    // splice crossfade momentarily dips amplitude (correlated-grain overlap);
-    // at the old frac=1 (~55 splices/s) those dips were an audible ~55Hz
-    // buzz/gurgle on -12 (worse on real input where grains aren't identical).
-    // The multi-period catch-up jump clears the whole accumulated drift in ONE
-    // splice, so splicing RARELY is fine: frac=8 => ~7 splices/s (8x fewer
-    // dips), pitch still exact (host 55Hz=0.44 THD 0.4%). Reader lags up to 8
-    // periods before reset — inherent PSOLA-downshift lag, as in the host renders.
-    float    m_respliceFrac = 8.0f;   // user A/B: 8 smoother than 16 (jumping starts at 16)
+    // Resplice once the reader has drifted this many WHOLE periods past the
+    // target offset. THIS IS THE LATENCY KNOB: at downshift the reader MUST lag
+    // the writer (the lag IS the pitch shift) and the gap sawtooths between
+    // initialReadOffset and initialReadOffset + per*m_respliceFrac, so the MEAN
+    // monitoring latency is initialReadOffset + ~per*m_respliceFrac/2 — dominated
+    // by this frac, NOT the flat 192-sample (4ms) offset.
+    //
+    // History: the ORIGINAL low-latency design resplices every ~1 period (frac=1)
+    // => gap held at initialReadOffset + <=1 period (the PSOLA MINIMUM, ~4ms where
+    // the period < the offset, ~1 period at low-E) and that measured ~4ms and
+    // sounded best. It was then raised to 8 to cut the splice RATE (the ~55/s
+    // amplitude-dip buzz on imperfect Pi input), which traded the 4ms budget away
+    // for 22-53ms — a latency REGRESSION. The buzz that motivated the raise is now
+    // fixed at its source: triggerSpliceByPeriod (below) searches the value+slope
+    // match ONLY among INTEGER-PERIOD candidates, so each frequent splice is BOTH
+    // frequency-neutral (perr=0, exact -12) AND seamless on real/noisy input.
+    // With the matched crossfade, frequent resplicing no longer buzzes, so we
+    // restore frac=1 to reclaim the non-negotiable ~4ms latency budget. The
+    // per*0.9 refractory (set at the trigger site) still HARD-CAPS the rate so a
+    // lock-loss runup recovers in clean catch-up splices, not a storm.
+    float    m_respliceFrac = 1.0f;   // PSOLA clean minimum: resplice at ~1 period drift => gap held at initialReadOffset + <=1 period, perr=0 (exact -12), seamless. frac<1 overshoots a sub-period drift with a forced >=1-period jump => off-phase residual (perr=32); frac=1 is the tightest phase-coherent gap. Was 8 (22-53ms regression). setRespliceFrac floor relaxed 2.0->0.25.
     float    m_fidelityThresh = FIDELITY_THRESH_DEFAULT;
     bool     m_preBypass = false;
     GrainFormant m_grainFormant;            // gap-bounded grain-formant path
