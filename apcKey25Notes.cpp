@@ -217,3 +217,34 @@ void apcKey25::_applyPreset(int p)
             pTheLooper->command(LOOP_COMMAND_STOP_TRACK_BASE + n);
     }
 }
+
+void apcKey25::_forgetLooperFromPresets(int n)
+{
+    // A looper was erased (cleared to empty). It can no longer be part of any
+    // arrangement, so drop its bit from every stored preset mask. Any preset
+    // that was made up SOLELY of now-erased loopers has an empty mask after
+    // this and is deleted — m_presetUsed[p]=false makes _updateGridLeds draw
+    // it OFF, so the arrangement's light goes dark exactly when its last
+    // member is gone.
+    if (n < 0 || n >= 32) return;
+    u32 bit = (1u << n);
+    for (int p = 0; p < LOOPER_NUM_PRESETS; p++)
+    {
+        if (!m_presetUsed[p]) continue;
+        if (!(m_presetMask[p] & bit)) continue;   // looper not in this arrangement
+        m_presetMask[p] &= ~bit;
+        if (m_presetMask[p] == 0)
+            m_presetUsed[p] = false;               // last member gone → delete (LED dark)
+    }
+}
+
+void apcKey25::_forgetAllPresets()
+{
+    // Whole-bank erase: every looper is gone, so every arrangement is empty.
+    // Delete them all (every preset LED goes dark).
+    for (int p = 0; p < LOOPER_NUM_PRESETS; p++)
+    {
+        m_presetMask[p] = 0;
+        m_presetUsed[p] = false;
+    }
+}

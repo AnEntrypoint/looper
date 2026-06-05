@@ -141,6 +141,13 @@ private:
     void _applyFormant();
     void _capturePreset(int p);
     void _applyPreset(int p);
+    // Arrangement memory upkeep: when a looper is erased/cleared-to-empty,
+    // drop its bit from every stored preset mask. Any preset whose mask
+    // becomes empty is deleted (m_presetUsed=false) so its LED goes dark.
+    void _forgetLooperFromPresets(int n);
+    // Whole-bank clear: forget every looper from every preset and delete
+    // all now-empty arrangements (CLEAR_ALL / STOP-ALL-erase paths).
+    void _forgetAllPresets();
     int  _looperFromPad(int row, int col) const;  // returns 0..19 or -1
     int  _presetFromPad(int row, int col) const;  // returns 0..9 or -1
     void _queueCmd(ApcCmd::Type type, int arg);

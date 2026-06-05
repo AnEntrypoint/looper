@@ -98,3 +98,4 @@ scripts/m12final/
 scripts/e2grain/
 scripts/candidates/
 scripts/sweep-out/
+.gm/pw-sock-*/

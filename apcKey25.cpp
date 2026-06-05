@@ -299,6 +299,10 @@ void apcKey25::update()
         else if (type == ApcCmd::LOOPER)
         {
             pTheLooper->command(arg);
+            // CLEAR_ALL empties every looper — every arrangement is now empty,
+            // so forget them all and let their LEDs go dark.
+            if (arg == LOOP_COMMAND_CLEAR_ALL)
+                _forgetAllPresets();
         }
     }
     _updateDrift();
@@ -318,6 +322,9 @@ void apcKey25::update()
                 // track re-arms a pending RECORD when a master grid exists,
                 // leaving the pad yellow (the "LED didn't disappear" bug).
                 pTheLooper->command(LOOP_COMMAND_ERASE_TRACK_BASE + n);
+                // The looper is now empty — drop it from every arrangement
+                // and delete any arrangement it was the last member of.
+                _forgetLooperFromPresets(n);
             }
         }
     }
