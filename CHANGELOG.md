@@ -1,3 +1,9 @@
+## 2026-06-05 — Arrangement memory tracks erase; MIDI mapping is data (controller-agnostic)
+
+- feat: erasing a looper forgets it from arrangements; empty arrangement auto-deletes (LED dark) — `_forgetLooperFromPresets`/`_forgetAllPresets` (apcKey25Notes.cpp) drop an erased looper's bit from every preset mask and delete any arrangement whose mask reaches 0, so its pad goes dark exactly when its last member is gone. Why: an arrangement that still references deleted loopers is stale and lit a pad for a recall that does nothing. Witnessed by scripts/test-arrangement-forget.cpp (17 checks ALL PASS).
+- feat: atomic controller-agnostic MIDI map (midiMap.h) — every in/out MIDI control is an independent record (`MidiInputMap` keyed on status/channel/data1-range -> logical action + value-mode; `MidiOutputMap` state -> note+velocity). Swap `g_activeProfile` to remap for another controller without code changes; value modes cover absolute and relative/endless encoders. Why: the request to make MIDI remappable for other controllers without forcing the APC25 style.
+- feat: LED output is live config-driven — `_updateGridLeds` and the live-engage LED resolve velocities via `midiMapResolveOutput(g_activeProfile)`; a missing state degrades to OFF (no stuck LED). The default APC25 profile is byte-identical to the former hard-coded behavior (no-operational-change invariant). Witnessed by scripts/test-midi-config-parity.cpp (full event matrix, ALL PASS) and a clean firmware build (kernel7l.img 1060748B).
+
 ## 2026-05-12b — Residual scan: doc drift + cross-core dispatch observability
 
 - doc: AGENTS.md — removed stale CORE_FOR_AUDIO_SYSTEM=0 claim (doUpdate no longer runs in USB ISR), spelled out 4-core partition + IPC primitives in Audio architecture, located telemetry drain on Core 2 in Logging section.
