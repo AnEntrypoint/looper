@@ -7,6 +7,7 @@
 #include "patches/paramSnapshot.h"
 #include "abletonLink.h"
 #include "usbMidi.h"
+#include "midiMap.h"
 #include <circle/logger.h>
 #include <circle/util.h>
 
@@ -108,6 +109,18 @@ static void sendLedCoalesced(u8 note, u8 vel)
     }
 }
 
+// Resolve a logical feedback state to the active controller profile's LED
+// velocity. The profile (midiMap.h) is the single source of the controller's
+// colour scheme; a missing entry degrades to OFF (no stuck LED). For the
+// default APC25 profile these return exactly the former hard-coded
+// APC_VEL_LED_* values — witnessed byte-identical by
+// scripts/test-midi-config-parity.cpp.
+static u8 _ledVel(u8 state)
+{
+    const MidiOutputMap* o = midiMapResolveOutput(g_activeProfile, state);
+    return o ? o->velocity : APC25_LED_OFF;
+}
+
 void apcKey25::_updateGridLeds()
 {
     // Cols 0-1: 10 preset slots, idx = row*2 + col.
@@ -120,9 +133,8 @@ void apcKey25::_updateGridLeds()
         for (int col = 0; col < 2; col++)
         {
             int p = _presetFromPad(row, col);
-            u8 color = APC_VEL_LED_OFF;
-            if (p >= 0 && m_presetUsed[p])
-                color = APC_VEL_LED_YELLOW;
+            u8 color = _ledVel((p >= 0 && m_presetUsed[p]) ? MFS_PRESET_USED
+                                                           : MFS_PRESET_UNUSED);
             sendLedCoalesced(_padNote(row, col), color);
         }
     }
@@ -140,20 +152,24 @@ void apcKey25::_updateGridLeds()
         if (pClip) { cpeak = pClip->m_clipPeakLevel; pClip->m_clipPeakLevel = 0; }
         int ts = pTrack->getTrackState();
 
-        u8 color = APC_VEL_LED_OFF;
+        // Classify the looper into a controller-independent feedback state,
+        // then resolve the profile's velocity for it (midiMap.h). VU buckets
+        // key off the profile's vuMid/vuHigh thresholds.
+        u8 state = MFS_LOOPER_EMPTY;
         if (ts & TRACK_STATE_RECORDING) {
-            color = APC_VEL_LED_RED_BLINK;   // red FLASH while recording (was solid)
+            state = MFS_LOOPER_RECORDING;
         } else if (ts & (TRACK_STATE_PENDING_RECORD | TRACK_STATE_PENDING_PLAY | TRACK_STATE_PENDING_STOP)) {
-            color = APC_VEL_LED_YELLOW;
+            state = MFS_LOOPER_PENDING;
         } else if (ts & TRACK_STATE_PLAYING) {
-            if      (cpeak > 8000) color = APC_VEL_LED_RED;
-            else if (cpeak > 1500) color = APC_VEL_LED_YELLOW;
-            else                   color = APC_VEL_LED_GREEN;
+            if      (cpeak > g_activeProfile->vuHigh) state = MFS_LOOPER_PLAY_HIGH;
+            else if (cpeak > g_activeProfile->vuMid)  state = MFS_LOOPER_PLAY_MID;
+            else                                      state = MFS_LOOPER_PLAY_LOW;
         } else if (pTrack->getNumRecordedClips() > 0) {
-            // Has content but paused/stopped — blink yellow so you can see
-            // at a glance which loopers are loaded-but-silent vs truly empty.
-            color = APC_VEL_LED_YELLOW_BLINK;
+            // Has content but paused/stopped — blink so you can see at a glance
+            // which loopers are loaded-but-silent vs truly empty.
+            state = MFS_LOOPER_PAUSED;
         }
+        u8 color = _ledVel(state);
 
         int row = n / 4;
         int col = 2 + (n % 4);

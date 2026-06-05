@@ -4,6 +4,7 @@
 #include "input_usb.h"
 #include "usbMidi.h"
 #include "abletonLink.h"
+#include "midiMap.h"
 // Only the press-ticks publish hook is needed here; avoid pulling the full
 // continuousBuffer.h (which needs Looper.h macros) into this translation unit.
 extern volatile unsigned g_pendingPressTicks;
@@ -261,7 +262,13 @@ void apcKey25::update()
         // its old state forever. Now a drop leaves m_liveLedDirty set and the
         // next tick retries — same consistency guarantee the grid LEDs get from
         // sendLedCoalesced's retry-on-drop cache.
-        if (usbMidiSendNoteOn(0x40, m_liveEngaged ? 127 : 0))
+        // Live-engage LED note + on/off velocity come from the active profile
+        // (midiMap.h) so a remapped controller can relocate/recolour it.
+        const MidiOutputMap* lo =
+            midiMapResolveOutput(g_activeProfile,
+                                 m_liveEngaged ? MFS_LIVE_ENGAGE_ON : MFS_LIVE_ENGAGE_OFF);
+        u8 liveVel = lo ? lo->velocity : (m_liveEngaged ? 127 : 0);
+        if (usbMidiSendNoteOn(APC25_LIVE_LED_NOTE, liveVel))
             m_liveLedDirty = false;
     }
 
