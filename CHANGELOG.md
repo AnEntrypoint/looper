@@ -1,3 +1,7 @@
+## 2026-06-06 — Pause is a pure mute; play head never stops
+
+- feat: pausing a recorded loop now MUTES it (click-free m_pauseGain ramp) instead of resetting the play head — the clip stays CS_PLAYING/CS_LOOPING and keeps advancing phase-locked to the master, so resume is position-identical and rapid mute/unmute is instant. Once a loop is recorded it never stops playing the same way it started. Why: the user's rule that pause must only mute, never change phrase position. getTrackState reports a paused clip as STOPPED so the pad still blinks yellow and a tap resumes it; a real stop (stopImmediate/abort) and a fresh record clear the pause latch. Witnessed by scripts/test-pause-mute.cpp (zero drift across any pause duration, click-free, rapid-toggle-safe — ALL PASS), unchanged phase/region regression tests, and a clean firmware build (kernel7l.img 1061004B).
+
 ## 2026-06-05 — Arrangement memory tracks erase; MIDI mapping is data (controller-agnostic)
 
 - feat: erasing a looper forgets it from arrangements; empty arrangement auto-deletes (LED dark) — `_forgetLooperFromPresets`/`_forgetAllPresets` (apcKey25Notes.cpp) drop an erased looper's bit from every preset mask and delete any arrangement whose mask reaches 0, so its pad goes dark exactly when its last member is gone. Why: an arrangement that still references deleted loopers is stale and lit a pad for a recall that does nothing. Witnessed by scripts/test-arrangement-forget.cpp (17 checks ALL PASS).
