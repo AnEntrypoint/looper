@@ -81,6 +81,22 @@ void loopClip::update(s32 *ip, s32 *op)
     if (pp_fade)
         o_fade = ((double)(CROSSFADE_BLOCKS - m_crossfade_offset)) * FADE_BLOCK_INCREMENT;
 
+    // PAUSE = MUTE (click-free). m_paused gates ONLY the output: m_pauseGain
+    // ramps toward 0 when paused and 1 when not, block-constant endpoints
+    // interpolated per-sample (1/16 per block ~= 21ms travel) so engage/release
+    // and rapid mute/unmute never click. The play-head advance below is OUTSIDE
+    // this guard and runs unconditionally, so position is phase-locked to the
+    // master regardless of pause state (resume is position-identical, instant).
+    const double PAUSE_GAIN_STEP = 1.0 / 16.0;
+    double pgStart  = m_pauseGain;
+    double pgTarget = m_paused ? 0.0 : 1.0;
+    double pgEnd    = pgStart;
+    if (pgEnd < pgTarget) { pgEnd += PAUSE_GAIN_STEP; if (pgEnd > pgTarget) pgEnd = pgTarget; }
+    else if (pgEnd > pgTarget) { pgEnd -= PAUSE_GAIN_STEP; if (pgEnd < pgTarget) pgEnd = pgTarget; }
+    m_pauseGain = pgEnd;
+    double pgStep = (pgEnd - pgStart) / (double)AUDIO_BLOCK_SAMPLES;
+    double pg = pgStart;
+
     if (!m_mute)
     {
         for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
@@ -88,27 +104,28 @@ void loopClip::update(s32 *ip, s32 *op)
             // Read L and R from playback pointers (interleaved)
             if (pp_main)
             {
-                double val = *pp_main++ * m_volume;
+                double val = *pp_main++ * m_volume * pg;
                 if (fade_in) { val *= i_fade; i_fade += FADE_SAMPLE_INCREMENT; }
                 tmp_L[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
             }
             if (pp_main)
             {
-                double val = *pp_main++ * m_volume;
+                double val = *pp_main++ * m_volume * pg;
                 tmp_R[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
             }
 
             if (pp_fade)
             {
-                double val = *pp_fade++ * m_volume * o_fade;
+                double val = *pp_fade++ * m_volume * o_fade * pg;
                 tmp_L[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
             }
             if (pp_fade)
             {
-                double val = *pp_fade++ * m_volume * o_fade;
+                double val = *pp_fade++ * m_volume * o_fade * pg;
                 tmp_R[i] += (s16)(val + (val >= 0 ? 0.5 : -0.5));
                 o_fade -= FADE_SAMPLE_INCREMENT;
             }
+            pg += pgStep;
         }
     }
 

@@ -74,6 +74,11 @@ void loopClip::setMarkPoint()
 void loopClip::stopImmediate()
 {
     LOOPER_LOG("clip(%d,%d)::stopImmediate state=%d", m_track_num, m_clip_num, (int)m_state);
+    // A real stop clears the pause-mute latch: stopImmediate resets the head, so
+    // there is nothing left to keep muted. (Pause is the per-track STOP_TRACK
+    // gesture; this stopImmediate is the distinct shift+STOP/abort full stop.)
+    m_paused = false;
+    m_pauseGain = 1.0;
     switch (m_state)
     {
         case CS_RECORDING:
@@ -113,6 +118,10 @@ void loopClip::stopImmediate()
 void loopClip::_startRecording()
 {
     LOOPER_LOG("clip(%d,%d)::startRecording()", m_track_num, m_clip_num);
+    // A fresh recording always starts audible — never inherit a prior take's
+    // pause-mute latch.
+    m_paused = false;
+    m_pauseGain = 1.0;
     m_play_block = 0;
     m_record_block = 0;
     m_crossfade_start = 0;

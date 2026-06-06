@@ -142,16 +142,18 @@ void loopClip::updateState(u16 cur_command)
                 m_quantizeWillPlay = false;
             }
         }
-        else if (m_state == CS_PLAYING)
+        else if (m_state == CS_PLAYING || m_state == CS_LOOPING)
         {
-            if (m_play_block)
-                _startFadeOut();
-            else
-            {
-                m_state = CS_RECORDED;
-                m_play_block = 0;
-                m_pLoopTrack->incDecRunning(-1);
-            }
+            // PAUSE = MUTE only. The clip stays CS_PLAYING/CS_LOOPING so its
+            // play head keeps advancing (phase-locked to masterPhase); we just
+            // latch m_paused, which gates the output to silence (click-free
+            // ramp in loopClipUpdate.cpp). Position never changes, so resume is
+            // position-identical and rapid mute/unmute is instant. This replaces
+            // the old _startFadeOut()->CS_RECORDED path that reset the head to 0.
+            // getTrackState() reports a paused clip as STOPPED so the pad blinks
+            // yellow and the paused-tap gesture resumes it. The clip stays in the
+            // running set (no incDecRunning) precisely so it keeps advancing.
+            m_paused = true;
         }
     }
     else if (cur_command == LOOP_COMMAND_PLAY)
@@ -172,7 +174,13 @@ void loopClip::updateState(u16 cur_command)
                 m_quantizeWillPlay = true;
             }
         }
-        if (m_state == CS_RECORDED)
+        // Resume a paused (muted) clip = just un-mute. No _startPlaying re-anchor:
+        // the head never stopped advancing, so it is already at the correct
+        // phase-locked position — un-gating the output resumes audio exactly in
+        // phrase with zero position change.
+        if ((m_state == CS_PLAYING || m_state == CS_LOOPING) && m_paused)
+            m_paused = false;
+        else if (m_state == CS_RECORDED)
             _startPlaying();
     }
     else if (cur_command == LOOP_COMMAND_RECORD)

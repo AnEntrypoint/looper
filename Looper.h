@@ -181,6 +181,13 @@ class publicClip
         bool isMuted()              { return m_mute; }
         void setMute(bool mute)     { m_mute = mute; }
 
+        // Pause = MUTE only. A paused clip keeps advancing its play head
+        // (stays CS_PLAYING/CS_LOOPING, phase-locked to masterPhase); only its
+        // output is gated to silence. So pause/resume never changes position
+        // and rapid mute/unmute is instant. Distinct from m_mute (a volume
+        // mute) and from a real stop (stopImmediate, which resets the head).
+        bool isPaused()             { return m_paused; }
+
         int getVolume()             { return m_volume * 100.00; }
         void setVolume(int vol)     { m_volume = ((float)vol)/100.00; }
 
@@ -207,6 +214,8 @@ class publicClip
             m_recordStartPhaseOffset = 0;
             m_recStartBlock = 0;
             m_mute = false;
+            m_paused = false;
+            m_pauseGain = 1.0;
             m_volume = 1.0;
             m_mark_point = -1;
             m_mark_point_active = false;
@@ -232,6 +241,14 @@ class publicClip
         bool m_mark_point_active;
 
         bool m_mute;
+
+        // Pause-as-mute state. m_paused = the latch (set by the pause gesture,
+        // cleared by resume / stopImmediate / record). m_pauseGain = the
+        // per-block-interpolated output gain that ramps toward 0 when paused
+        // and 1 when not, so engage/release is click-free. The play head
+        // advances regardless of either.
+        bool m_paused;
+        float m_pauseGain;
 
         float m_volume;
 

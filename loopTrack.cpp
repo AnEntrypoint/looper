@@ -39,7 +39,12 @@ int loopTrack::getTrackState()
         ClipState clip_state = pClip->getClipState();
         if (clip_state == CS_RECORDING || clip_state == CS_RECORDING_MAIN || clip_state == CS_RECORDING_TAIL || clip_state == CS_FINISHING)
             state |= TRACK_STATE_RECORDING;
-        if (clip_state == CS_PLAYING || clip_state == CS_LOOPING)
+        // A paused clip is internally still CS_PLAYING/CS_LOOPING (its head keeps
+        // advancing, phase-locked) but its output is muted — surface it as
+        // STOPPED so the pad blinks yellow ("loaded but silent") and a tap
+        // resumes it via the paused-tap gesture. Only an UN-paused playing clip
+        // counts as PLAYING.
+        if ((clip_state == CS_PLAYING || clip_state == CS_LOOPING) && !pClip->isPaused())
             state |= TRACK_STATE_PLAYING;
     }
 
