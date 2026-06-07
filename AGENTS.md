@@ -171,27 +171,34 @@ slots. NUM_TRACKS=20, NUM_LAYERS=1 (each pad = one independent looper).
 - paused/stopped tap → `LOOP_COMMAND_TRACK_BASE + n` (resume = un-mute; position-identical, instant)
 - long-hold ≥ `APC_HOLD_ERASE_MS` (1000 ms) → `LOOP_COMMAND_CLEAR_LAYER_BASE + n` (full erase)
 
-**SHIFT-hold = temporary input-monitor (commit follows)**: while the APC25 SHIFT
-button is held, loop output is gated to silence so only the LIVE (transposed +
-effected) input is heard — for temporarily recording/effecting the input over
-the running loops. Release un-gates and the loops come back. Path:
-`apcKey25::update` publishes `m_shift` -> `LiveParams.monitorMode` (paramSnapshot)
--> `loopMachine::update` ramps `m_loopOutputGain` toward 0 (held) / 1 (released)
-and multiplies the loop contribution (`oval32`) by it in the final mix; the live
-input (`ival32`) ALWAYS passes at full level. **Phase-seamless invariant
-(load-bearing):** the gate touches ONLY the output sum — clips keep advancing
-(`m_play_block` tracks `m_masterPhase`, unconditional on the gate), `cbWriteBlock`
-runs BEFORE the gate so the record source is untouched, and `m_masterPhase`
-advances independently. So a clip armed/recorded while SHIFT is held captures the
-live input, and on release every loop resumes exactly on its phrase grid. The
-ramp is per-sample-interpolated across the block (block-constant endpoints, 1/16
-per-block step = ~21ms full travel) so engage/release is click-free even mid-ramp
-(rapid chord-stabs just retarget, gate stays in [0,1]). SHIFT also still modifies
-the transport chords (`shift+STOP/RECORD/PLAY`) and CC53 formant range — monitor
-mode is a passive read of `m_shift` and does not consume the press. Surfaced in
-the `:4445 TIME` verb as `monitor=<0/1> loopGate=<gain*100>`. Witnessed by
-`scripts/test-monitor-gate.cpp` (`ALL PASS`: click-free ramp, phase-neutral,
-input-transparent, [0,1]-bounded under rapid toggle).
+**SHIFT-hold = route the LOOPS INTO the live effects (load-bearing).** While the
+APC25 SHIFT button is held, the running loops THEMSELVES become input to the live
+pitch+effects chain — so the loops get transposed/effected and can be recorded
+through the effects. SHIFT does NOT mute the loops (the earlier "gate loop output
+to silence, hear only the live input" behavior was wrong — pressing SHIFT made the
+loops go silent). Path: `apcKey25::update` publishes `m_shift` ->
+`LiveParams.monitorMode` (paramSnapshot) -> `loopMachine::update`. The order in
+`update` is reorganized so the **loop output is computed FIRST**: `updateState()`
++ the per-track audio (into `m_output_buffer`) + the Link-grid block all run
+BEFORE the pitch/effects stages (clip playback reads each clip's own buffer and
+`m_masterPhase` advances once per block, so the reorder is phase-neutral). Then,
+when SHIFT is held, the loop sum is **folded into the effect source**
+(`m_input_buffer += m_output_buffer * m_loopFoldGain`) BEFORE the pitch(`pLivePitchWrapper`)
+and effects(`pEffectsProcessor`) stages and before `cbWriteBlock` — so the loops
+are pitch+effected AND the wet result is what gets recorded. `m_loopFoldGain`
+ramps 0->1 when held. The DRY loop contribution to the final mix is suppressed
+COMPLEMENTARILY: `m_loopOutputGain = 1 - m_loopFoldGain`, so the loops are heard
+ONCE (through the effects, via the processed `ival32`), with no double-sum and no
+loudness jump (`dry + fold == 1` at every sample). The live mic input still passes
+(loops are ADDED to it). Released, `fold->0`/`dry->1` and loops return to normal
+dry output, phase-seamless (clips never stopped advancing). Both ramps are
+per-sample-interpolated (1/16 per block = ~21ms, click-free). SHIFT also still
+modifies the transport chords (`shift+STOP/RECORD/PLAY`) and CC53 formant range —
+monitor mode is a passive read of `m_shift` and does not consume the press.
+Surfaced in the `:4445 TIME` verb as `monitor=<0/1> loopGate=<dryGain*100>`
+(100 = loops fully dry, 0 = loops fully routed into the effects). Witnessed by
+`scripts/test-monitor-route.cpp` (`ALL PASS`: complementary/energy-conserved,
+click-free, fold/dry endpoints, rapid-toggle bounded, phase-neutral).
 
 **Preset pad gestures**:
 - tap → `_applyPreset(p)`: for each looper, play if bit set in stored mask, pause if not. Empty loopers ignored. No-op if preset never captured.
