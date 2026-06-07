@@ -405,7 +405,12 @@ class publicLoopMachine : public AudioStream
         // ramps back to 1. Click-free, Core-1-private (only loopMachine::update
         // writes it). Read by telemetry as loopGate. monitor=1 when ramping
         // toward/at 0.
-        float m_loopOutputGain;
+        float m_loopOutputGain;     // DRY loop gain = 1 - m_loopFoldGain
+        // SHIFT-hold routes loops INTO the effects: m_loopFoldGain ramps 0->1
+        // while SHIFT is held (loops folded into the effect source), and the dry
+        // loop output (m_loopOutputGain) ramps complementarily 1->0. Click-free,
+        // Core-1-private (only loopMachine::update writes it).
+        float m_loopFoldGain;
         bool  m_monitorActive;
 
         virtual publicTrack *getPublicTrack(u16 num) = 0;
@@ -445,6 +450,7 @@ class publicLoopMachine : public AudioStream
             m_masterPhase = 0;
             m_outputPeakLevel = 0;
             m_loopOutputGain = 1.0f;
+            m_loopFoldGain = 0.0f;
             m_monitorActive = false;
             m_pending_command = 0;
             m_selected_track_num = -1;

@@ -533,6 +533,99 @@ void loopMachine::update(void)
 	}
 
 	LiveParams lp = paramSnapshotLoad();
+
+	// --- Loops computed FIRST (before the pitch/effects chain) so SHIFT can
+	// route them INTO the effects. updateState() + the track audio used to run
+	// AFTER effects; moved up here. Clip playback reads each clip's own buffer
+	// (the m_input_buffer arg is a legacy passthrough, unused for playback), and
+	// m_masterPhase advances exactly once per block as before, so moving this is
+	// phase-neutral. m_output_buffer now holds the dry loop sum for this block.
+	{
+		// Link grid only governs the quant once a LOCAL loop exists (gate on a
+		// recorded clip so a synced peer cannot impose a grid before the first
+		// local loop). Runs before clips advance so a tempo change applies this
+		// block — same relative order as before the reorder.
+		bool anyRecorded = false;
+		for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
+			if (getTrack(i)->getNumRecordedClips() > 0) { anyRecorded = true; break; }
+
+		if (lp.linkSynced && anyRecorded)
+		{
+			float bpm = lp.linkBPM;
+			if (bpm > 0)
+			{
+				u32 raw = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0f * 16.0f) / bpm + 0.5f);
+				u32 blocks = ((raw + 4) / 8) * 8;
+				if (blocks != m_masterLoopBlocks)
+				{
+					u32 oldBlocks = m_masterLoopBlocks;
+					m_masterLoopBlocks = blocks;
+					LOOPER_LOG("link quantum: bpm=%.1f masterLoopBlocks=%u (was %u)", bpm, blocks, oldBlocks);
+					if (oldBlocks > 0 && blocks > 0)
+					{
+						float tempoRatio = (float)oldBlocks / (float)blocks;
+						for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
+						{
+							loopTrack *pTrack = getTrack(i);
+							for (int j = 0; j < LOOPER_NUM_LAYERS; j++)
+							{
+								loopClip *pClip = pTrack->getClip(j);
+								if (pClip && (pClip->getClipState() == CS_PLAYING ||
+											   pClip->getClipState() == CS_LOOPING))
+									pClip->setTempoRatio(tempoRatio);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	updateState();
+	if (m_running)
+	{
+		m_masterPhase++;
+		for (int i=0; i<LOOPER_NUM_TRACKS; i++)
+		{
+			loopTrack *pTrack = getTrack(i);
+			if (pTrack->getNumRunningClips())
+				pTrack->update(m_input_buffer,m_output_buffer);
+		}
+	}
+
+	// --- SHIFT-hold = route the LOOPS INTO the live effects chain. While SHIFT
+	// (lp.monitorMode) is held, the running loop output is folded INTO the effect
+	// source (m_input_buffer) so the loops get pitch+effected AND recorded
+	// (cbWriteBlock below stores the wet result); the dry loop contribution to the
+	// final mix is suppressed COMPLEMENTARILY (g_dry = 1 - g_fold) so the loops are
+	// heard once, through the effects, with no loudness jump. Released, g_fold->0 /
+	// g_dry->1 and loops resume their normal dry output, phase-seamless (clips never
+	// stopped advancing). The ramp is per-sample-interpolated across the block
+	// (1/16 per block ~21ms travel) so press/release is click-free.
+	m_monitorActive = lp.monitorMode;
+	const float MONITOR_GATE_STEP = 1.0f / 16.0f;
+	float foldStart  = m_loopFoldGain;
+	float foldTarget = lp.monitorMode ? 1.0f : 0.0f;
+	float foldEnd    = foldStart;
+	if (foldEnd < foldTarget) { foldEnd += MONITOR_GATE_STEP; if (foldEnd > foldTarget) foldEnd = foldTarget; }
+	else if (foldEnd > foldTarget) { foldEnd -= MONITOR_GATE_STEP; if (foldEnd < foldTarget) foldEnd = foldTarget; }
+	m_loopFoldGain = foldEnd;
+	const float foldSampStep = (AUDIO_BLOCK_SAMPLES > 0)
+	                         ? (foldEnd - foldStart) / (float)AUDIO_BLOCK_SAMPLES : 0.0f;
+	// m_loopOutputGain mirrors the DRY loop gain = 1 - fold, kept as a member so
+	// the :4445 telemetry can read it.
+	m_loopOutputGain = 1.0f - foldEnd;
+
+	// Fold the (ramped) loop sum into the effect source before pitch/effects.
+	{
+		float fg = foldStart;
+		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+		{
+			m_input_buffer[i]                        += (s32)((float)m_output_buffer[i] * fg);
+			m_input_buffer[AUDIO_BLOCK_SAMPLES + i]  += (s32)((float)m_output_buffer[AUDIO_BLOCK_SAMPLES + i] * fg);
+			fg += foldSampStep;
+		}
+	}
+
 	if (pLivePitchWrapper)
 	{
 		// Gated engine — wrapper only runs when transpose is actively
@@ -608,64 +701,6 @@ void loopMachine::update(void)
 	                    ? (u32)pLivePitchWrapper->latencySamples() : 0;
 	cbWriteBlock(m_input_buffer);
 
-	// Link grid only governs the quant once a LOCAL loop exists. On a clear bank
-	// the FIRST recording defines the grid itself (see _startEndingRecording) and
-	// must stop exactly at the backdated press, NOT snap to a Link-derived grid —
-	// otherwise the first take records past the press to the next grid beat
-	// ("plays the beat after the button press"). Gate the Link-sets-master block
-	// on having at least one recorded clip so a synced peer cannot impose a grid
-	// before the musician has laid down their own first loop.
-	bool anyRecorded = false;
-	for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
-		if (getTrack(i)->getNumRecordedClips() > 0) { anyRecorded = true; break; }
-
-	if (lp.linkSynced && anyRecorded)
-	{
-		float bpm = lp.linkBPM;
-		if (bpm > 0)
-		{
-			u32 raw = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0f * 16.0f) / bpm + 0.5f);
-			u32 blocks = ((raw + 4) / 8) * 8;
-			if (blocks != m_masterLoopBlocks)
-			{
-				u32 oldBlocks = m_masterLoopBlocks;
-				m_masterLoopBlocks = blocks;
-				LOOPER_LOG("link quantum: bpm=%.1f masterLoopBlocks=%u (was %u)", bpm, blocks, oldBlocks);
-
-				if (oldBlocks > 0 && blocks > 0)
-				{
-					float tempoRatio = (float)oldBlocks / (float)blocks;
-					for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
-					{
-						loopTrack *pTrack = getTrack(i);
-						for (int j = 0; j < LOOPER_NUM_LAYERS; j++)
-						{
-							loopClip *pClip = pTrack->getClip(j);
-							if (pClip && (pClip->getClipState() == CS_PLAYING ||
-										   pClip->getClipState() == CS_LOOPING))
-							{
-								pClip->setTempoRatio(tempoRatio);
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	updateState();
-	if (m_running)
-	{
-		m_masterPhase++;
-		for (int i=0; i<LOOPER_NUM_TRACKS; i++)
-		{
-			loopTrack *pTrack = getTrack(i);
-			if (pTrack->getNumRunningClips())
-			{
-				pTrack->update(m_input_buffer,m_output_buffer);
-			}
-		}
-	}
-
 	u32 outPeak = 0;
 	for (int i = 0; i < LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES; i++)
 	{
@@ -674,26 +709,19 @@ void loopMachine::update(void)
 	}
 	if (outPeak > m_outputPeakLevel) m_outputPeakLevel = outPeak;
 
-	// SHIFT-held monitor mode: ramp the loop-output contribution toward 0 so
-	// only the live (transposed + effected) input is heard for temporary
-	// record/effect; release ramps back to 1. The clips keep advancing
-	// (m_play_block tracks masterPhase above, untouched here), so release lands
-	// every loop exactly on the phrase grid — phase-seamless. The ramp is
-	// per-sample-interpolated across the block (block-constant endpoints) so the
-	// gate transition is click-free. ~MONITOR_GATE_BLOCKS blocks ~= 21ms full
-	// travel. The gate touches ONLY the output sum, never the record source
-	// (cbWriteBlock already ran above) or the clip phase, so recording during
-	// monitor captures the live input and loops resume in phase.
-	m_monitorActive = lp.monitorMode;
-	const float MONITOR_GATE_STEP = 1.0f / 16.0f;   // full 1<->0 travel in 16 blocks
-	float gateStart = m_loopOutputGain;
-	float gateTarget = lp.monitorMode ? 0.0f : 1.0f;
-	float gateEnd = gateStart;
-	if (gateEnd < gateTarget) { gateEnd += MONITOR_GATE_STEP; if (gateEnd > gateTarget) gateEnd = gateTarget; }
-	else if (gateEnd > gateTarget) { gateEnd -= MONITOR_GATE_STEP; if (gateEnd < gateTarget) gateEnd = gateTarget; }
-	m_loopOutputGain = gateEnd;
-	const float gateSampStep = (AUDIO_BLOCK_SAMPLES > 0)
-	                         ? (gateEnd - gateStart) / (float)AUDIO_BLOCK_SAMPLES : 0.0f;
+	// SHIFT-held monitor routing — final mix. The DRY loop contribution ramps
+	// COMPLEMENTARILY to the fold-into-effects gain computed above: g_dry =
+	// 1 - foldGain. While SHIFT is held the loops are folded into m_input_buffer
+	// (so they are heard through the pitch+effects chain via ival32 below) and
+	// their dry copy here ramps to 0 — heard once, through effects, no double-sum
+	// and no loudness jump (g_dry + g_fold == 1). Released, g_dry->1 and loops
+	// resume their normal dry output. Clips never stopped advancing, so release is
+	// phase-seamless. The ramp is per-sample interpolated (click-free). The dry
+	// endpoints mirror the fold ramp: dryStart = 1-foldStart, dryEnd = 1-foldEnd.
+	float dryStart = 1.0f - foldStart;
+	float dryEnd   = 1.0f - foldEnd;
+	const float drySampStep = (AUDIO_BLOCK_SAMPLES > 0)
+	                        ? (dryEnd - dryStart) / (float)AUDIO_BLOCK_SAMPLES : 0.0f;
 
 	s32 *iip = m_input_buffer;
 	s32 *iop = m_output_buffer;
@@ -701,7 +729,7 @@ void loopMachine::update(void)
 	for (u16 channel=0; channel<LOOPER_NUM_CHANNELS; channel++)
 	{
 		s16 *op = out[channel]->data;
-		float gate = gateStart;
+		float gate = dryStart;
 
 		#if WITH_METERS
 			s16 *thru_max   = &(m_meter[METER_THRU].max_sample[channel]);
@@ -723,11 +751,12 @@ void loopMachine::update(void)
 					oval32 = ((double)oval32) * loop_level;
 			#endif
 
-			// Apply the monitor gate to the loop contribution only. Input
-			// (ival32) always passes at full level. gate ramps per-sample
-			// across the block from gateStart to gateEnd (click-free).
+			// Apply the DRY loop gain (= 1 - fold) to the loop contribution.
+			// Input ival32 always passes at full level and ALREADY contains the
+			// folded-in (effected) loops when SHIFT is held. gate ramps per-sample
+			// across the block (click-free).
 			oval32 = (s32)((float)oval32 * gate);
-			gate += gateSampStep;
+			gate += drySampStep;
 
 			s32 mval32 = ival32 + oval32;
 
@@ -915,8 +944,9 @@ extern "C" void loopClipTelemetry(int t, int *state, unsigned *play, unsigned *r
 }
 
 // Capture-free SHIFT-hold monitor telemetry for the :4445 TIME verb. monitor=1
-// while the loop-output gate is ramping toward / held at 0; loopGate100 is the
-// current loop-output gain * 100 (100 = loops at full level, 0 = fully muted).
+// while SHIFT routes the loops into the effects chain; loopGate100 is the current
+// DRY loop gain * 100 (100 = loops at full dry output, 0 = fully routed into the
+// pitch+effects chain — heard through effects, not dry).
 extern "C" void loopMonitorTelemetry(int *monitor, int *loopGate100)
 {
     if (!pTheLoopMachine) { *monitor = 0; *loopGate100 = 100; return; }
