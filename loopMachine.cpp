@@ -6,17 +6,25 @@
 #include "patches/RubberBandWrapper.h"
 #include "patches/apcEffectsProcessor.h"
 #include "patches/microRepeat.h"
+#include "patches/sampler.h"
 #include "patches/paramSnapshot.h"
 #include "apcKey25.h"
 extern RubberBandWrapper *pLivePitchWrapper;
 extern apcEffectsProcessor *pEffectsProcessor;
 extern microRepeat *pMicroRepeat;
+extern sampler *pSampler;
 
 // Record-latch grid witnesses for the :4445 TIME verb. Published when a
 // deferred RECORD latches on the beat grid (Core 1), read by the verb (Core 2).
 volatile u32 g_lastGridStep   = 0;
 volatile u32 g_lastLatchPhase = 0;
 volatile u32 g_microRepeatDiv = 0;   // active microrepeat divisor (0=off), TIME verb
+// Sampler witnesses for the :4445 TIME verb (capture-free), set on Core 1.
+volatile u32 g_samplerRec       = 0;   // 1 = a sample is currently recording
+volatile u32 g_samplerDrumMode  = 0;   // 1 = drum-record mode armed (button 66 held)
+volatile u32 g_samplerLen       = 0;   // current/last record length (samples)
+volatile u32 g_samplerDrumCount = 0;   // number of loaded drum slots
+volatile u32 g_samplerVoices    = 0;   // active sampler voices
 
 #define log_name "lmachine"
 
@@ -535,6 +543,22 @@ void loopMachine::update(void)
 
 	}
 
+	// --- SAMPLER (independent of the looper). Capture the DRY live input first
+	// (so a recording sample never records itself or the loops), then mix the
+	// sampler voices INTO m_input_buffer. This happens BEFORE the loop-fold /
+	// pitch / effects / microrepeat / filter chain, so sampler audio gets all
+	// effects and is recordable by a loop (under SHIFT it folds into a recording
+	// loop). The sampler touches NO loop/clip/masterPhase state.
+	if (pSampler)
+	{
+		pSampler->captureBlock(m_input_buffer, AUDIO_BLOCK_SAMPLES);
+		pSampler->renderInto(m_input_buffer, AUDIO_BLOCK_SAMPLES);
+		g_samplerRec       = pSampler->recording() ? 1u : 0u;
+		g_samplerLen       = (u32)pSampler->recLen();
+		g_samplerDrumCount = (u32)pSampler->drumLoadedCount();
+		g_samplerVoices    = (u32)pSampler->activeVoices();
+	}
+
 	LiveParams lp = paramSnapshotLoad();
 
 	// --- Loops computed FIRST (before the pitch/effects chain) so SHIFT can
@@ -677,6 +701,11 @@ void loopMachine::update(void)
 		}
 	}
 
+	// EFFECTS SENDS (delay + reverb) only. The FILTERS (HP/LP) used to run here
+	// too (processFilterAndSends), but they are now moved to the END of the chain
+	// — AFTER the microrepeat glitch — so the filter acts on the stuttered
+	// result. Sends stay here (pre-glitch) so the delay/reverb tails feed the
+	// stutter as before.
 	if (pEffectsProcessor)
 	{
 		float fx_L[AUDIO_BLOCK_SAMPLES], fx_R[AUDIO_BLOCK_SAMPLES];
@@ -685,7 +714,7 @@ void loopMachine::update(void)
 			fx_L[i] = (float)m_input_buffer[i] / 32768.0f;
 			fx_R[i] = (float)m_input_buffer[AUDIO_BLOCK_SAMPLES + i] / 32768.0f;
 		}
-		pEffectsProcessor->processFilterAndSends(fx_L, fx_R, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
+		pEffectsProcessor->processSends(fx_L, fx_R, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
 		{
 			m_input_buffer[i] = (s32)(fx_L[i] * 32768.0f);
@@ -721,6 +750,27 @@ void loopMachine::update(void)
 		}
 		pMicroRepeat->process(m_input_buffer, m_masterPhase, m_masterLoopBlocks,
 		                      lp.microRepeatDiv, AUDIO_BLOCK_SAMPLES);
+	}
+
+	// FILTERS (HP/LP) at the END of the chain — AFTER the microrepeat glitch — so
+	// the filter acts on the stuttered signal (user request). At default knobs
+	// (HP cutoff 0, LP cutoff 1) processFilters is a byte-exact pass-through, so
+	// this is inaudible until a filter knob is moved. cbWriteBlock below records
+	// the filtered result.
+	if (pEffectsProcessor)
+	{
+		float fl[AUDIO_BLOCK_SAMPLES], fr[AUDIO_BLOCK_SAMPLES];
+		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+		{
+			fl[i] = (float)m_input_buffer[i] / 32768.0f;
+			fr[i] = (float)m_input_buffer[AUDIO_BLOCK_SAMPLES + i] / 32768.0f;
+		}
+		pEffectsProcessor->processFilters(fl, fr, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
+		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+		{
+			m_input_buffer[i] = (s32)(fl[i] * 32768.0f);
+			m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = (s32)(fr[i] * 32768.0f);
+		}
 	}
 
 	// ALWAYS-ON continuous record buffer (continuousBuffer.h): store the WET

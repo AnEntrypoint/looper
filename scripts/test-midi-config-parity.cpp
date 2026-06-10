@@ -36,6 +36,10 @@ static const char* legacyInputTag(uint8_t status, uint8_t data1, uint8_t data2)
         // microrepeat latch notes 82-86 checked BEFORE pad/button (note 84
         // overrides FORMAT) - matches the new handleMidi order.
         if (data1 >= 82 && data1 <= 86) return "MICROREPEAT";
+        // sampler control buttons (ch0, free track buttons 65/66) checked before
+        // pad/button dispatch - matches the new handleMidi order.
+        if (ch == 0 && data1 == 65) return "SAMPLER_RECORD";
+        if (ch == 0 && data1 == 66) return "SAMPLER_DRUM_MODE";
         if (data1 < 40)  return "PAD";                   // APC_ROWS*APC_COLS=40
         if (data1 == 0x51) return "STOP_ALL";
         if (data1 == 0x5D) return "RECORD";
@@ -73,6 +77,9 @@ static const char* actionTag(uint8_t action)
         case MA_EFFECT_CC:           return "EFFECT";
         case MA_ENGINE_TUNE_CC:      return "ENGINE_TUNE";
         case MA_MICROREPEAT:         return "MICROREPEAT";
+        case MA_SAMPLER_RECORD:      return "SAMPLER_RECORD";
+        case MA_SAMPLER_DRUM_MODE:   return "SAMPLER_DRUM_MODE";
+        case MA_SAMPLER_KEY:         return "SAMPLER_KEY";
         default:                     return "NONE";
     }
 }

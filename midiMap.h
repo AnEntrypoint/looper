@@ -88,6 +88,16 @@ enum MidiAction {
     // the beat divisor (1=1 beat, 2=1/2, 4=1/4, 8=1/8, 16=1/16). Held = latched.
     MA_MICROREPEAT,
 
+    // Sampler. SAMPLER_RECORD (button 65 held) records the shared chromatic
+    // sample; SAMPLER_DRUM_MODE (button 66 held) arms per-key drum recording.
+    // SAMPLER_KEY is the channel-1 keyboard when the sampler has content — it is
+    // a RUNTIME overlay on MA_LIVE_PITCH_NOTE_CH1 (the keyboard plays the sampler
+    // when a sample/drum is loaded, else it transposes live pitch), so the static
+    // ch1 row stays MA_LIVE_PITCH_NOTE_CH1 and handleMidi applies the overlay.
+    MA_SAMPLER_RECORD,
+    MA_SAMPLER_DRUM_MODE,
+    MA_SAMPLER_KEY,
+
     MA_ACTION_COUNT
 };
 
@@ -261,6 +271,12 @@ static const MidiInputMap g_apc25Inputs[] = {
     { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 84, 84, MV_TRIGGER, MA_MICROREPEAT,  4 },   // 1/4 beat
     { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 85, 85, MV_TRIGGER, MA_MICROREPEAT,  8 },   // 1/8 beat
     { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 86, 86, MV_TRIGGER, MA_MICROREPEAT, 16 },   // 1/16 beat stutter
+
+    // --- sampler control buttons (free track buttons 65/66, channel 0). MUST
+    // precede the pad/transport rows; 65/66 are outside the pad range so they
+    // would otherwise fall through to MA_NONE. Held = active. ---
+    { MS_NOTE_ON,  0, 65, 65, MV_TRIGGER, MA_SAMPLER_RECORD,    0 },   // 65 hold = record chromatic sample
+    { MS_NOTE_ON,  0, 66, 66, MV_TRIGGER, MA_SAMPLER_DRUM_MODE, 0 },   // 66 hold = drum-record arm
 
     // --- grid pads + global transport buttons (channel-agnostic note range) ---
     { MS_NOTE_ON,  MIDI_ANY_CHANNEL, APC25_NOTE_PAD_LO, APC25_NOTE_PAD_HI, MV_TRIGGER, MA_PAD,          -1 },

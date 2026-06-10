@@ -10,15 +10,20 @@
 extern volatile unsigned g_pendingPressTicks;
 #include "patches/paramSnapshot.h"
 #include "patches/RubberBandWrapper.h"
+#include "patches/sampler.h"
 #include <circle/logger.h>
 #include <circle/timer.h>
 
 extern RubberBandWrapper *pLivePitchWrapper;
+extern sampler *pSampler;
+// Drum-record mode witness for the :4445 TIME verb (defined in loopMachine.cpp).
+extern volatile u32 g_samplerDrumMode;
 
 apcKey25 *pTheAPC = 0;
 
 apcKey25::apcKey25()
-    : m_shift(false), m_microRepeatDiv(0), m_cmdHead(0), m_cmdTail(0),
+    : m_shift(false), m_microRepeatDiv(0), m_drumRecordMode(false),
+      m_cmdHead(0), m_cmdTail(0),
       m_nowMs(0), m_bootMs(0), m_lastLedMs(0),
       m_transposeLocked(false), m_transposePitch(0), m_pitchWheelOffset(0),
       m_driftTarget(0.0f), m_lastDriftMs(0), m_computedRatio(1.0f),
@@ -91,6 +96,24 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             return;
         }
         if (channel == 1) {
+            // Sampler takes the keys when it has content. In drum-record mode
+            // (button 66 held) a key press records into THAT key's drum slot.
+            // Otherwise, if a chromatic sample is loaded OR this key has a drum
+            // slot, the key triggers sampler playback (live-pitch keyboard
+            // transpose is suppressed; live pitch stays reachable via mod-wheel /
+            // CC52). With no sampler content the key falls through to live pitch.
+            if (pSampler) {
+                int keyIdx = sampler::keyIndex((int)data1);
+                if (m_drumRecordMode) {
+                    if (keyIdx >= 0)
+                        pSampler->pushEvent(sampler::EV_REC_START, keyIdx, 0);
+                    return;
+                }
+                if (pSampler->chromaticLoaded() || pSampler->drumLoaded(keyIdx)) {
+                    pSampler->pushEvent(sampler::EV_NOTE_ON, (int)data1, (int)data2);
+                    return;
+                }
+            }
             m_livePitchSemitones = (float)((int)data1 - 60);
             m_liveEngaged = true;
             _applyLivePitch();
@@ -113,6 +136,18 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             m_microRepeatDiv = div[data1 - 82];
             return;
         }
+        // Sampler control buttons (free track buttons 65/66, channel 0). Checked
+        // BEFORE the pad/button dispatch. 65 HELD = record the shared chromatic
+        // sample; 66 HELD = drum-record-arm (keys record into per-key slots).
+        if (channel == 0 && data1 == 65) {
+            if (pSampler) pSampler->pushEvent(sampler::EV_REC_START, -1, 0);  // -1 = chromatic
+            return;
+        }
+        if (channel == 0 && data1 == 66) {
+            m_drumRecordMode = true;
+            g_samplerDrumMode = 1;
+            return;
+        }
         if (data1 < APC_ROWS * APC_COLS)
         {
             _onPadPress(data1 / APC_COLS, data1 % APC_COLS);
@@ -133,8 +168,38 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             if (m_microRepeatDiv == div[data1 - 82]) m_microRepeatDiv = 0;
             return;
         }
+        // Sampler button releases.
+        if (channel == 0 && data1 == 65) {
+            if (pSampler) pSampler->pushEvent(sampler::EV_REC_STOP, 0, 0);   // stop + auto-trim
+            return;
+        }
+        if (channel == 0 && data1 == 66) {
+            m_drumRecordMode = false;
+            g_samplerDrumMode = 0;
+            // Stop any in-progress drum capture (idempotent if none) so releasing
+            // 66 before the key never leaves a record armed.
+            if (pSampler) pSampler->pushEvent(sampler::EV_REC_STOP, 0, 0);
+            return;
+        }
         if (channel == 0 && data1 == 64) return;
-        if (channel == 1) { m_transposeLocked = false; return; }
+        if (channel == 1) {
+            // Mirror the note-on routing: stop a drum-record on key release, or
+            // send the sampler a NOTE_OFF (release sustaining chromatic voices).
+            if (pSampler) {
+                int keyIdx = sampler::keyIndex((int)data1);
+                if (m_drumRecordMode) {
+                    if (keyIdx >= 0)
+                        pSampler->pushEvent(sampler::EV_REC_STOP, 0, 0);
+                    return;
+                }
+                if (pSampler->chromaticLoaded() || pSampler->drumLoaded(keyIdx)) {
+                    pSampler->pushEvent(sampler::EV_NOTE_OFF, (int)data1, 0);
+                    return;
+                }
+            }
+            m_transposeLocked = false;
+            return;
+        }
         if (data1 < APC_ROWS * APC_COLS)
             _onPadRelease(data1 / APC_COLS, data1 % APC_COLS);
         return;

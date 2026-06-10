@@ -230,6 +230,54 @@ unchanged regression suite (`test-monitor-route`/`test-pause-mute`/
 `test-resume-phase`/`test-first-loop-region`/`test-midi-config-parity` still ALL
 PASS).
 
+**Sampler = independent hold-to-record sampler (buttons 65/66, load-bearing).**
+`patches/sampler.h` (`pSampler`, allocated in `audio.cpp` like `pMicroRepeat`) is a
+sound SOURCE, NOT a looper. It mixes into `m_input_buffer` at the TOP of
+`loopMachine::update` — BEFORE the loop-fold / pitch / effects / microrepeat /
+filter chain — so sampler audio gets ALL effects and is recordable into a loop
+(under SHIFT it folds into a recording loop). It touches NO loopMachine/loopClip/
+`m_masterPhase` state, so the looper keeps working while the sampler works.
+**Capture reads the DRY mic snapshot taken BEFORE `renderInto` (load-bearing):**
+`pSampler->captureBlock(m_input_buffer,...)` runs before `pSampler->renderInto(...)`
+so a recording sample never records itself (no feedback) or the loops — it records
+the live input source only. **Two gestures (channel-0 buttons, intercepted in
+`apcKey25::handleMidi` BEFORE the pad/button dispatch):** button **65** (`0x41`)
+HELD records ONE shared chromatic sample; on release the leading/trailing silence
+is auto-clipped and the 25 keyboard keys play it pitched chromatically
+(`rate = 2^((note-60)/12)`, middle C = note 60 = original speed), polyphonic.
+Button **66** (`0x42`) HELD = drum mode: while held, holding a keyboard key records
+into THAT key's own drum slot (`keyIndex = note-48`, 25 slots, auto-clip on key
+release); a loaded drum slot plays at ORIGINAL pitch as a one-shot and OVERRIDES
+the chromatic sample on that key. **Keyboard routing (load-bearing):** when the
+sampler has content (chromatic loaded OR this key's drum loaded) the channel-1
+keyboard note-on routes to the sampler (live-pitch keyboard transpose is
+SUPPRESSED; live pitch stays reachable via mod-wheel CC1 / CC52). With no content
+the key falls through to live-pitch transpose (unchanged). **Cross-core:**
+`handleMidi` (ISR/control core) pushes note-on/off + rec-start/stop events into a
+lock-free SPSC ring on the sampler (`pushEvent`); Core 1 drains it at the top of
+`renderInto`. Buffers (`short` s16, heap-allocated once: 5s chromatic + 25×2s drum
+slots, ~10.5MB) are written/read only on Core 1. Voice pool = 16, oldest-voice
+steal; per-voice attack/release gain ramp + auto-trim edge fades = click-free;
+record overrun clamps at buffer max (`_stopRecord` finalizes on a pending target so
+an overrun-then-release still loads). Drum slot overwrite stops voices reading that
+slot first. midiMap.h: `MA_SAMPLER_RECORD` (65), `MA_SAMPLER_DRUM_MODE` (66),
+`MA_SAMPLER_KEY` (channel-1 keys are a RUNTIME overlay on
+`MA_LIVE_PITCH_NOTE_CH1`). Surfaced in `:4445 TIME` as `sampRec`/`drumMode`/
+`sampLen`/`drumLoaded`/`voices`. Witnessed by `scripts/test-sampler.cpp`
+(`ALL PASS`: auto-trim, chromatic resample ratio, drum one-shot, polyphony,
+voice-steal, click-free, overrun clamp, no-content no-op).
+
+**Filters run at the END of the effects chain (after the microrepeat glitch,
+load-bearing).** `apcEffectsProcessor` is split into `processFilters` (HP/LP SVF)
+and `processSends` (delay/reverb). `loopMachine::update` runs `processSends` in the
+old effects slot (after pitch), then the microrepeat stage, then `processFilters`
+at the very end on `m_input_buffer` BEFORE `cbWriteBlock` — so the filter acts on
+the stuttered/effected signal. `processFilterAndSends` is retained (filters then
+sends) for any other caller. At default knobs (HP cutoff 0, LP cutoff 1) both
+filter guards skip, so `processFilters` is a byte-exact pass-through and the move is
+inaudible until a filter knob moves. Witnessed by `scripts/test-filter-order.cpp`
+(`ALL PASS`: default-knob parity + order-observable-when-LP-engaged).
+
 **Preset pad gestures**:
 - tap → `_applyPreset(p)`: for each looper, play if bit set in stored mask, pause if not. Empty loopers ignored. No-op if preset never captured.
 - long-hold → `_capturePreset(p)`: snapshot 32-bit `m_presetMask[p]` of which loopers are currently playing or pending-play. Sets `m_presetUsed[p] = true`.

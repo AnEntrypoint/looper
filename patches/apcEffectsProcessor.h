@@ -130,24 +130,34 @@ public:
       m_delayTargetSamples = (float)(MAX_DELAY_SAMPLES - 1);
   }
 
-  void processFilterAndSends(float *left, float *right, size_t samples, size_t sampleRate) {
+  // HP/LP filtering ONLY. Split out of processFilterAndSends so the looper can
+  // run the filters at the END of the chain (after the microrepeat glitch),
+  // while the delay/reverb sends run earlier. At default knobs (HP cutoff 0,
+  // LP cutoff 1) both guards skip, so this is a byte-exact pass-through.
+  void processFilters(float *left, float *right, size_t samples, size_t sampleRate) {
     m_sampleRate = sampleRate;
-
     for (size_t i = 0; i < samples; i++) {
       float l = left[i];
       float r = right[i];
-
-      // Highpass filter (2-pole SVF, Butterworth Q, no resonance knob)
       if (m_hpCutoff > 0.01f) {
         svfHighpass(l, m_hpIc1eq[0], m_hpIc2eq[0], m_hpCutoff, l);
         svfHighpass(r, m_hpIc1eq[1], m_hpIc2eq[1], m_hpCutoff, r);
       }
-
-      // Lowpass filter (2-pole SVF with resonance)
       if (m_lpCutoff < 0.99f) {
         svfLowpass(l, m_lpIc1eq[0], m_lpIc2eq[0], m_lpCutoff, m_lpRes, l);
         svfLowpass(r, m_lpIc1eq[1], m_lpIc2eq[1], m_lpCutoff, m_lpRes, r);
       }
+      left[i] = l;
+      right[i] = r;
+    }
+  }
+
+  // Delay + reverb sends ONLY (no filtering).
+  void processSends(float *left, float *right, size_t samples, size_t sampleRate) {
+    m_sampleRate = sampleRate;
+    for (size_t i = 0; i < samples; i++) {
+      float l = left[i];
+      float r = right[i];
 
       // Tape delay: smoothly interpolate read position toward target
       float currentDelay = (float)m_delayWritePos - m_delayReadPos;
@@ -204,6 +214,13 @@ public:
       left[i] = l;
       right[i] = r;
     }
+  }
+
+  // Backward-compatible composite: filters THEN sends (the original order).
+  // Retained for callers/tests that want the whole chain in one call.
+  void processFilterAndSends(float *left, float *right, size_t samples, size_t sampleRate) {
+    processFilters(left, right, samples, sampleRate);
+    processSends(left, right, samples, sampleRate);
   }
 };
 

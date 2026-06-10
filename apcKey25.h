@@ -77,6 +77,10 @@ private:
     // else 1/2/4/8/16 (beat divisor). Set on note-on, cleared on note-off;
     // published to LiveParams.microRepeatDiv each tick.
     u8            m_microRepeatDiv;
+    // Sampler drum-record mode: true while button 66 is HELD. While true, a
+    // channel-1 keyboard key press records into THAT key's drum slot (instead of
+    // playing). Published to g_samplerDrumMode for the :4445 TIME verb.
+    bool          m_drumRecordMode;
     // Lock-free SPSC command ring: producer = MIDI ISR (_queueCmd via
     // handleMidi/note handlers), consumer = Core-2 update(). Was a single
     // slot (m_cmdReady/Type/Arg) that silently OVERWROTE a queued command if a

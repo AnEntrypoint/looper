@@ -138,8 +138,10 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				int monitor = 0, loopGate100 = 100;
 				loopMonitorTelemetry(&monitor, &loopGate100);
 				extern volatile u32 g_microRepeatDiv;
+				extern volatile u32 g_samplerRec, g_samplerDrumMode, g_samplerLen,
+				                    g_samplerDrumCount, g_samplerVoices;
 				CString s;
-				s.Format("backdate=%u latUs=%u clamped=%u extraLag=%u gridStep=%u latchPhase=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d monitor=%d loopGate=%d microRep=%u",
+				s.Format("backdate=%u latUs=%u clamped=%u extraLag=%u gridStep=%u latchPhase=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d monitor=%d loopGate=%d microRep=%u sampRec=%u drumMode=%u sampLen=%u drumLoaded=%u voices=%u",
 					(unsigned)g_cbLastBackdateSamples,
 					(unsigned)g_cbLastPressLatencyUs,
 					(unsigned)g_cbLastBackdateClamped,
@@ -153,7 +155,12 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					(int)linkGetBPM(),
 					monitor,
 					loopGate100,
-					(unsigned)g_microRepeatDiv);
+					(unsigned)g_microRepeatDiv,
+					(unsigned)g_samplerRec,
+					(unsigned)g_samplerDrumMode,
+					(unsigned)g_samplerLen,
+					(unsigned)g_samplerDrumCount,
+					(unsigned)g_samplerVoices);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='C' && buf[1]=='L' && buf[2]=='I' && buf[3]=='P')
