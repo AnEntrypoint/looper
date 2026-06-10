@@ -14,6 +14,7 @@
 #include <circle/timer.h>
 #include "patches/RubberBandWrapper.h"
 #include "patches/apcEffectsProcessor.h"
+#include "patches/microRepeat.h"
 #include "patches/audioTelemetry.h"
 #ifdef ARM_ALLOW_MULTI_CORE
 #include "patches/coreBusy.h"
@@ -95,6 +96,7 @@
 
 RubberBandWrapper *pLivePitchWrapper = 0;
 apcEffectsProcessor *pEffectsProcessor = 0;
+microRepeat *pMicroRepeat = 0;
 
 // On-demand engine query/control entry point, called from the Core-2 debug
 // socket (kernel_run pollSockets). Returns reply length, or 0 to fall through
@@ -128,6 +130,7 @@ void setup()
 	debug_blink(1);
 	pLivePitchWrapper = new RubberBandWrapper(AUDIO_SAMPLE_RATE, LOOPER_NUM_CHANNELS);
 	pEffectsProcessor = new apcEffectsProcessor(AUDIO_SAMPLE_RATE);
+	pMicroRepeat = new microRepeat();
 	// Note: pLivePitchWrapper and pEffectsProcessor are NOT AudioStreams; they're fed directly in loopMachine::update()
 	// Audio path: input → loopMachine (which internally feeds pLivePitchWrapper and pEffectsProcessor) → output
 	new AudioConnection(input,      0,  *pTheLooper,    0);

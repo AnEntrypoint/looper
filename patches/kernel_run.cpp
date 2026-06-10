@@ -137,8 +137,9 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				extern volatile u32 g_lastLatchPhase;
 				int monitor = 0, loopGate100 = 100;
 				loopMonitorTelemetry(&monitor, &loopGate100);
+				extern volatile u32 g_microRepeatDiv;
 				CString s;
-				s.Format("backdate=%u latUs=%u clamped=%u extraLag=%u gridStep=%u latchPhase=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d monitor=%d loopGate=%d",
+				s.Format("backdate=%u latUs=%u clamped=%u extraLag=%u gridStep=%u latchPhase=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d monitor=%d loopGate=%d microRep=%u",
 					(unsigned)g_cbLastBackdateSamples,
 					(unsigned)g_cbLastPressLatencyUs,
 					(unsigned)g_cbLastBackdateClamped,
@@ -151,7 +152,8 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					(int)(linkQuantBeats() * 100),
 					(int)linkGetBPM(),
 					monitor,
-					loopGate100);
+					loopGate100,
+					(unsigned)g_microRepeatDiv);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='C' && buf[1]=='L' && buf[2]=='I' && buf[3]=='P')

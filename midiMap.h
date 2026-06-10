@@ -84,6 +84,10 @@ enum MidiAction {
     // Engine tuning (UDP-inject only; param = the tuning knob id 100..107)
     MA_ENGINE_TUNE_CC,
 
+    // Latch-based microrepeat (beat-repeat/stutter), notes 82-86. param carries
+    // the beat divisor (1=1 beat, 2=1/2, 4=1/4, 8=1/8, 16=1/16). Held = latched.
+    MA_MICROREPEAT,
+
     MA_ACTION_COUNT
 };
 
@@ -248,6 +252,15 @@ static const MidiInputMap g_apc25Inputs[] = {
     { MS_NOTE_ON,  0,  64, 64, MV_TRIGGER,  MA_BTN_TOGGLE_LIVE,     0 },   // ch0 note64 toggle
     { MS_NOTE_ON,  1,   0,127, MV_ABSOLUTE, MA_LIVE_PITCH_NOTE_CH1, -1 },  // ch1 note=pitch, engage
     { MS_NOTE_ON,  2,   0,127, MV_ABSOLUTE, MA_LIVE_PITCH_NOTE_CH2, -1 },  // ch2 note=pitch, always engage
+
+    // --- microrepeat latch notes 82-86 (held = latched). MUST precede the
+    // FORMAT button row so note 84 (== APC25_BTN_FORMAT) drives the 1/4-beat
+    // repeat, not the FORMAT toggle. param = beat divisor. ---
+    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 82, 82, MV_TRIGGER, MA_MICROREPEAT,  1 },   // 1 beat
+    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 83, 83, MV_TRIGGER, MA_MICROREPEAT,  2 },   // 1/2 beat
+    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 84, 84, MV_TRIGGER, MA_MICROREPEAT,  4 },   // 1/4 beat
+    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 85, 85, MV_TRIGGER, MA_MICROREPEAT,  8 },   // 1/8 beat
+    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 86, 86, MV_TRIGGER, MA_MICROREPEAT, 16 },   // 1/16 beat stutter
 
     // --- grid pads + global transport buttons (channel-agnostic note range) ---
     { MS_NOTE_ON,  MIDI_ANY_CHANNEL, APC25_NOTE_PAD_LO, APC25_NOTE_PAD_HI, MV_TRIGGER, MA_PAD,          -1 },

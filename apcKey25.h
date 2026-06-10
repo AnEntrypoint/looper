@@ -73,6 +73,10 @@ public:
 
 private:
     bool          m_shift;
+    // Latched microrepeat division (beat-repeat/stutter, notes 82-86): 0 = off,
+    // else 1/2/4/8/16 (beat divisor). Set on note-on, cleared on note-off;
+    // published to LiveParams.microRepeatDiv each tick.
+    u8            m_microRepeatDiv;
     // Lock-free SPSC command ring: producer = MIDI ISR (_queueCmd via
     // handleMidi/note handlers), consumer = Core-2 update(). Was a single
     // slot (m_cmdReady/Type/Arg) that silently OVERWROTE a queued command if a

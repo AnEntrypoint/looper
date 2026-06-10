@@ -18,7 +18,7 @@ extern RubberBandWrapper *pLivePitchWrapper;
 apcKey25 *pTheAPC = 0;
 
 apcKey25::apcKey25()
-    : m_shift(false), m_cmdHead(0), m_cmdTail(0),
+    : m_shift(false), m_microRepeatDiv(0), m_cmdHead(0), m_cmdTail(0),
       m_nowMs(0), m_bootMs(0), m_lastLedMs(0),
       m_transposeLocked(false), m_transposePitch(0), m_pitchWheelOffset(0),
       m_driftTarget(0.0f), m_lastDriftMs(0), m_computedRatio(1.0f),
@@ -105,6 +105,14 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             _applyLivePitch();
             return;
         }
+        // Microrepeat latch notes 82-86 (1, 1/2, 1/4, 1/8, 1/16 beat). Checked
+        // BEFORE the pad/button dispatch so note 84 overrides APC_BTN_FORMAT.
+        // Held = latched; last-pressed wins. Released in the note-off block.
+        if (data1 >= 82 && data1 <= 86) {
+            static const u8 div[5] = {1, 2, 4, 8, 16};   // 82..86 -> 1/div beat
+            m_microRepeatDiv = div[data1 - 82];
+            return;
+        }
         if (data1 < APC_ROWS * APC_COLS)
         {
             _onPadPress(data1 / APC_COLS, data1 % APC_COLS);
@@ -117,6 +125,14 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
     if (msgType == APC_CH_NOTE_OFF || (msgType == APC_CH_NOTE_ON && data2 == 0))
     {
         if (data1 == APC_BTN_SHIFT) { m_shift = false; return; }
+        // Release a microrepeat latch: clear only if the released note owns the
+        // currently-active division (so releasing a stale earlier note doesn't
+        // cancel a newer held one).
+        if (data1 >= 82 && data1 <= 86) {
+            static const u8 div[5] = {1, 2, 4, 8, 16};
+            if (m_microRepeatDiv == div[data1 - 82]) m_microRepeatDiv = 0;
+            return;
+        }
         if (channel == 0 && data1 == 64) return;
         if (channel == 1) { m_transposeLocked = false; return; }
         if (data1 < APC_ROWS * APC_COLS)
@@ -248,6 +264,7 @@ void apcKey25::update()
         p.linkSynced         = linkIsSynced();
         p.linkBPM            = (float)linkGetBPM();
         p.masterLoopBlocks   = pTheLooper->m_masterLoopBlocks;
+        p.microRepeatDiv     = m_microRepeatDiv;  // latched beat-repeat (notes 82-86)
         p.monitorMode        = m_shift;   // SHIFT held = temporary input-monitor
                                           // (gate loop output, hear live input)
         paramSnapshotPublish(p);

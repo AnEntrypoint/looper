@@ -5,15 +5,18 @@
 #include "continuousBuffer.h"
 #include "patches/RubberBandWrapper.h"
 #include "patches/apcEffectsProcessor.h"
+#include "patches/microRepeat.h"
 #include "patches/paramSnapshot.h"
 #include "apcKey25.h"
 extern RubberBandWrapper *pLivePitchWrapper;
 extern apcEffectsProcessor *pEffectsProcessor;
+extern microRepeat *pMicroRepeat;
 
 // Record-latch grid witnesses for the :4445 TIME verb. Published when a
 // deferred RECORD latches on the beat grid (Core 1), read by the verb (Core 2).
 volatile u32 g_lastGridStep   = 0;
 volatile u32 g_lastLatchPhase = 0;
+volatile u32 g_microRepeatDiv = 0;   // active microrepeat divisor (0=off), TIME verb
 
 #define log_name "lmachine"
 
@@ -690,6 +693,36 @@ void loopMachine::update(void)
 		}
 	}
 
+	// MICROREPEAT (beat-repeat/stutter, notes 82-86). When a division is
+	// latched, the stage repeats a beat-fraction slice of the FULL mix (input +
+	// ALL loops) and that stutter becomes BOTH the audible output and the record
+	// source (so under SHIFT it records into a loop). To give the stage the full
+	// mix, complete the loop sum into m_input_buffer here: under SHIFT the loop
+	// sum is already folded in by m_loopFoldGain(=foldEnd), so add only the
+	// not-yet-folded remainder (1 - foldEnd) — the loop sum is then counted
+	// EXACTLY once in m_input_buffer. The stage NEVER touches clip play heads or
+	// m_masterPhase, so the loops keep advancing underneath and release is
+	// position-identical (ephemeral repeat). When div==0 this whole block is a
+	// no-op and the chain is byte-identical to before.
+	// Run the stage whenever a div is latched OR its wet ramp is still settling
+	// (so a just-released repeat fades out click-free). While it is wet, the loop
+	// sum must be present in m_input_buffer so the stutter contains all loops and
+	// so the (1-mrWet) gate on the dry loop add below counts the loop sum exactly
+	// once. Complete the not-yet-folded loop remainder (1-foldEnd) into
+	// m_input_buffer, scaled by the wet level so dry+stutter == one loop sum.
+	g_microRepeatDiv = lp.microRepeatDiv;   // capture-free TIME-verb witness
+	if (pMicroRepeat && (lp.microRepeatDiv != 0 || pMicroRepeat->wet() > 0.0001f))
+	{
+		float remain = (1.0f - foldEnd) * pMicroRepeat->wet();
+		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+		{
+			m_input_buffer[i]                       += (s32)((float)m_output_buffer[i] * remain);
+			m_input_buffer[AUDIO_BLOCK_SAMPLES + i] += (s32)((float)m_output_buffer[AUDIO_BLOCK_SAMPLES + i] * remain);
+		}
+		pMicroRepeat->process(m_input_buffer, m_masterPhase, m_masterLoopBlocks,
+		                      lp.microRepeatDiv, AUDIO_BLOCK_SAMPLES);
+	}
+
 	// ALWAYS-ON continuous record buffer (continuousBuffer.h): store the WET
 	// block — AFTER live-pitch + effects have mutated m_input_buffer — so loops
 	// record exactly what the musician hears. This is the single staging area
@@ -720,6 +753,14 @@ void loopMachine::update(void)
 	// endpoints mirror the fold ramp: dryStart = 1-foldStart, dryEnd = 1-foldEnd.
 	float dryStart = 1.0f - foldStart;
 	float dryEnd   = 1.0f - foldEnd;
+	// Suppress the dry loop add by the microrepeat wet gain: when the repeat is
+	// active the loop sum is already inside m_input_buffer (ival32) via the stage
+	// (the `remain` completion above), so adding oval here too would double-count
+	// it. Gating by (1 - mrWet) hands the loop energy to the stutter path exactly
+	// once. mrWet=0 (no repeat) leaves the dry add unchanged.
+	float mrWet = pMicroRepeat ? pMicroRepeat->wet() : 0.0f;
+	dryStart *= (1.0f - mrWet);
+	dryEnd   *= (1.0f - mrWet);
 	const float drySampStep = (AUDIO_BLOCK_SAMPLES > 0)
 	                        ? (dryEnd - dryStart) / (float)AUDIO_BLOCK_SAMPLES : 0.0f;
 
