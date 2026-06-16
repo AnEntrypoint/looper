@@ -17,12 +17,28 @@
 // (nothing left to pop), re-seed to the empty baseline. WiFi stays up
 // indefinitely; a leak degrades to a harmless reseed instead of a halt.
 //
+// HARDENING (WLAN re-enable prep): error() previously called print() on EVERY
+// longjmp. print() -> CLogger::Write(LogDebug) is a SYSLOG UDP write — blocking
+// I/O. AGENTS.md's load-bearing rule is "never do blocking I/O on the hot path;
+// CLogger::Write (syslog UDP) causes periodic audio gaps / wedges the control
+// plane". error() IS a hot path (it fires on every transient SDIO/driver hiccup,
+// and storms during a stackptr leak), so the per-error syslog write is exactly
+// the blocking-UDP wedge the WLAN-disable comments blamed. Since the longjmp is
+// non-fatal control flow, the log line is pure liability: REMOVED. Replaced with
+// a free-running, non-blocking counter (p9ErrorCount) so the error rate stays
+// observable (telemetry/poll) without any I/O on the error path.
+//
 // Wired into both build paths (scripts/build-local.ps1 + .github/workflows/
 // build.yml) as a copy over circle/addon/wlan/p9error.cpp.
 
 #include "p9error.h"
 #include "p9proc.h"
 #include "p9util.h"
+
+// Non-blocking observability: count error() longjmps without touching syslog.
+// Read via p9ErrorCount() from the control plane (e.g. the :4445 WLAN verb).
+static volatile unsigned g_p9ErrorCount = 0;
+extern "C" unsigned p9ErrorCount (void) { return g_p9ErrorCount; }
 
 // Largest valid slot index for longjmp target = ERROR_STACK_SIZE - 1.
 static inline unsigned clamp_top (unsigned p)
@@ -35,7 +51,9 @@ static inline unsigned clamp_top (unsigned p)
 
 void error (const char *str)
 {
-	print ("%s\n", str);
+	// NO print() here — see HARDENING note above. error() is non-fatal control
+	// flow on a hot path; a syslog UDP write per longjmp wedges the control plane.
+	g_p9ErrorCount++;
 
 	up->errstr = str;
 

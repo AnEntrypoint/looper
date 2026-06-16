@@ -116,12 +116,19 @@ boolean CKernel::Initialize(void)
 	};
 	p9chan_set_firmware(s_wlanFW, 3);
 
-	// WLAN/plan9 + Ableton-Link disabled by default: the p9 stack overflows
-	// (~90s after boot under audio load) and asserts, taking down networking
-	// and blocking live engine diagnosis. WLAN/Link is non-essential for the
-	// audio/formant work; Ethernet (boot/syslog/debug/MIDI sockets) is
-	// independent and stays up. Define LOOPER_ENABLE_WLAN to re-enable once the
-	// p9 stack-size/recursion bug is fixed.
+	// WLAN/plan9 + Ableton-Link is OPT-IN (LOOPER_ENABLE_WLAN). The two failure
+	// modes that originally forced it off are now mitigated in code:
+	//   (1) the ~90s assert-halt was the p9 error-stack down-counter leak;
+	//       patches/p9error.cpp self-heals (clamp/reseed, never asserts) and no
+	//       longer does blocking syslog I/O on the error longjmp hot path
+	//       (witnessed by scripts/test-p9-errorstack.cpp);
+	//   (2) the "Core 2 control plane dead within a tick" SendFrame wedge is
+	//       gated on association — abletonLink.cpp::linkProcess() early-returns
+	//       unless CBcm4343Device::IsLinkUp(), plus a bounded 64-frame RX drain.
+	// Still pending HARDWARE re-validation before it can default on (radio
+	// stability under sustained audio load can't be host-proven); until then it
+	// stays opt-in. Ethernet (boot/syslog/debug/MIDI sockets) is independent and
+	// always up. Observe the live error rate via the :4445 WLAN verb (p9err=).
 #ifdef LOOPER_ENABLE_WLAN
 	s_wlanOK = m_WLAN.Initialize();
 	if (s_wlanOK)

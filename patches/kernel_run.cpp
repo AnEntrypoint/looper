@@ -11,6 +11,7 @@ extern void usbMidiInjectMidi(u8 status, u8 data1, u8 data2);
 extern "C" int engineQueryDispatch(const char *req, char *out, int outsz);
 extern "C" void loopClipTelemetry(int, int*, unsigned*, unsigned*, unsigned*, unsigned*, unsigned*);
 extern "C" void loopMonitorTelemetry(int*, int*);
+extern "C" unsigned p9ErrorCount(void);   // libwlan.a (patches/p9error.cpp)
 extern "C" int wlanStatusCode(void);   // kernel.cpp: 0 off/fail, 1 joined, 2 AP
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
 extern void loop(void);
@@ -122,8 +123,9 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				const char *mode = "disabled";
 #endif
 				CString s;
-				s.Format("wlan=%s link=%s bpm=%d", mode,
-					linkIsSynced() ? "synced" : "no", (int)linkGetBPM());
+				s.Format("wlan=%s link=%s bpm=%d p9err=%u", mode,
+					linkIsSynced() ? "synced" : "no", (int)linkGetBPM(),
+					p9ErrorCount());
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='T' && buf[1]=='I' && buf[2]=='M' && buf[3]=='E')
