@@ -24,6 +24,13 @@ struct LiveParams {
     u8        microRepeatDiv;    // latch-based microrepeat division: 0 = off,
                                  // else 1/2/4/8/16 (beat divisor for the
                                  // beat-repeat/stutter on notes 82..86).
+    // Ableton Link shared-timeline beat phase (full Link sync). Published by
+    // Core 2 (apcKey25::update reads abletonLink::linkGhostPhase); read by Core 1
+    // (loopMachine) to phase-align masterPhase to the session downbeat. Phase is
+    // microbeats in [0, linkQuantumMicroBeats). Only meaningful when linkPhaseValid.
+    bool      linkPhaseValid;
+    s64       linkBeatPhaseMicroBeats;
+    s64       linkQuantumMicroBeats;
 };
 
 extern volatile u32 g_paramActiveIdx;

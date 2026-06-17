@@ -130,6 +130,23 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					p9ErrorCount());
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
+			else if (buf[0]=='L' && buf[1]=='I' && buf[2]=='N' && buf[3]=='K')
+			{
+				// Full Ableton Link state, capture-free (OUR view; no Live-side
+				// capture needed): peers, who owns, measured owner offset,
+				// ping/pong counters, shared beat phase, tempo.
+				extern void linkTelemetry(unsigned*, s64*, unsigned*, unsigned*, int*);
+				extern bool linkGhostPhase(s64*, s64*);
+				unsigned peers=0, pingsTx=0, pongsRx=0; s64 offUs=0; int selfOwns=1;
+				linkTelemetry(&peers, &offUs, &pingsTx, &pongsRx, &selfOwns);
+				s64 ph=0, q=4000000; int phaseValid = linkGhostPhase(&ph, &q) ? 1 : 0;
+				int beatPhase100 = (q > 0) ? (int)((ph * 100) / q) : 0;
+				CString s;
+				s.Format("synced=%d peers=%u owner=%s offsetUs=%d pingsTx=%u pongsRx=%u phaseValid=%d beatPhase100=%d bpm=%d",
+					linkIsSynced() ? 1 : 0, peers, selfOwns ? "self" : "peer",
+					(int)offUs, pingsTx, pongsRx, phaseValid, beatPhase100, (int)linkGetBPM());
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
 			else if (buf[0]=='T' && buf[1]=='I' && buf[2]=='M' && buf[3]=='E')
 			{
 				extern volatile u32 g_cbWriteBlock;

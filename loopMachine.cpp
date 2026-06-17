@@ -605,6 +605,36 @@ void loopMachine::update(void)
 					}
 				}
 			}
+
+			// FULL LINK PHASE SYNC. When synced to a session with a valid shared
+			// beat phase AND the looper is IDLE (no running clips), track the
+			// session sub-beat phase so the FIRST recorded loop's downbeat lands
+			// on the session beat -- the whole looper then inherits Live's phase
+			// through that first loop (its recordStartPhaseOffset = masterPhase).
+			// SAFETY: we NEVER mutate masterPhase while clips run (the
+			// consecutive-loop / pause / resume phase logic owns it), and we do
+			// NOT pre-set m_masterLoopBlocks (the first loop still defines the
+			// phrase; the synced+anyRecorded branch above then time-stretches it
+			// to Live's tempo). Only the idle sub-beat offset is aligned, using
+			// blocks-per-beat derived directly from Live's tempo.
+			if (lp.linkSynced && lp.linkPhaseValid && lp.linkBPM > 0 &&
+			    lp.linkQuantumMicroBeats > 0)
+			{
+				bool anyRunning = false;
+				for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
+					if (getTrack(i)->getNumRunningClips()) { anyRunning = true; break; }
+				if (!anyRunning)
+				{
+					u32 bpb = (u32)((INTEGRAL_BLOCKS_PER_SECOND * 60.0f) / lp.linkBPM + 0.5f);
+					if (bpb == 0) bpb = 1;
+					s64 frac = lp.linkBeatPhaseMicroBeats % 1000000;   // within current beat
+					if (frac < 0) frac += 1000000;
+					u32 within = (u32)(((s64)frac * bpb) / 1000000);
+					if (within >= bpb) within = bpb - 1;
+					// keep the running beat index, set the sub-beat offset to Live's.
+					m_masterPhase = (m_masterPhase - (m_masterPhase % bpb)) + within;
+				}
+			}
 		}
 	}
 	updateState();

@@ -38,6 +38,7 @@ typedef struct {
     int64_t  samples[LG_MAX_SAMPLES];
     int      n;
     int      pings;          // pings issued in this burst
+    int64_t  lastPingMicros; // host time of the last ping sent (scheduler cadence)
     // initiator-side history for the sample formula:
     int64_t  prevHostSend;   // send time of the previous ping (0 = none yet)
     int64_t  prevGhost;      // ghost time from the previous pong (0 = none yet)
@@ -45,7 +46,7 @@ typedef struct {
 
 static inline void lgMeasReset(LinkMeasurement *m)
 {
-    m->n = 0; m->pings = 0; m->prevHostSend = 0; m->prevGhost = 0;
+    m->n = 0; m->pings = 0; m->lastPingMicros = 0; m->prevHostSend = 0; m->prevGhost = 0;
 }
 
 // Add raw offset samples (already derived via lwMeasurementSamples). Clamps to
@@ -80,6 +81,51 @@ static inline bool lgMeasExhausted(const LinkMeasurement *m) { return m->pings >
 static inline LinkGhostXForm lgMeasResult(const LinkMeasurement *m)
 {
     LinkGhostXForm x; x.offsetMicros = lgMeasMedian(m); return x;
+}
+
+// ---- session timeline (the 'tmln' payload, ghost-clock domain) ----
+// tempo as microseconds-per-beat (i64), beatOrigin as MICROBEATS (beats*1e6,
+// i64, matching Link's Beats), timeOrigin as ghost microseconds (i64). The beat
+// at a ghost time t:  beats = beatOrigin_beats + (t - timeOrigin)/microsPerBeat.
+// We keep everything in microbeats to stay integer/exact:
+//   microBeats(t) = beatOriginMicroBeats + (t - timeOrigin) * 1e6 / microsPerBeat
+typedef struct {
+    int64_t tempoMicrosPerBeat;    // 60e6 / bpm
+    int64_t beatOriginMicroBeats;  // beats * 1e6 at timeOrigin
+    int64_t timeOriginMicros;      // ghost-clock microseconds
+} LinkTimeline;
+
+static inline int64_t lgBpmToMicrosPerBeat(double bpm) { return (int64_t)(60000000.0 / bpm + 0.5); }
+static inline double  lgMicrosPerBeatToBpm(int64_t mpb) { return mpb > 0 ? 60000000.0 / (double)mpb : 0.0; }
+
+// Microbeats at ghost time t. NOTE (link-clock-units): (t-timeOrigin) is bounded
+// by the session age in micros; * 1e6 stays within int64 for any realistic
+// session (hours). Link re-anchors beatOrigin/timeOrigin so the delta stays small.
+static inline int64_t lgTimelineMicroBeatsAt(LinkTimeline tl, int64_t ghostMicros)
+{
+    if (tl.tempoMicrosPerBeat <= 0) return tl.beatOriginMicroBeats;
+    return tl.beatOriginMicroBeats
+         + ((ghostMicros - tl.timeOriginMicros) * 1000000LL) / tl.tempoMicrosPerBeat;
+}
+
+// Phase within a quantum (quantum given in microbeats, e.g. 4 beats = 4*1e6).
+// Always in [0, quantumMicroBeats).
+static inline int64_t lgBeatPhaseMicro(int64_t microBeats, int64_t quantumMicroBeats)
+{
+    if (quantumMicroBeats <= 0) return 0;
+    int64_t p = microBeats % quantumMicroBeats;
+    if (p < 0) p += quantumMicroBeats;
+    return p;
+}
+
+// Convenience: beat phase at a HOST time, given our ghost transform + the session
+// timeline. This is what the looper aligns masterPhase to.
+static inline int64_t lgBeatPhaseAtHost(LinkGhostXForm x, LinkTimeline tl,
+                                        int64_t hostMicros, int64_t quantumMicroBeats)
+{
+    int64_t ghost = lgHostToGhost(x, hostMicros);
+    int64_t mb = lgTimelineMicroBeatsAt(tl, ghost);
+    return lgBeatPhaseMicro(mb, quantumMicroBeats);
 }
 
 #endif

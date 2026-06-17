@@ -332,6 +332,15 @@ void apcKey25::update()
         p.microRepeatDiv     = m_microRepeatDiv;  // latched beat-repeat (notes 82-86)
         p.monitorMode        = m_shift;   // SHIFT held = temporary input-monitor
                                           // (gate loop output, hear live input)
+        // Ableton Link shared beat phase (full Link sync). linkGhostPhase is a
+        // Core-2-local read (abletonLink runs on this same control plane), then
+        // published in the snapshot for Core 1's loopMachine to align masterPhase.
+        {
+            s64 ph = 0, q = 4000000;
+            p.linkPhaseValid          = linkGhostPhase(&ph, &q);
+            p.linkBeatPhaseMicroBeats = ph;
+            p.linkQuantumMicroBeats   = q;
+        }
         paramSnapshotPublish(p);
     }
 

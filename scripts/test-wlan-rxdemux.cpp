@@ -25,23 +25,36 @@ static void check(const char* n, bool c){ if(c)printf("ok: %s\n",n); else {print
 
 static const int ETH_HDR = 14, IP_HDR = 20, UDP_HDR = 8, DHCP_HDR = 236;
 static const int LINK_PORT = 20808;
-static const u8  MCAST[4] = {224,76,78,75};
+static const u8  MCAST[4]  = {224,76,78,75};
+static const u8  OUR_IP[4] = {192,168,4,1};       // our AP IP / measurement endpoint
+static const int OUR_MEP4_PORT = 20808;
 static const u32 TEST_XID = 0xAABBCCDDu;
+static const u8  HDR_ASDP[8] = {'_','a','s','d','p','_','v',1};
+static const u8  HDR_LINK[8] = {'_','l','i','n','k','_','v',1};
 
 static inline u16 be16(u16 v){ return (u16)((v>>8)|(v<<8)); }
 
-// ---- production classifiers, mirrored exactly (corrected versions) ----
+// ---- production classifiers, mirrored exactly (current linkTryParse) ----
 
-// linkTryParse: IPv4/UDP, dst IP == our multicast, dst port == 20808.
+// linkTryParse: IPv4/UDP to EITHER multicast:20808 OR our-IP:mep4-port, with a
+// _asdp_v (discovery) or _link_v (measurement) payload header. This is the
+// extended unicast-aware version.
 static bool linkClaim(const u8 *buf, int len){
     if (len < 42) return false;
     if (buf[12]!=0x08 || buf[13]!=0x00) return false;
     const u8 *ip = buf+ETH_HDR; int ihl=(ip[0]&0x0f)*4;
     if (ip[9]!=17) return false;
-    if (memcmp(ip+16, MCAST, 4)!=0) return false;
     const u8 *udp = ip+ihl;
-    u16 dp; memcpy(&dp, udp+2, 2);
-    return be16(dp)==LINK_PORT;
+    u16 dp; memcpy(&dp, udp+2, 2); u16 dport = be16(dp);
+    bool toMcast      = memcmp(ip+16, MCAST, 4)==0  && dport==LINK_PORT;
+    bool toUsUnicast  = memcmp(ip+16, OUR_IP, 4)==0 && dport==OUR_MEP4_PORT;
+    if (!toMcast && !toUsUnicast) return false;
+    const u8 *pl = udp+8; int plen=(int)(len-(pl-buf));
+    if (plen < 20) return false;
+    bool isAsdp = memcmp(pl, HDR_ASDP, 8)==0;
+    bool isLink = memcmp(pl, HDR_LINK, 8)==0;
+    if (!isAsdp && !isLink) return toMcast;   // junk on mcast port consumed+ignored
+    return true;
 }
 // parseClient (AP server): IPv4/UDP, DST port 67, BOOTREQUEST, has opt53.
 static bool serverClaim(const u8 *f, int len){
@@ -117,6 +130,14 @@ static int makeDHCP(u8 *f, u16 srcPort, u16 dstPort, u8 op, u32 xid, u8 msgType,
     return total;
 }
 
+// Stamp a Link protocol header at the UDP payload start (offset 42).
+static int makeLink(u8 *f, const u8 dstIP[4], u16 dstPort, const u8 hdr[8], int total){
+    makeUDP(f, 0x0800, 17, dstIP, 40000, dstPort, total);
+    memcpy(f + ETH_HDR + IP_HDR + UDP_HDR, hdr, 8);
+    // a NodeId follows at +12 of the payload; leave zero (fine for routing).
+    return total;
+}
+
 static void route(const u8 *f, int len, bool &L, bool &S, bool &C){
     L = linkClaim(f, len);
     S = !L && serverClaim(f, len);
@@ -126,8 +147,8 @@ static void route(const u8 *f, int len, bool &L, bool &S, bool &C){
 int main(){
     u8 f[600]; bool L,S,C;
 
-    // 1. Link multicast -> Link only
-    { makeUDP(f, 0x0800, 17, MCAST, 20808, 20808, 60); route(f,60,L,S,C);
+    // 1. Link multicast (realistic >=20B payload) -> Link only
+    { makeUDP(f, 0x0800, 17, MCAST, 20808, 20808, 80); route(f,80,L,S,C);
       check("Link multicast -> Link consumer only", L && !S && !C); }
 
     // 2. DHCP DISCOVER (src 68, dst 67) -> server only
@@ -165,6 +186,24 @@ int main(){
     { makeDHCP(f, 68, 67, 1, TEST_XID, 1, 300);
       check("old src-port parseClient would REJECT a real DISCOVER (bug)", !serverClaimBuggy(f,300));
       check("fixed dest-port parseClient ACCEPTS a real DISCOVER", serverClaim(f,300)); }
+
+    // 10. NEW: multicast _asdp_v discovery -> Link only.
+    { makeLink(f, MCAST, 20808, HDR_ASDP, 80); route(f,80,L,S,C);
+      check("multicast _asdp_v discovery -> Link only", L && !S && !C); }
+
+    // 11. NEW: unicast _link_v PING to OUR_IP:mep4 port -> Link (measurement).
+    { makeLink(f, OUR_IP, OUR_MEP4_PORT, HDR_LINK, 80); route(f,80,L,S,C);
+      check("unicast _link_v to our endpoint -> Link measurement", L && !S && !C); }
+
+    // 12. NEW: unicast _link_v to a FOREIGN IP -> nobody (not ours).
+    { const u8 foreign[4]={192,168,4,9}; makeLink(f, foreign, OUR_MEP4_PORT, HDR_LINK, 80); route(f,80,L,S,C);
+      check("unicast _link_v to a foreign IP -> claimed by nobody", !L && !S && !C); }
+
+    // 13. NEW: DHCP still routes with Link unicast classification present.
+    { makeDHCP(f, 68, 67, 1, TEST_XID, 1, 300); route(f,300,L,S,C);
+      check("DHCP DISCOVER still -> server only (no Link regression)", !L && S && !C); }
+    { makeDHCP(f, 67, 68, 2, TEST_XID, 2, 300); route(f,300,L,S,C);
+      check("DHCP OFFER still -> client only (no Link regression)", !L && !S && C); }
 
     printf(g_fails ? "\n%d FAIL\n" : "\nALL PASS\n", g_fails);
     return g_fails ? 1 : 0;

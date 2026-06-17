@@ -31,4 +31,16 @@ bool   linkHasStarted(void);   // timeline anchored (rec started, not yet ended)
 bool   linkHasEnded(void);     // timeline finalized (loop length known)
 double linkQuantBeats(void);   // chosen quant subdivision in beats (0 if none)
 
+// Shared ghost beat phase from the adopted session timeline. Returns false until
+// a valid session phase exists. phaseMicroBeats in [0, quantumMicroBeats). Read
+// on Core 2 (apcKey25::update) and published into the paramSnapshot for Core 1.
+bool linkGhostPhase(s64 *phaseMicroBeats, s64 *quantumMicroBeats);
+
+// Telemetry snapshot for the :4445 LINK verb.
+void linkTelemetry(unsigned *peers, s64 *offsetUs, unsigned *pingsTx,
+                   unsigned *pongsRx, int *selfOwns);
+
+// Best-effort BYEBYE multicast on shutdown so peers drop us promptly.
+void linkShutdown(void);
+
 #endif
