@@ -44,7 +44,15 @@ int main()
         // first entry must be tmln at offset 20
         check("ALIVE first entry key == tmln at off 20", lwGet32(b,20) == LW_KEY_TMLN);
         check("ALIVE tmln size == 24",                   lwGet32(b,24) == 24);
-        check("ALIVE tmln mpb BE == 500000",   (int64_t)lwGet64(b,28) == 500000);
+        // Byte offsets pinned to a REAL Live capture (westhom Wireshark dissector):
+        // off28 microsPerBeat, off36 microbeats, off44 microseconds, off52 'sess'
+        // key, off60 sessionId. This is the bit-exact interop check.
+        check("CAPTURE off28 microsPerBeat(i64) == 500000", (int64_t)lwGet64(b,28) == 500000);
+        check("CAPTURE off36 beatOrigin microbeats(i64) == 7", (int64_t)lwGet64(b,36) == 7);
+        check("CAPTURE off44 timeOrigin micros(i64) == 123456", (int64_t)lwGet64(b,44) == 123456);
+        check("CAPTURE off52 == 'sess' key", lwGet32(b,52) == LW_KEY_SESS);
+        check("CAPTURE off56 sess size == 8", lwGet32(b,56) == 8);
+        check("CAPTURE off60 sessionId matches", memcmp(b+60, sess, 8) == 0);
         check("ALIVE total length == 20 + (8+24)+(8+8)+(8+6) = 82", n == 82);
 
         LwMessage m;

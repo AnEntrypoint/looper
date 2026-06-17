@@ -17,13 +17,17 @@
 //    measurement endpoint, '__ht'/'__gt'/'_pgt' host/ghost/prev-ghost time.
 //  - Integers big-endian. chrono::microseconds -> int64 BE.
 //
-// BIT-EXACTNESS CAVEAT (flagged for the first hardware checkpoint): the exact
-// byte layout of the 'mep4' endpoint value (addr+port order/width) and the
-// 'tmln' beat-unit encoding are implemented per the reference's apparent shape
-// (mep4 = 4-byte IPv4 + 2-byte port, BE; tmln = three int64 BE: microsPerBeat,
-// beatOrigin, timeOrigin). These two are the fields to confirm against a real
-// Wireshark capture of an Ableton Live ALIVE/PONG before trusting Live interop;
-// the framing (header, keys, entry sizing, int64 BE) is certain.
+// WIRE FORMAT CONFIRMED against (a) the Ableton/link reference source, (b) a
+// Wireshark dissector of REAL Ableton Live captures (westhom/AbletonLinkProtocol),
+// and (c) the from-scratch Rust reimpl (anweiss/ableton-link-rs). The discovery
+// ALIVE byte offsets match the live capture exactly: off28 microsPerBeat(i64),
+// off36 beatOrigin as MICROBEATS (beats*1e6, i64), off44 timeOrigin micros(i64),
+// off52 'sess' key, off60 sessionId — all big-endian (htonll). IPv4 = 4 octets
+// as-is; u16 port = 2 bytes BE. The ONE residual micro-uncertainty is the
+// addr-vs-port ORDER inside the 'mep4' value (we emit addr(4) then port(2),
+// the asio-endpoint-standard order); trivially confirmed at the first capture.
+// NOTE on semantics (integration layer, not codec): beatOrigin must be passed as
+// MICROBEATS, and tempo as microsPerBeat (60e6/bpm).
 
 #ifndef _linkWire_h
 #define _linkWire_h
