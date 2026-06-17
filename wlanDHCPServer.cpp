@@ -90,7 +90,11 @@ static bool parseClient(const u8 *f, int len, u8 *outMAC, u32 *outXid, u8 *outTy
 	const u8 *ip = f + ETH_HDR;
 	if (ip[9] != 17) return false;
 	const u8 *udp = ip + IP_HDR;
-	u16 dp; memcpy(&dp, udp, 2);
+	// DEST port (udp+2), not source. A client DHCP DISCOVER/REQUEST arrives with
+	// src=68, dst=67 (bootps). Reading the source port and requiring ==67 (the old
+	// bug) rejected every real client request, so nobody hosting the "ticker" AP
+	// could ever get a lease -> couldn't reach the looper -> no Link over the AP.
+	u16 dp; memcpy(&dp, udp + 2, 2);
 	if (sw16(dp) != 67) return false;
 	const u8 *d = udp + UDP_HDR;
 	if (d[0] != 1) return false;
@@ -115,29 +119,28 @@ void wlanApInit(CBcm4343Device *pWLAN) {
 	wlanApSetIP(s_serverIP);
 }
 
-void wlanDhcpServe(void) {
-	if (!s_pAP) return;
-	u8 buf[FRAME_SZ]; unsigned rlen;
-	// Bounded drain — see abletonLink.cpp linkProcess(): an unbounded WiFi RX
-	// drain starves Core 2's pollSockets()/syslog (box pings, control plane dead).
-	int budget = 64;
-	while (budget-- > 0 && s_pAP->ReceiveFrame(buf, &rlen)) {
-		u8 mac[6]; u32 xid; u8 type = 0;
-		if (!parseClient(buf, (int)rlen, mac, &xid, &type)) continue;
-		if (type == 1) {
-			int slot = poolAlloc(mac);
-			if (slot < 0) continue;
-			u8 f[FRAME_SZ]; int flen;
-			buildReply(f, mac, xid, s_pool[slot], 2, &flen);
-			s_pAP->SendFrame(f, flen);
-			CLogger::Get()->Write("wdhcps", LogNotice, "OFFER %d.%d.%d.%d", s_pool[slot][0], s_pool[slot][1], s_pool[slot][2], s_pool[slot][3]);
-		} else if (type == 3) {
-			int slot = poolFind(mac);
-			if (slot < 0) continue;
-			u8 f[FRAME_SZ]; int flen;
-			buildReply(f, mac, xid, s_pool[slot], 5, &flen);
-			s_pAP->SendFrame(f, flen);
-			CLogger::Get()->Write("wdhcps", LogNotice, "ACK %d.%d.%d.%d", s_pool[slot][0], s_pool[slot][1], s_pool[slot][2], s_pool[slot][3]);
-		}
+// AP-mode: handle ONE received frame. Returns true iff it was a DHCP request to
+// this server (dst :67). DISCOVER -> OFFER, REQUEST -> ACK. The RX drain itself
+// lives in the single demux (abletonLink.cpp::linkProcess) so the server and the
+// Link consumer no longer eat each other's packets off the shared radio queue.
+bool wlanDhcpServeFrame(const u8 *buf, int len) {
+	if (!s_pAP) return false;
+	u8 mac[6]; u32 xid; u8 type = 0;
+	if (!parseClient(buf, len, mac, &xid, &type)) return false;   // not a :67 request
+	if (type == 1) {
+		int slot = poolAlloc(mac);
+		if (slot < 0) return true;                                // ours, pool full
+		u8 f[FRAME_SZ]; int flen;
+		buildReply(f, mac, xid, s_pool[slot], 2, &flen);
+		s_pAP->SendFrame(f, flen);
+		CLogger::Get()->Write("wdhcps", LogNotice, "OFFER %d.%d.%d.%d", s_pool[slot][0], s_pool[slot][1], s_pool[slot][2], s_pool[slot][3]);
+	} else if (type == 3) {
+		int slot = poolFind(mac);
+		if (slot < 0) return true;
+		u8 f[FRAME_SZ]; int flen;
+		buildReply(f, mac, xid, s_pool[slot], 5, &flen);
+		s_pAP->SendFrame(f, flen);
+		CLogger::Get()->Write("wdhcps", LogNotice, "ACK %d.%d.%d.%d", s_pool[slot][0], s_pool[slot][1], s_pool[slot][2], s_pool[slot][3]);
 	}
+	return true;                                                  // was a :67 request
 }

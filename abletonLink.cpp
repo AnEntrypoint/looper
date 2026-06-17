@@ -164,39 +164,56 @@ void linkInit(CBcm4343Device *pWLAN)
 	s_synced   = false;
 }
 
+// Classify ONE received frame as Link multicast (our group + UDP :20808) and, if
+// so, feed its payload to parsePkt. Returns true iff the frame was ours (consumed)
+// so the single demux doesn't also offer it to the DHCP handlers.
+static bool linkTryParse(const u8 *buf, unsigned len)
+{
+	if ((int)len < 42) return false;
+	if (buf[12] != 0x08 || buf[13] != 0x00) return false;        // not IPv4
+	const u8 *ip = buf+IP_HDR_OFF; int ihl=(ip[0]&0x0f)*4;
+	if (ip[9] != 17) return false;                                // not UDP
+	if (memcmp(ip + 16, MCAST, 4) != 0) return false;             // not our mcast
+	const u8 *udp = ip + ihl;
+	u16 dp; memcpy(&dp, udp+2, 2);
+	if (swap16(dp) != LINK_PORT) return false;                    // not :20808
+	const u8 *pl = udp+8; int plen=(int)(len-(pl-buf));
+	if (plen >= 18) parsePkt(pl, plen);
+	return true;                                                  // ours either way
+}
+
 void linkProcess(void)
 {
 	if (!s_pWLAN) return;
 
-	// Gate on association: SendFrame() over an un-associated radio wedges the
-	// plan9/DWC-SDIO transmit path and freezes Core 2's control plane (box pings,
-	// :4444/:4445 + syslog dead). When the radio is up (joined "ticker" or hosting
-	// the AP) the TX path is safe. No link => no Link peers anyway, so skipping is
-	// free. IsLinkUp() is non-blocking (reads cached assoc state).
-	if (!s_pWLAN->IsLinkUp()) return;
-
+	// SINGLE RX DEMUX (load-bearing). The radio has ONE receive queue; Link, the
+	// AP DHCP server, and the station DHCP client all need frames off it. They
+	// USED to each run their own ReceiveFrame drain and DROP frames they didn't
+	// recognise, so whichever ran first ate the others' packets — in AP mode the
+	// DHCP-server drain (called before linkProcess) swallowed inbound Link
+	// multicast, so peers on the hosted "ticker" never tempo-synced. Now we drain
+	// HERE, once, and route each frame by port: Link :20808 -> parsePkt, DHCP :67
+	// -> AP server, DHCP :68 -> station client. Draining is always safe (only
+	// SendFrame wedges an un-associated radio); the per-tick cap keeps Core 2's
+	// control loop from being starved by a busy network.
 	u8 buf[FRAME_BUF];
 	unsigned len;
-	// Bound the RX drain: on a busy WiFi network ReceiveFrame can return frames
-	// faster than one tick can absorb, and the unbounded drain starved Core 2's
-	// pollSockets()/syslog so :4444/:4445 went dead (box pings but control plane
-	// frozen). Cap per-tick so Core 2 always returns to the control loop; Link
-	// only needs the rare multicast packet, so a cap can't desync it.
 	int budget = 64;
 	while (budget-- > 0 && s_pWLAN->ReceiveFrame(buf, &len))
 	{
-		if ((int)len < 42) continue;
-		if (buf[12] != 0x08 || buf[13] != 0x00) continue;
-		u8 *ip = buf+IP_HDR_OFF; int ihl=(ip[0]&0x0f)*4;
-		if (ip[9] != 17) continue;
-		u8 *udp = ip + ihl;
-		u16 dp; memcpy(&dp, udp+2, 2);
-		if (memcmp(ip + 16, MCAST, 4) != 0) continue;
-		if (swap16(dp) != LINK_PORT) continue;
-		u8 *pl = udp+8; int plen=(int)(len-(pl-buf));
-		if (plen < 18) continue;
-		parsePkt(pl, plen);
+		if (linkTryParse(buf, len)) continue;            // Link multicast :20808
+		if (wlanDhcpServeFrame(buf, (int)len)) continue; // AP DHCP server :67
+		if (wlanDhcpClientFrame(buf, (int)len)) continue;// station DHCP client :68
+		// otherwise: not ours — dropped.
 	}
+
+	// TX is gated on association: SendFrame() over an un-associated radio wedges
+	// the plan9/DWC-SDIO transmit path and freezes Core 2's control plane. In AP
+	// mode IsLinkUp() is true once CreateOpenNet succeeds (we host the link); when
+	// joined it tracks the station assoc state. The DHCP reply/request SendFrames
+	// above are reactive (only after a frame was received => radio is live), so
+	// they need no extra gate; only this proactive 1 Hz beacon does.
+	if (!s_pWLAN->IsLinkUp()) return;
 
 	u64 now = (u64)CTimer::GetClockTicks();
 	if (now - s_lastSend >= SEND_INTERVAL_US)

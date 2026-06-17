@@ -123,29 +123,33 @@ void wlanDhcpSendDiscover(CBcm4343Device *pWLAN, const u8 *mac) {
 	CLogger::Get()->Write("wdhcp", LogNotice, "DISCOVER sent");
 }
 
+// Timeout-only bookkeeping. The RX drain moved to the single demux in
+// abletonLink.cpp::linkProcess (which calls wlanDhcpClientFrame per frame); this
+// just reports whether the client phase is finished (lease acquired or timed out)
+// so the caller can stop polling. Does NOT touch the radio.
 bool wlanDhcpPoll(CBcm4343Device *pWLAN) {
+	(void)pWLAN;
 	if (s_got) return true;
 	if (CTimer::GetClockTicks() > s_deadline) {
 		CLogger::Get()->Write("wdhcp", LogWarning, "DHCP timeout");
 		return true;
 	}
-	u8 buf[FRAME_SZ]; unsigned rlen;
-	u8 offer[4]={0};
-	// Bounded drain — see abletonLink.cpp linkProcess(): unbounded WiFi RX drain
-	// starves Core 2's pollSockets()/syslog.
-	int budget = 64;
-	while (budget-- > 0 && pWLAN->ReceiveFrame(buf, &rlen)) {
-		if (parseOffer(buf, rlen, offer)) {
-			CLogger::Get()->Write("wdhcp", LogNotice, "OFFER %d.%d.%d.%d", offer[0],offer[1],offer[2],offer[3]);
-			u8 frame[FRAME_SZ]; int flen;
-			buildRequest(frame, offer, &flen);
-			pWLAN->SendFrame(frame, flen);
-			memcpy(s_ip, offer, 4);
-			s_got = true;
-			return true;
-		}
-	}
 	return false;
+}
+
+// Station-mode: handle ONE received frame. Returns true iff it was our DHCP
+// OFFER (dst :68, matching xid) — then sends the REQUEST and latches the lease.
+bool wlanDhcpClientFrame(const u8 *buf, int len) {
+	if (s_got || !s_pWLAN) return false;
+	u8 offer[4] = {0};
+	if (!parseOffer(buf, len, offer)) return false;
+	CLogger::Get()->Write("wdhcp", LogNotice, "OFFER %d.%d.%d.%d", offer[0],offer[1],offer[2],offer[3]);
+	u8 frame[FRAME_SZ]; int flen;
+	buildRequest(frame, offer, &flen);
+	s_pWLAN->SendFrame(frame, flen);
+	memcpy(s_ip, offer, 4);
+	s_got = true;
+	return true;
 }
 
 bool wlanDhcpOK(void) { return s_got; }

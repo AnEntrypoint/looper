@@ -73,9 +73,11 @@ void coreControlPlaneTick(void)
 	usbMidiProcess(bPnP);
 	loop();
 #ifdef LOOPER_ENABLE_WLAN
-	// WLAN/plan9 + Link disabled by default (p9 stack-assert crash ~90s in).
+	// WLAN/plan9 + Link is opt-in (see kernel.cpp). linkProcess() is now the
+	// SINGLE radio-RX drainer and demuxes Link + AP-DHCP + client-DHCP frames, so
+	// wlanDhcpServe()'s separate drain is gone (it used to eat inbound Link
+	// packets). wlanDhcpPoll() is timeout-only bookkeeping now (no RX).
 	if (!s_dhcpDone) s_dhcpDone = wlanDhcpPoll(&k->m_WLAN);
-	wlanDhcpServe();
 	linkProcess();
 #endif
 	k->m_Scheduler.Yield();

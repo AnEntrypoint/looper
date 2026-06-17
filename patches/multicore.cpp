@@ -39,10 +39,8 @@ volatile bool g_coreAudioReady = false;
 
 extern void loop(void);                                    // audio.cpp
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);      // usbMidi.cpp
-extern void linkProcess(void);                              // abletonLink.cpp
-extern bool wlanDhcpPoll(class CBcm4343Device *);          // wlanDHCP.cpp
-extern void wlanDhcpServe(void);                            // wlanDHCPServer.cpp
 extern void coreControlPlaneTick(void);                    // kernel_run.cpp
+// (linkProcess / WiFi DHCP are driven inside coreControlPlaneTick, not here.)
 
 CCoreTask::CCoreTask(CKernel *pKernel)
 	: CMultiCoreSupport(&pKernel->m_Memory)

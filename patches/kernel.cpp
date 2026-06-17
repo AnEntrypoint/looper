@@ -240,8 +240,7 @@ TShutdownMode CKernel::Run(void)
 		usbMidiProcess(bPlugAndPlayUpdated);
 		loop();
 		if (!bDhcpDone) bDhcpDone = wlanDhcpPoll(&m_WLAN);
-		if (s_wlanIsAP) wlanDhcpServe();
-		linkProcess();
+		linkProcess();   // single RX demux: Link + AP-DHCP + client-DHCP frames
 		m_Scheduler.Yield();
 
 		TShutdownMode mode = pollSockets(pRebootSocket, pDebugSocket, pMidiSocket);
