@@ -7,6 +7,8 @@ bool wlanDhcpPoll(CBcm4343Device *pWLAN);   // drives DISCOVER retry; true when 
 bool wlanDhcpOK(void);
 int  wlanDhcpAttempts(void);                // DISCOVERs sent this burst (telemetry)
 bool wlanDhcpFailed(void);                   // capped without a lease
+unsigned wlanDhcpRxSeen(void);               // frames seen addressed to client :68
+unsigned wlanDhcpOffersSeen(void);           // valid OFFERs parsed
 const u8 *wlanDhcpIP(void);
 void wlanApSetIP(const u8 *ip);
 void wlanApInit(CBcm4343Device *pWLAN);

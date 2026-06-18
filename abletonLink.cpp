@@ -82,6 +82,8 @@ static bool   s_ended     = false;
 static u64    s_timeOrigin = 0;      // us
 static s64    s_beatOrigin = 0;      // microbeats
 static double s_quantBeats = 0.0;
+static unsigned s_rxFrames = 0;   // total frames pulled off the radio RX queue (diag)
+unsigned linkRxFrameCount(void) { return s_rxFrames; }
 
 static inline u16 swap16(u16 v) { return __builtin_bswap16(v); }
 static inline u32 swap32(u32 v) { return __builtin_bswap32(v); }
@@ -217,19 +219,39 @@ static void republishTimeline(void)
 {
 	LinkPeer *owner = lsOwnerPeer(&s_session);
 	LinkTimeline tl;
+	bool phaseTrusted = false;
 	if (owner && owner->measured)
 	{
 		// Follow the owner: our ghost xform = the offset we measured to it; adopt
-		// its timeline; tempo = owner tempo.
+		// its timeline; tempo = owner tempo. Measured => beat phase is trustworthy.
 		s_ownXform = owner->xform;
 		tl = owner->timeline;
 		s_bpm = lgMicrosPerBeatToBpm(tl.tempoMicrosPerBeat);
 		s_synced = true;
 		s_ownerOffsetUs = owner->xform.offsetMicros;
+		phaseTrusted = true;
+	}
+	else if (owner && owner->hasTimeline)
+	{
+		// TEMPO-ONLY sync: the owner advertises a timeline but never completed the
+		// ping/pong measurement (e.g. an esp32 "ticker" that broadcasts Link but
+		// runs no PingResponder). Tempo needs NO clock offset, so adopt the owner's
+		// BPM and mark synced -- the looper quantizes to ticker's tempo. But the
+		// beat PHASE depends on the (unknown) ghost offset, so do NOT trust it:
+		// leave the ghost xform at identity and phaseValid false so loopMachine's
+		// phase-align step is skipped (it would otherwise lock the first loop's
+		// downbeat to a bogus phase). Better a correct tempo with free phase than a
+		// wrong phase.
+		s_ownXform.offsetMicros = 0;
+		tl = owner->timeline;
+		s_bpm = lgMicrosPerBeatToBpm(tl.tempoMicrosPerBeat);
+		s_synced = true;
+		s_ownerOffsetUs = 0;
+		phaseTrusted = false;
 	}
 	else
 	{
-		// We own (or no measured owner yet): ghost == host, our own timeline.
+		// We own (or no owner yet): ghost == host, our own timeline.
 		s_ownXform.offsetMicros = 0;
 		tl = ownTimeline();
 		s_ownerOffsetUs = 0;
@@ -240,7 +262,9 @@ static void republishTimeline(void)
 	// Publish our beat phase at 'now' for loopMachine (Core-2-local statics).
 	s_quantumMicroBeats   = (s_quantBeats > 0 ? (s64)(s_quantBeats*1e6) : 4000000);
 	s_beatPhaseMicroBeats = lgBeatPhaseAtHost(s_ownXform, tl, nowMicros(), s_quantumMicroBeats);
-	s_phaseValid          = (owner != 0) || s_started;
+	// Phase is valid only when we measured the owner (trusted offset) or we are the
+	// session origin ourselves; a tempo-only adoption does NOT validate phase.
+	s_phaseValid          = phaseTrusted || s_started;
 	s_peersTotal          = (unsigned)lsPeerCount(&s_session);
 }
 
@@ -442,6 +466,7 @@ void linkProcess(void)
 	int budget = 64;
 	while (budget-- > 0 && s_pWLAN->ReceiveFrame(buf, &len))
 	{
+		s_rxFrames++;                                    // total frames off the radio (diag)
 		if (linkTryParse(buf, len)) continue;            // Link mcast :20808 + unicast measurement
 		if (wlanDhcpServeFrame(buf, (int)len)) continue; // AP DHCP server :67
 		if (wlanDhcpClientFrame(buf, (int)len)) continue;// station DHCP client :68

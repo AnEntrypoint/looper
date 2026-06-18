@@ -86,6 +86,24 @@ void coreControlPlaneTick(void)
 			wlanFallbackToAP(&k->m_WLAN);
 		}
 	}
+	// Station re-association watchdog: when joined as a station, the esp32 "ticker"
+	// AP broadcasts ALIVE ~1/s, so the radio RX count climbs steadily. If it goes
+	// stale for >STALE_US while we are a station, association dropped (AP bounce) ->
+	// re-join + re-lease. Throttled by resetting the timer each attempt.
+	{
+		extern unsigned linkRxFrameCount(void);
+		extern bool wlanStationRejoin(CBcm4343Device *);
+		static const unsigned STALE_US = 10u * CLOCKHZ;
+		static unsigned s_lastRx = 0;
+		static unsigned s_lastRxTicks = 0;
+		unsigned rx  = linkRxFrameCount();
+		unsigned now = CTimer::GetClockTicks();
+		if (rx != s_lastRx || s_lastRxTicks == 0) { s_lastRx = rx; s_lastRxTicks = now; }
+		else if (wlanStatusCode() == 1 && (now - s_lastRxTicks) > STALE_US) {
+			if (wlanStationRejoin(&k->m_WLAN)) s_dhcpDone = false;  // let wlanDhcpPoll re-lease
+			s_lastRxTicks = now;                                   // throttle re-attempts
+		}
+	}
 	linkProcess();
 #endif
 	k->m_Scheduler.Yield();
@@ -128,18 +146,25 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 #ifdef LOOPER_ENABLE_WLAN
 				extern int  wlanDhcpAttempts(void);
 				extern bool wlanDhcpOK(void);
+				extern unsigned wlanDhcpRxSeen(void);
+				extern unsigned wlanDhcpOffersSeen(void);
+				extern unsigned linkRxFrameCount(void);
 				int wc = wlanStatusCode();
 				const char *mode = wc == 2 ? "hosting-ticker"
 				                 : wc == 1 ? "joined-ticker" : "off/failed";
 				int dhcpOK = wlanDhcpOK() ? 1 : 0;
 				int dhcpAtt = wlanDhcpAttempts();
+				unsigned rxF = linkRxFrameCount();
+				unsigned dRx = wlanDhcpRxSeen();
+				unsigned dOf = wlanDhcpOffersSeen();
 #else
 				const char *mode = "disabled";
 				int dhcpOK = 0, dhcpAtt = 0;
+				unsigned rxF = 0, dRx = 0, dOf = 0;
 #endif
 				CString s;
-				s.Format("wlan=%s dhcpOK=%d dhcpAtt=%d link=%s bpm=%d p9err=%u", mode,
-					dhcpOK, dhcpAtt,
+				s.Format("wlan=%s dhcpOK=%d dhcpAtt=%d rxFrames=%u dhcpRx=%u dhcpOffers=%u link=%s bpm=%d p9err=%u", mode,
+					dhcpOK, dhcpAtt, rxF, dRx, dOf,
 					linkIsSynced() ? "synced" : "no", (int)linkGetBPM(),
 					p9ErrorCount());
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);

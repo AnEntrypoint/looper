@@ -102,6 +102,7 @@ Project notes for agents working on Lanmower's Looper. Supersedes CLAUDE.md — 
 - **Ethernet is boot/syslog.** `CNetSubSystem` uses static 192.168.137.100, gateway/DNS 192.168.137.1, syslog target 192.168.137.1. No DHCP wait.
 - **WiFi (`CBcm4343Device m_WLAN`) is Link-only.** Raw `SendFrame`/`ReceiveFrame`, no `CNetSubSystem` on WLAN. Init failure is warning.
 - **WiFi join / AP fallback (host "ticker" when none exists)**: `JoinOpenNet("ticker")` first; **on failure it hosts its OWN open AP** `CreateOpenNet("ticker", 6, false)` so peers rendezvous with no router. AP IP 192.168.4.1; bare-metal DHCP server in `wlanDHCPServer.cpp` (pool 192.168.4.2-9). `wlanApInit()` calls `wlanApSetIP(192.168.4.1)` which also makes `wlanDhcpOK()`/`wlanDhcpIP()` return the AP IP, so `sendAlive()` sources Link multicast from `.4.1` (correct) in AP mode. `CreateOpenNet` sets `m_bLinkUp=TRUE`, so `IsLinkUp()` is true immediately and Link transmits over the hosted AP.
+- **Station priority + DHCP + re-associate + tempo-only sync (HW-confirmed against an esp32 "ticker", commit ade471f+).** `kernel.cpp` tries `JoinOpenNet("ticker")` FIRST with **3x retry** (500ms apart); only on full failure does it `CreateOpenNet` (AP fallback). As a station it DHCP-leases via `wlanDHCP.cpp`: the DISCOVER **retries every 2s** (same xid) up to 15 attempts, and BOTH DISCOVER/REQUEST set the **BOOTP broadcast flag** (`dhcp+10 = 0x8000`) — a bare-metal station (no ARP/IP) can't receive a unicast OFFER, so without it the server's OFFER never arrives (was `dhcpAtt=15` no-lease -> AP fallback; with it leases on attempt 1). Runtime `wlanFallbackToAP()` hosts the AP if a joined ticker yields no lease. A **station re-associate watchdog** (`kernel_run.cpp` control tick) re-`JoinOpenNet`+re-arms DHCP when station RX (`linkRxFrameCount`) goes stale >10s (AP bounce/esp32 reboot), throttled. **Tempo-only sync**: `abletonLink.cpp::republishTimeline` adopts an unmeasured owner's TEMPO (no clock offset needed) and marks `synced`, keeping `phaseValid=false` — the esp32 ticker serves Link discovery+timeline+DHCP but runs **no PingResponder** (never pongs our measurement PINGs / never pings us; `LMSG lastMeasType=-1`), so phase-accurate sync needs a ponging peer (Live) while tempo sync works off the broadcast `tmln`. LIVE witness `:4445 WLAN`: `wlan=joined-ticker dhcpOK=1 dhcpAtt=1 rxFrames=N dhcpRx=2 dhcpOffers=1 link=synced bpm=<ticker tempo>`. The `:4445 WLAN` verb now also reports `dhcpOK/dhcpAtt/rxFrames/dhcpRx/dhcpOffers`. Build the WLAN kernel with `scripts/build-local.ps1 -Wlan` (LOOPER_ENABLE_WLAN=1 + clean app rebuild + `wlan_firmware.o` regen + `kernel7l-wlan.img`).
 - **Single radio-RX demux (load-bearing for Link-over-AP).** The bcm4343 radio has ONE receive queue; Link, the AP DHCP server, and the station DHCP client all need frames off it. They USED to each run an independent `ReceiveFrame` drain and DROP frames they didn't recognise — so whichever ran first ate the others' packets. In AP mode the DHCP-server drain (called before `linkProcess`) swallowed inbound Link multicast, so peers on the hosted "ticker" never tempo-synced. NOW `abletonLink.cpp::linkProcess()` is the SOLE drainer and routes each frame by port: Link `:20808`→`parsePkt`, DHCP `:67`→`wlanDhcpServeFrame` (AP), DHCP `:68`→`wlanDhcpClientFrame` (station). `wlanDhcpServe()` is gone; `wlanDhcpPoll()` is timeout-only bookkeeping (no RX). RX draining is always safe (only `SendFrame` wedges an un-associated radio), so only the proactive 1 Hz `sendAlive()` beacon stays gated on `IsLinkUp()`; the reactive DHCP reply/request `SendFrame`s fire only after a frame was received (radio demonstrably live). Witnessed by `scripts/test-wlan-rxdemux.cpp` (ALL PASS: every frame claimed by exactly one consumer; Link mcast NOT eaten by the DHCP server).
 - **DHCP-server dest-port fix (load-bearing).** `parseClient` (`wlanDHCPServer.cpp`) read the UDP **source** port and required `==67`; a real client DISCOVER/REQUEST has src=68, **dst=67**, so the server rejected every request → nobody hosting "ticker" could get a lease → no Link over the AP. Fixed to read dst (`udp+2`). Regression-guarded in `scripts/test-wlan-rxdemux.cpp` (old src-port predicate rejects a real DISCOVER; fixed dst-port accepts it).
 - **WiFi firmware** (`brcmfmac43455-sdio.{bin,txt,clm_blob}`) at `SD:/firmware/`.
@@ -211,34 +212,14 @@ Surfaced in the `:4445 TIME` verb as `monitor=<0/1> loopGate=<dryGain*100>`
 click-free, fold/dry endpoints, rapid-toggle bounded, phase-neutral).
 
 **Microrepeat = synced latch beat-repeat/stutter (notes 82-86, load-bearing).**
-`patches/microRepeat.h` is a DSP stage in `loopMachine::update` applied to
-`m_input_buffer` AFTER the pitch+effects stages and BEFORE `cbWriteBlock`. While a
-latch note is HELD it repeats a beat-fraction slice of the FULL mix (live input +
-ALL loops) in sync with the master beat grid: note 82 = 1 beat, 83 = 1/2, 84 =
-1/4, 85 = 1/8, 86 = 1/16 beat. `beat = m_masterLoopBlocks/16` blocks; slice =
-`beat/div * AUDIO_BLOCK_SAMPLES` samples, clamped to `MR_MAX_SLICE`. The latch is
-a member `m_microRepeatDiv` set in `apcKey25::handleMidi` (note-on 82-86, BEFORE
-the pad/button dispatch so note 84 OVERRIDES `APC_BTN_FORMAT`; note-off clears it
-only if it owns the active div — newer held note wins), published via
-`LiveParams.microRepeatDiv` (paramSnapshot) and read on Core 1. **EPHEMERAL /
-position-passthrough (load-bearing):** the stage NEVER touches clip `m_play_block`
-or `m_masterPhase` — the loops keep advancing underneath while latched, so on
-release the signal resumes EXACTLY the position it would have had if the repeat
-never happened. Because the loop sum is folded into `m_input_buffer` before the
-stage (the not-yet-SHIFT-folded remainder `(1-foldEnd)*wet`, gated complementarily
-in the final mix by `(1-mrWet)` so the loop sum counts exactly once), the stutter
-contains all loops AND `cbWriteBlock` records it — so under SHIFT the stutter
-records INTO a recording loop. Engage/release is click-free (1/16-per-block wet
-ramp) and the slice is a whole number of samples (grid-aligned wrap). It is part
-of the effects layer (`pMicroRepeat` alongside `pEffectsProcessor`). When `div==0`
-and the wet ramp has settled, the stage is fully skipped — the chain is
-byte-identical to before (no regression to SHIFT/pause/recording). Surfaced in the
-`:4445 TIME` verb as `microRep=<div>`. Witnessed by `scripts/test-microrepeat.cpp`
-(`ALL PASS`: slice-per-div, verbatim slice replay, position-passthrough,
-click-free, div-change retarget, no-master safe no-op, buffer clamp) and the
-unchanged regression suite (`test-monitor-route`/`test-pause-mute`/
-`test-resume-phase`/`test-first-loop-region`/`test-midi-config-parity` still ALL
-PASS).
+`patches/microRepeat.h` DSP stage in `loopMachine::update` (after pitch+effects,
+before `cbWriteBlock`); a held note 82-86 repeats a beat-fraction slice (1, 1/2,
+1/4, 1/8, 1/16 beat) of the full mix in sync with the master grid. Ephemeral /
+position-passthrough (never touches `m_play_block`/`m_masterPhase`, so release
+resumes the exact position), records under SHIFT, click-free wet ramp, `div==0` =>
+byte-identical skip. `:4445 TIME microRep=<div>`. Full invariants in recall memory
+(`looper-microrepeat-full`); test `scripts/test-microrepeat.cpp` (ALL PASS) +
+unchanged regression suite.
 
 **Sampler = independent hold-to-record sampler (buttons 65/66, load-bearing).**
 `patches/sampler.h` (`pSampler`, allocated in `audio.cpp` like `pMicroRepeat`) is a

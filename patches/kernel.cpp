@@ -64,6 +64,28 @@ void wlanFallbackToAP(CBcm4343Device *pWLAN)
 	}
 }
 
+// Station re-association: when the joined "ticker" AP bounces (esp32 reboot, power
+// save, range), the bcm4343 station drops association and JoinOpenNet (boot-only)
+// never recovers -> no frames, peers expire, no Link. The control tick calls this
+// when station RX has been stale for a while: re-JoinOpenNet and re-arm the DHCP
+// discover so we re-lease. No-op while we are the AP. Returns true iff re-joined
+// (caller resets its DHCP-done latch so wlanDhcpPoll retries the lease).
+bool wlanStationRejoin(CBcm4343Device *pWLAN)
+{
+	if (s_wlanIsAP || !s_wlanOK) return false;
+	CLogger::Get()->Write("wlan", LogWarning, "station RX stale -> re-JoinOpenNet(\"%s\")", WLAN_SSID);
+	if (!pWLAN->JoinOpenNet(WLAN_SSID))
+	{
+		CLogger::Get()->Write("wlan", LogWarning, "re-join FAILED (ticker down?)");
+		return false;
+	}
+	u8 mac[6];
+	pWLAN->GetMACAddress()->CopyTo(mac);
+	wlanDhcpSendDiscover(pWLAN, mac);   // re-arm lease (OFFER handled by the RX demux)
+	CLogger::Get()->Write("wlan", LogNotice, "re-joined ticker; DHCP re-armed");
+	return true;
+}
+
 extern void setup(void);
 extern void loop(void);
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);

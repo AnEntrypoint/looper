@@ -167,12 +167,34 @@ bool wlanDhcpPoll(CBcm4343Device *pWLAN) {
 int  wlanDhcpAttempts(void) { return s_attempts; }
 bool wlanDhcpFailed(void)   { return !s_got && s_attempts >= DHCP_MAX_ATTEMPTS; }
 
+// Diagnostics: how many inbound frames were addressed to the DHCP client port
+// (:68) and how many parsed as a valid OFFER. Distinguishes "esp32 never
+// answered" (s_dhcpRxSeen==0) from "OFFER arrived but was rejected"
+// (s_dhcpRxSeen>0, s_dhcpOffers==0).
+static unsigned s_dhcpRxSeen = 0;
+static unsigned s_dhcpOffers = 0;
+unsigned wlanDhcpRxSeen(void)  { return s_dhcpRxSeen; }
+unsigned wlanDhcpOffersSeen(void) { return s_dhcpOffers; }
+
+// True iff this frame is UDP to dst port 68 (the DHCP client port).
+static bool isToDhcpClient(const u8 *f, int len) {
+	if (len < OPT_OFF) return false;
+	if (f[12]!=0x08 || f[13]!=0x00) return false;
+	const u8 *ip=f+ETH_HDR;
+	if (ip[9]!=17) return false;
+	const u8 *udp=ip+IP_HDR;
+	u16 dp; memcpy(&dp, udp+2, 2);
+	return sw16(dp)==68;
+}
+
 // Station-mode: handle ONE received frame. Returns true iff it was our DHCP
 // OFFER (dst :68, matching xid) — then sends the REQUEST and latches the lease.
 bool wlanDhcpClientFrame(const u8 *buf, int len) {
+	if (isToDhcpClient(buf, len)) s_dhcpRxSeen++;   // count :68 traffic even before lease
 	if (s_got || !s_pWLAN) return false;
 	u8 offer[4] = {0};
 	if (!parseOffer(buf, len, offer)) return false;
+	s_dhcpOffers++;
 	CLogger::Get()->Write("wdhcp", LogNotice, "OFFER %d.%d.%d.%d", offer[0],offer[1],offer[2],offer[3]);
 	u8 frame[FRAME_SZ]; int flen;
 	buildRequest(frame, offer, &flen);
