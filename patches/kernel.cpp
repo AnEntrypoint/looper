@@ -33,6 +33,7 @@ extern "C" void debug_blink(int n) { if (s_pActLED) s_pActLED->Blink(n); }
 static bool s_wlanOK = false;
 static bool s_wlanJoined = false;
 static bool s_wlanIsAP = false;
+static bool s_wlanJoinPending = false;   // deferred bring-up armed in Initialize()
 
 // WLAN status for the :4445 "WLAN" debug verb (kernel_run.cpp). Lets the
 // "must join/host ticker" requirement be verified live without relying on
@@ -84,6 +85,52 @@ bool wlanStationRejoin(CBcm4343Device *pWLAN)
 	wlanDhcpSendDiscover(pWLAN, mac);   // re-arm lease (OFFER handled by the RX demux)
 	CLogger::Get()->Write("wlan", LogNotice, "re-joined ticker; DHCP re-armed");
 	return true;
+}
+
+// Deferred WLAN bring-up: the FIRST station join + AP fallback, run ONCE off the
+// Core-2 control plane (after sockets bound + cores released) so a slow/absent
+// ticker cannot wedge boot. No-op until armed by Initialize() and only ever runs
+// once. JoinOpenNet (3x) -> CreateOpenNet fallback -> SetMulticastFilter -> arm
+// the station DHCP discover. The JoinOpenNet scan may block Core 2 briefly, but
+// the debug/reboot sockets are already live, so this delays only the join.
+void wlanServiceBringUp(CBcm4343Device *pWLAN)
+{
+	if (!s_wlanJoinPending) return;
+	s_wlanJoinPending = false;
+	if (!s_wlanOK) return;
+
+	CLogger::Get()->Write("wlan", LogNotice, "deferred bring-up: JoinOpenNet(\"%s\") ...", WLAN_SSID);
+	for (int attempt = 1; attempt <= 3 && !s_wlanJoined; attempt++)
+	{
+		s_wlanJoined = pWLAN->JoinOpenNet(WLAN_SSID);
+		CLogger::Get()->Write("wlan", LogNotice, "join attempt %d -> %s", attempt, s_wlanJoined ? "OK" : "FAILED");
+		if (!s_wlanJoined && attempt < 3) CTimer::Get()->MsDelay(500);
+	}
+	if (!s_wlanJoined)
+	{
+		CLogger::Get()->Write("wlan", LogWarning, "join failed -> CreateOpenNet(\"%s\") [AP fallback]", WLAN_SSID);
+		if (pWLAN->CreateOpenNet(WLAN_SSID, 6, false))
+		{
+			s_wlanIsAP = true;
+			s_wlanJoined = true;
+			wlanApInit(pWLAN);
+		}
+	}
+	static const u8 mcastGroups[][6] = {
+		{0x01, 0x00, 0x5e, 0x4c, 0x4e, 0x4b},
+		{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	};
+	pWLAN->SetMulticastFilter(mcastGroups);
+	// Station: arm the DHCP discover now that we are associated (OFFER handled by
+	// the RX demux). AP mode leases peers via the AP DHCP server instead.
+	if (s_wlanJoined && !s_wlanIsAP)
+	{
+		u8 mac[6];
+		pWLAN->GetMACAddress()->CopyTo(mac);
+		wlanDhcpSendDiscover(pWLAN, mac);
+	}
+	CLogger::Get()->Write("wlan", LogNotice, "deferred bring-up done (joined=%s ap=%s)",
+		s_wlanJoined ? "yes" : "no", s_wlanIsAP ? "yes" : "no");
 }
 
 extern void setup(void);
@@ -189,43 +236,16 @@ boolean CKernel::Initialize(void)
 	m_Logger.Write(log_name, LogNotice, "WLAN: m_WLAN.Initialize() ...");
 	s_wlanOK = m_WLAN.Initialize();
 	m_Logger.Write(log_name, LogNotice, "WLAN: Initialize -> %s", s_wlanOK ? "OK" : "FAILED");
-	if (s_wlanOK)
-	{
-		// PRIORITY 1: JOIN the existing "ticker" network (station mode). The join
-		// was flaky one-shot before, so retry a few times before giving up — a
-		// present ticker should be reliably joined. DHCP (station) then retries its
-		// DISCOVER in the control loop (wlanDhcpPoll) until it leases.
-		for (int attempt = 1; attempt <= 3 && !s_wlanJoined; attempt++)
-		{
-			m_Logger.Write(log_name, LogNotice, "WLAN: JoinOpenNet(\"%s\") attempt %d ...", WLAN_SSID, attempt);
-			s_wlanJoined = m_WLAN.JoinOpenNet(WLAN_SSID);
-			m_Logger.Write(log_name, LogNotice, "WLAN: Join attempt %d -> %s", attempt, s_wlanJoined ? "OK" : "FAILED");
-			if (!s_wlanJoined && attempt < 3) CTimer::Get()->MsDelay(500);
-		}
-		// PRIORITY 2 (backup): only if the existing ticker could not be joined,
-		// host our OWN "ticker" AP so peers still have a rendezvous.
-		if (!s_wlanJoined)
-		{
-			m_Logger.Write(log_name, LogNotice, "WLAN: join failed -> CreateOpenNet(\"%s\") [AP fallback] ...", WLAN_SSID);
-			boolean bAP = m_WLAN.CreateOpenNet(WLAN_SSID, 6, false);
-			m_Logger.Write(log_name, LogNotice, "WLAN AP start: %s", bAP ? "OK" : "FAILED");
-			if (bAP)
-			{
-				s_wlanIsAP = true;
-				s_wlanJoined = true;
-				m_Logger.Write(log_name, LogNotice, "WLAN: wlanApInit() ...");
-				wlanApInit(&m_WLAN);
-			}
-		}
-		static const u8 mcastGroups[][6] = {
-			{0x01, 0x00, 0x5e, 0x4c, 0x4e, 0x4b},
-			{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-		};
-		m_Logger.Write(log_name, LogNotice, "WLAN: SetMulticastFilter() ...");
-		m_WLAN.SetMulticastFilter(mcastGroups);
-		m_Logger.Write(log_name, LogNotice, "WLAN: bring-up complete (joined=%s ap=%s)",
-			s_wlanJoined ? "yes" : "no", s_wlanIsAP ? "yes" : "no");
-	}
+	// DO NOT join/host here. JoinOpenNet scans for the AP and CreateOpenNet brings
+	// up a softAP — both can BLOCK for seconds (or wedge) on a slow/absent/just-
+	// rebooted "ticker", and Initialize() runs BEFORE Run() binds the :4444/:4445/
+	// :4446 sockets and releases the cores. A block here therefore strands boot
+	// with no debug/reboot socket (witnessed: ICMP up but :4445 silent for minutes
+	// after a REBOOT; only a power-cycle recovered). The bring-up is DEFERRED to a
+	// one-shot on the Core-2 control plane (wlanServiceBringUp, run from
+	// coreControlPlaneTick) so the sockets are always live within boot time and a
+	// stuck join only delays the join, never the kernel.
+	s_wlanJoinPending = s_wlanOK;
 #endif
 
 	return bOK;
@@ -272,11 +292,9 @@ TShutdownMode CKernel::Run(void)
 
 	setup();
 
-	if (s_wlanJoined && !s_wlanIsAP) {
-		u8 mac[6];
-		m_WLAN.GetMACAddress()->CopyTo(mac);
-		wlanDhcpSendDiscover(&m_WLAN, mac);
-	}
+	// WLAN station join + initial DHCP discover are NOT done here anymore — they
+	// run in the deferred control-plane bring-up (wlanServiceBringUp) so a stuck
+	// join cannot block boot before the sockets below start being polled.
 
 #ifdef ARM_ALLOW_MULTI_CORE
 	// Hand off control plane to Core 2. Socket polling now ALSO runs on Core 2

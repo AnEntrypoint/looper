@@ -77,6 +77,13 @@ void coreControlPlaneTick(void)
 	// SINGLE radio-RX drainer and demuxes Link + AP-DHCP + client-DHCP frames, so
 	// wlanDhcpServe()'s separate drain is gone (it used to eat inbound Link
 	// packets). wlanDhcpPoll() is timeout-only bookkeeping now (no RX).
+	// Deferred WLAN bring-up (FIRST join/AP) runs here, off the boot path, so a
+	// slow/absent ticker delays only the join — the :4445/:4444 sockets are
+	// already live. One-shot: no-ops after the first call.
+	{
+		extern void wlanServiceBringUp(CBcm4343Device *);
+		wlanServiceBringUp(&k->m_WLAN);
+	}
 	if (!s_dhcpDone) {
 		s_dhcpDone = wlanDhcpPoll(&k->m_WLAN);
 		// Edge: joined the existing ticker but it leased nothing (capped retries).
