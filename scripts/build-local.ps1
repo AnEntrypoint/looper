@@ -187,7 +187,7 @@ foreach ($name in $appInternal) {
 
 # circle/lib/usb/ patches
 $libUsbPatches = @(
-    'usbmidihost.cpp', 'usbconfigparser.cpp', 'usbdevice.cpp',
+    'usbmidihost.cpp', 'usbconfigparser.cpp', 'usbdevice.cpp', 'usbfunction.cpp',
     'usbaudiodevice.h', 'usbaudiodevice.cpp', 'usbdevicefactory.cpp', 'usb_Makefile'
 )
 foreach ($name in $libUsbPatches) {

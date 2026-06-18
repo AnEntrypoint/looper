@@ -246,9 +246,14 @@ const TUSBDescriptor *CUSBConfigurationParser::GetDescriptor (u8 ucType)
 
 const TUSBDescriptor *CUSBConfigurationParser::GetCurrentDescriptor (void)
 {
-	assert (m_bValid);
-	assert (m_pCurrentDescriptor != 0);
-
+	// LOOPER PATCH: return 0 gracefully instead of asserting when there is no
+	// current descriptor (e.g. after a SelectInterfaceByClass that matched no
+	// interface advanced the parser past the end). CUSBFunction now tolerates a
+	// null and the device layer skips the function -- no boot halt.
+	if (!m_bValid)
+	{
+		return 0;
+	}
 	return m_pCurrentDescriptor;
 }
 

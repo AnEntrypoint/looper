@@ -412,6 +412,19 @@ boolean CUSBDevice::Initialize (void)
 		m_pFunction[nFunction] = new CUSBFunction (this, m_pConfigParser);
 		assert (m_pFunction[nFunction] != 0);
 
+		// LOOPER PATCH: a function with no interface descriptor is degenerate
+		// (the config parser had no current descriptor at this position -- e.g. a
+		// UAC2 interface that our audio probe walked past). Skip it instead of
+		// handing it to the factory / GetInterfaceName, which previously asserted
+		// and halted boot. Enumeration of the remaining interfaces continues.
+		if (m_pFunction[nFunction]->GetInterfaceDescriptor () == 0)
+		{
+			LogWrite (LogWarning, "Skipping interface with no descriptor");
+			delete m_pFunction[nFunction];
+			m_pFunction[nFunction] = 0;
+			continue;
+		}
+
 		CUSBFunction *pChild = 0;
 
 		if (nFunction == 0)
