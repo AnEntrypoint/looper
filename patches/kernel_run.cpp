@@ -289,6 +289,21 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					t, st, pl, rc, nb, mx, run);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
+			else if (buf[0]=='M' && buf[1]=='I' && buf[2]=='D' && buf[3]=='I')
+			{
+				// USB MIDI roster + flow: which umidi1..8 slots enumerated
+				// (slots bitmask + count), MIDI-in packet count, and MIDI-OUT
+				// drop/error counters. Diagnoses "APC dark": slots=0 => the APC
+				// never enumerated as a MIDI device; slots>0 + inPkts climbing on
+				// a pad press => input works; outDrop climbing => LED sends drop.
+				extern void usbMidiTelemetry(unsigned*, int*, unsigned*, unsigned*, unsigned*);
+				unsigned mask=0, inPkts=0, outDrop=0, outErr=0; int cnt=0;
+				usbMidiTelemetry(&mask, &cnt, &inPkts, &outDrop, &outErr);
+				CString s;
+				s.Format("midiDevices=%d slots=0x%02x inPkts=%u outDrop=%u outErr=%u",
+					cnt, mask, inPkts, outDrop, outErr);
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
 			else {
 			char rep[256];
 			int rn = engineQueryDispatch((const char *)buf, rep, sizeof rep);

@@ -176,6 +176,22 @@ static TMIDIOutSlot *AllocSlot (CUSBMIDIHostDevice *pOwner)
 	return 0;
 }
 
+// Count OUT URBs currently in flight FOR THIS owner. The in-flight cap must be
+// per-device, not global: s_MIDIOutInFlight (a single counter) let ONE device's
+// stuck OUT endpoint pin the global count at the cap forever, dropping every
+// send to EVERY device. Symptom: plug a US-2x2 (its USB-MIDI OUT endpoint never
+// drains) alongside the APC -> the APC's LED sends all drop (g_midiOutDropped
+// runs to 6 figures, APC dark) even though the APC enumerated fine. Capping per
+// owner means a wedged device only starves itself.
+static unsigned countOwnerInFlight (CUSBMIDIHostDevice *pOwner)
+{
+	unsigned n = 0;
+	for (int i = 0; i < USBMIDI_OUT_SLOTS; i++)
+		if (s_MIDIOutSlots[i].pOwner == pOwner && s_MIDIOutSlots[i].bBusy)
+			n++;
+	return n;
+}
+
 static void MIDIOutCompletion (CUSBRequest *pURB, void *pParam, void *pContext)
 {
 	TMIDIOutSlot *pSlot = (TMIDIOutSlot *) pContext;
@@ -207,7 +223,7 @@ boolean CUSBMIDIHostDevice::SendEventsHandler (const u8 *pData, unsigned nLength
 		return FALSE;
 	}
 
-	if (s_MIDIOutInFlight >= USBMIDI_OUT_MAX_INFLIGHT)
+	if (countOwnerInFlight (pThis) >= USBMIDI_OUT_MAX_INFLIGHT)
 	{
 		// Dropped (transmit pipeline full). Return FALSE, not TRUE: the LED
 		// coalescer (sendLedCoalesced) only commits a pad's color to its cache

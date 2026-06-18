@@ -7,9 +7,12 @@
 #include <circle/usb/usbmidi.h>
 #include <circle/string.h>
 
+volatile unsigned g_midiInPackets = 0;   // total MIDI packets received from any device
+
 static void packetHandler(unsigned nCable, u8 *pPacket, unsigned nLength)
 {
     if (nLength < 3) return;
+    g_midiInPackets++;
     if (pTheAPC)
         pTheAPC->handleMidi(pPacket[0], pPacket[1], pPacket[2]);
 }
@@ -64,6 +67,24 @@ bool usbMidiSendNoteOn(u8 note, u8 velocity)
         }
     }
     return any;
+}
+
+// Telemetry for the :4445 MIDI verb: bitmask of present umidi1..umidi8 slots
+// (bit i-1), the count of MIDI devices, MIDI-in packet count, and the MIDI-OUT
+// drop/error counters. Lets us see live whether the APC enumerated as a MIDI
+// device and whether LED sends are flowing, without syslog.
+extern volatile unsigned g_midiOutDropped;
+extern volatile unsigned g_midiOutErrors;
+void usbMidiTelemetry(unsigned *slotsMask, int *count, unsigned *inPackets,
+                      unsigned *outDropped, unsigned *outErrors)
+{
+    unsigned mask = 0; int n = 0;
+    for (int i = 1; i <= 8; i++) if (s_pDevices[i]) { mask |= (1u << (i - 1)); n++; }
+    if (slotsMask)  *slotsMask  = mask;
+    if (count)      *count      = n;
+    if (inPackets)  *inPackets  = g_midiInPackets;
+    if (outDropped) *outDropped = g_midiOutDropped;
+    if (outErrors)  *outErrors  = g_midiOutErrors;
 }
 
 void usbMidiInjectMidi(u8 status, u8 data1, u8 data2)
