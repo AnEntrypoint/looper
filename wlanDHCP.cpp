@@ -16,6 +16,14 @@ static u32 s_xid;
 static u8 s_mac[6];
 static CBcm4343Device *s_pWLAN;
 static unsigned s_deadline;
+// Discover RETRY: a single boot-time DISCOVER often missed on hardware (dhcp=0,
+// own IP stuck at the default -> Link unroutable). Re-send every DHCP_RETRY_US
+// while unleased, up to DHCP_MAX_ATTEMPTS, keeping the SAME xid so a late offer
+// still matches. After the cap with no lease, the caller treats DHCP as failed.
+#define DHCP_RETRY_US      (2u * CLOCKHZ)
+#define DHCP_MAX_ATTEMPTS  15
+static unsigned s_lastDiscover;
+static int      s_attempts;
 
 static inline u16 sw16(u16 v) { return __builtin_bswap16(v); }
 
@@ -42,6 +50,11 @@ static void buildDiscover(u8 *f, int *outLen) {
 	u8 *d = udp+UDP_HDR;
 	d[0]=1; d[1]=1; d[2]=6;
 	memcpy(d+4, &s_xid, 4);
+	// BROADCAST flag (flags field at d+10, BE 0x8000). Without it a real router
+	// UNICASTs the OFFER to the not-yet-configured client IP/MAC, which a
+	// bare-metal station (no ARP, IP unset) never receives -> no lease. Setting it
+	// forces the server to BROADCAST the OFFER so the RX demux sees it.
+	d[10]=0x80; d[11]=0x00;
 	memcpy(d+28, s_mac, 6);
 	const u8 magic[4]={99,130,83,99};
 	memcpy(d+DHCP_HDR, magic, 4);
@@ -72,6 +85,7 @@ static void buildRequest(u8 *f, const u8 *offer, int *outLen) {
 	u8 *d=udp+UDP_HDR;
 	d[0]=1; d[1]=1; d[2]=6;
 	memcpy(d+4, &s_xid, 4);
+	d[10]=0x80; d[11]=0x00;   // BROADCAST flag (see buildDiscover) so the ACK is broadcast too
 	memcpy(d+28, s_mac, 6);
 	const u8 magic[4]={99,130,83,99};
 	memcpy(d+DHCP_HDR, magic, 4);
@@ -110,32 +124,48 @@ static bool parseOffer(const u8 *f, int len, u8 *outIP) {
 	return false;
 }
 
+static void sendDiscoverFrame(void) {
+	u8 frame[FRAME_SZ]; int flen;
+	buildDiscover(frame, &flen);
+	s_pWLAN->SendFrame(frame, flen);
+}
+
 void wlanDhcpSendDiscover(CBcm4343Device *pWLAN, const u8 *mac) {
 	s_pWLAN = pWLAN;
 	s_got = false;
 	memset(s_ip, 0, 4);
 	memcpy(s_mac, mac, 6);
-	s_xid = (u32)(CTimer::GetClockTicks() & 0xFFFFFFFF);
-	s_deadline = CTimer::GetClockTicks() + 10 * CLOCKHZ;
-	u8 frame[FRAME_SZ]; int flen;
-	buildDiscover(frame, &flen);
-	pWLAN->SendFrame(frame, flen);
-	CLogger::Get()->Write("wdhcp", LogNotice, "DISCOVER sent");
+	s_xid = (u32)(CTimer::GetClockTicks() & 0xFFFFFFFF);  // fixed for the whole retry burst
+	s_lastDiscover = CTimer::GetClockTicks();
+	s_attempts = 1;
+	sendDiscoverFrame();
+	CLogger::Get()->Write("wdhcp", LogNotice, "DISCOVER sent (attempt 1)");
 }
 
-// Timeout-only bookkeeping. The RX drain moved to the single demux in
-// abletonLink.cpp::linkProcess (which calls wlanDhcpClientFrame per frame); this
-// just reports whether the client phase is finished (lease acquired or timed out)
-// so the caller can stop polling. Does NOT touch the radio.
+// Drives the discover RETRY (the RX offer is handled in the single demux via
+// wlanDhcpClientFrame). Re-sends a DISCOVER every DHCP_RETRY_US while unleased.
+// Returns true when the client phase is finished: leased (s_got) OR cap reached
+// without a lease (caller then treats DHCP as failed). Sends TX only (station is
+// associated by now, so SendFrame is safe).
 bool wlanDhcpPoll(CBcm4343Device *pWLAN) {
 	(void)pWLAN;
 	if (s_got) return true;
-	if (CTimer::GetClockTicks() > s_deadline) {
-		CLogger::Get()->Write("wdhcp", LogWarning, "DHCP timeout");
-		return true;
+	if (s_attempts >= DHCP_MAX_ATTEMPTS) {
+		CLogger::Get()->Write("wdhcp", LogWarning, "DHCP no lease after %d attempts", s_attempts);
+		return true;   // give up — caller falls back (AP host) or stays unleased
+	}
+	unsigned now = CTimer::GetClockTicks();
+	if (now - s_lastDiscover >= DHCP_RETRY_US) {
+		s_lastDiscover = now;
+		s_attempts++;
+		sendDiscoverFrame();
+		CLogger::Get()->Write("wdhcp", LogNotice, "DISCOVER re-sent (attempt %d)", s_attempts);
 	}
 	return false;
 }
+
+int  wlanDhcpAttempts(void) { return s_attempts; }
+bool wlanDhcpFailed(void)   { return !s_got && s_attempts >= DHCP_MAX_ATTEMPTS; }
 
 // Station-mode: handle ONE received frame. Returns true iff it was our DHCP
 // OFFER (dst :68, matching xid) — then sends the REQUEST and latches the lease.

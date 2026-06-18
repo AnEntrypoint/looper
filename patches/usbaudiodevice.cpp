@@ -50,8 +50,17 @@ boolean CUSBAudioDevice::Configure (void)
     }
     if (!bSelected)
     {
+        // SAFE-FAIL: no UAC1 audio-streaming alt (class 1 / subclass 2 / proto 0)
+        // could be selected. A UAC2 device (e.g. Tascam US-2x2) advertises its AS
+        // interfaces with protocol 0x20, so it never matches above; the old
+        // "scan anyway" path then grabbed its isochronous endpoints and submitted
+        // requests the UAC1 driver cannot service, wedging USB enumeration at boot
+        // before the network/syslog came up. Refuse the device instead of grabbing
+        // endpoints we cannot drive, so an unsupported interface cannot hang boot.
         CLogger::Get ()->Write (FromAudio, LogWarning,
-            "Could not select any audio streaming alt-setting; scanning anyway");
+            "No UAC1 audio-streaming alt-setting (UAC2/unsupported?) -- refusing device");
+        ConfigurationError (FromAudio);
+        return FALSE;
     }
 
     const TUSBEndpointDescriptor *pDesc;

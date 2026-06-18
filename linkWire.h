@@ -56,6 +56,7 @@ enum {
 static const uint32_t LW_KEY_TMLN = LW_FOURCC('t','m','l','n'); // 0x746d6c6e
 static const uint32_t LW_KEY_SESS = LW_FOURCC('s','e','s','s'); // 0x73657373
 static const uint32_t LW_KEY_MEP4 = LW_FOURCC('m','e','p','4'); // 0x6d657034
+static const uint32_t LW_KEY_STST = LW_FOURCC('s','t','s','t'); // 0x73747374 StartStopState
 static const uint32_t LW_KEY_HSTT = LW_FOURCC('_','_','h','t'); // 0x5f5f6874
 static const uint32_t LW_KEY_GHST = LW_FOURCC('_','_','g','t'); // 0x5f5f6774
 static const uint32_t LW_KEY_PRGH = LW_FOURCC('_','p','g','t'); // 0x5f706774
@@ -114,11 +115,25 @@ static inline int lwAppendSession(uint8_t *b, int o, const uint8_t sessionId[8])
     return lwAppendEntry(b, o, LW_KEY_SESS, sessionId, 8);
 }
 // mep4 value = IPv4 addr (4 bytes, network order) + UDP port (2 bytes BE).
-// CAVEAT: confirm byte layout against a real capture (see header note).
 static inline int lwAppendMep4(uint8_t *b, int o, const uint8_t addr[4], uint16_t port)
 {
     uint8_t v[6]; memcpy(v, addr, 4); lwPut16(v, 4, port);
     return lwAppendEntry(b, o, LW_KEY_MEP4, v, 6);
+}
+// StartStopState value = isPlaying(u8) + beats(i64 microbeats BE) + timestamp(i64
+// micros BE) = 17 bytes. CONFIRMED present in real Ableton Live ALIVE frames
+// (key 'stst', between 'sess' and 'mep4'); Live's NodeState parser requires it,
+// so omitting it made Live discard our ALIVE entirely (one-way discovery). The
+// looper has no transport start/stop yet, so we send all-zero (matches Live's
+// observed all-zero stst byte-for-byte).
+static inline int lwAppendStartStop(uint8_t *b, int o, uint8_t isPlaying,
+                                    int64_t beatsMicro, int64_t tsMicros)
+{
+    uint8_t v[17];
+    v[0] = isPlaying;
+    lwPut64(v, 1, (uint64_t)beatsMicro);
+    lwPut64(v, 9, (uint64_t)tsMicros);
+    return lwAppendEntry(b, o, LW_KEY_STST, v, 17);
 }
 
 // ---- whole-message encoders ----
@@ -131,6 +146,7 @@ static inline int lwEncodeAlive(uint8_t *b, uint8_t msgType, uint8_t ttl, uint16
     int o = lwWriteHeader(b, LW_HDR_ASDP, msgType, ttl, groupId, nodeId);
     o = lwAppendTimeline(b, o, mpb, beatOrigin, timeOrigin);
     o = lwAppendSession(b, o, sessionId);
+    o = lwAppendStartStop(b, o, 0, 0, 0);   // required by Live's NodeState parser
     o = lwAppendMep4(b, o, mep4Addr, mep4Port);
     return o;
 }

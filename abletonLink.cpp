@@ -56,6 +56,22 @@ static s64  s_beatPhaseMicroBeats = 0;
 static s64  s_quantumMicroBeats   = 4000000;  // 4 beats
 // telemetry counters
 static volatile unsigned s_pingsTx=0, s_pongsRx=0, s_pongsTx=0, s_peersTotal=0;
+static volatile unsigned s_pingsRx=0;           // measurement PINGs received from peers
+// Raw bytes of the last measurement (_link_v) frame a peer sent us — ground
+// truth for the on-the-wire ping/pong format vs our codec (read via :4445 LMSG).
+static u8  s_lastMeas[64];
+static volatile int s_lastMeasLen = 0;
+static volatile int s_lastMeasType = -1;
+// Raw bytes of our last transmitted ALIVE and the last ALIVE we received from a
+// peer — diff them (via :4445 TALV / RALV) to find why a real Link app (Live)
+// accepts the peer's ALIVE but rejects ours (one-way discovery).
+static u8  s_lastTxAlive[128];
+static volatile int s_lastTxAliveLen = 0;
+static u8  s_lastRxAlive[128];
+static volatile int s_lastRxAliveLen = 0;
+// Full received discovery frame (Ethernet+IP+UDP+payload) for header comparison.
+static u8  s_lastRxFrame[180];
+static volatile int s_lastRxFrameLen = 0;
 static volatile s64      s_ownerOffsetUs=0;
 
 // Timeline (train-on-first-loop). s_timeOrigin = CTimer microseconds at the
@@ -109,7 +125,11 @@ static void sendUDP(const u8 *dstMac, const u8 *dstIp, u16 dstPort, const u8 *pa
 	frame[12]=0x08; frame[13]=0x00;
 
 	u8 *ip = frame + IP_HDR_OFF;
-	ip[0]=0x45; ip[6]=0x40; ip[8]=1; ip[9]=17;
+	// TTL=64 + flags=0 to match real Ableton Live frames (captured via :4445 RFRM:
+	// Live uses TTL 64, no DF). Our previous TTL=1 multicast was not being relayed
+	// by the WiFi AP to the other station where Live runs — so Live never saw our
+	// ALIVE (one-way discovery). ip[6]=0 (no DF), ip[8]=64 (TTL).
+	ip[0]=0x45; ip[6]=0x00; ip[8]=64; ip[9]=17;
 	u16 ipLen=swap16(20+8+plen); memcpy(ip+2,&ipLen,2);
 	if (wlanDhcpOK()) memcpy(s_ownIP, wlanDhcpIP(), 4);
 	memcpy(ip+12, s_ownIP, 4); memcpy(ip+16, dip, 4);
@@ -118,9 +138,26 @@ static void sendUDP(const u8 *dstMac, const u8 *dstIp, u16 dstPort, const u8 *pa
 	u8 *udp=frame+UDP_HDR_OFF;
 	u16 sp=swap16(LINK_PORT), dp=swap16(dstPort), uLen=swap16(8+plen);
 	memcpy(udp,&sp,2); memcpy(udp+2,&dp,2); memcpy(udp+4,&uLen,2);
-	// UDP checksum optional for IPv4; leave 0 (Link tolerates it).
-
 	memcpy(frame + PAYLOAD_OFF, payload, plen);
+
+	// UDP checksum (pseudo-header + UDP segment). Was left 0 — legal for IPv4 but
+	// real Link senders compute it, and a checksum-0 datagram can be dropped by a
+	// strict receiver / WiFi multicast path, which made Live never see our ALIVE.
+	// The checksum field (udp+6..7) is 0 during the sum, then filled; a 0 result
+	// is transmitted as 0xffff per RFC768.
+	{
+		int seglen = 8 + plen;
+		u32 s = 0;
+		s += (ip[12]<<8)|ip[13]; s += (ip[14]<<8)|ip[15];   // src IP
+		s += (ip[16]<<8)|ip[17]; s += (ip[18]<<8)|ip[19];   // dst IP
+		s += 17; s += (u32)seglen;                          // proto + UDP length
+		for (int i = 0; i + 1 < seglen; i += 2) s += (udp[i]<<8)|udp[i+1];
+		if (seglen & 1) s += (udp[seglen-1]<<8);
+		while (s >> 16) s = (s & 0xffff) + (s >> 16);
+		u16 uc = (u16)~s; if (uc == 0) uc = 0xffff;
+		udp[6] = (u8)(uc >> 8); udp[7] = (u8)(uc & 0xff);
+	}
+
 	s_pWLAN->SendFrame(frame, PAYLOAD_OFF + plen);
 }
 
@@ -135,6 +172,10 @@ static void sendDiscovery(u8 msgType)
 	int n = lwEncodeAlive(pl, msgType, /*ttl*/5, /*groupId*/0, nid, sess,
 	                      tl.tempoMicrosPerBeat, tl.beatOriginMicroBeats, tl.timeOriginMicros,
 	                      s_ownIP, OUR_MEP4_PORT);
+	if (msgType == LW_MSG_ALIVE) {
+		int c = n < (int)sizeof s_lastTxAlive ? n : (int)sizeof s_lastTxAlive;
+		memcpy(s_lastTxAlive, pl, c); s_lastTxAliveLen = c;
+	}
 	sendUDP(0, 0, LINK_PORT, pl, n);   // multicast
 }
 
@@ -216,6 +257,12 @@ static void handleMessage(const u8 *pl, int plen, const u8 *ethSrcMac)
 
 	if (!m.isLink)
 	{
+		// Capture a received ALIVE (ground-truth valid discovery frame) to diff
+		// against our own transmitted ALIVE (s_lastTxAlive).
+		if (m.msgType == LW_MSG_ALIVE) {
+			int c = plen < (int)sizeof s_lastRxAlive ? plen : (int)sizeof s_lastRxAlive;
+			memcpy(s_lastRxAlive, pl, c); s_lastRxAliveLen = c;
+		}
 		// Discovery: ALIVE / RESPONSE / BYEBYE.
 		if (m.msgType == LW_MSG_BYEBYE)
 		{
@@ -241,12 +288,19 @@ static void handleMessage(const u8 *pl, int plen, const u8 *ethSrcMac)
 	}
 
 	// Measurement: PING (we respond) / PONG (we accumulate a sample).
+	// Capture the raw frame (ground truth for the wire format) regardless of how
+	// our codec decoded it.
+	{
+		int n = plen < (int)sizeof s_lastMeas ? plen : (int)sizeof s_lastMeas;
+		memcpy(s_lastMeas, pl, n); s_lastMeasLen = n; s_lastMeasType = m.msgType;
+	}
 	LinkPeer *p = lsUpsert(&s_session, m.nodeId, now);
 	if (!p) return;
 	memcpy(p->mac, ethSrcMac, 6);    // learn/refresh MAC for unicast replies
 
 	if (m.msgType == LW_MSG_PING && m.hasHost)
 	{
+		s_pingsRx++;
 		sendPong(p, m.hostTime);
 		return;
 	}
@@ -299,6 +353,13 @@ static bool linkTryParse(const u8 *buf, unsigned len)
 	bool isLink = (memcmp(pl, LW_HDR_LINK, 8) == 0);
 	if (!isAsdp && !isLink) return toMcast;   // junk on the mcast port: consume, ignore
 
+	// Capture the FULL received frame (Eth+IP+UDP+payload) so we can compare a
+	// real Live frame's IP/UDP headers (TTL, checksum, flags) to ours (:4445 RFRM).
+	if (isAsdp) {
+		int c = (int)len < (int)sizeof s_lastRxFrame ? (int)len : (int)sizeof s_lastRxFrame;
+		memcpy(s_lastRxFrame, buf, c); s_lastRxFrameLen = c;
+	}
+
 	handleMessage(pl, plen, buf + 6 /* ethernet source MAC */);
 	return true;
 }
@@ -347,12 +408,19 @@ static void driveMeasurement(s64 now)
 	{
 		LinkPeer *p = &s_session.peers[i];
 		if (!p->used || !p->hasEndpoint) continue;
-		bool needBurst = !p->measured ||
-		                 (now - p->meas.lastPingMicros) > (s64)MEASURE_RETRY_US;
-		if (!needBurst && lgMeasHasEnough(&p->meas)) continue;
-		if (lgMeasExhausted(&p->meas) && p->measured) { continue; }  // have a result
-		if ((now - p->meas.lastPingMicros) >= (s64)PING_INTERVAL_US &&
-		    p->meas.pings < LG_NUM_MEASUREMENTS && !lgMeasHasEnough(&p->meas))
+		// Periodically re-measure an already-measured peer (drift refresh).
+		if (p->measured && (now - p->meas.lastPingMicros) > (s64)MEASURE_RETRY_US)
+			lgMeasReset(&p->meas);
+		if (lgMeasHasEnough(&p->meas)) continue;          // this burst is done
+		// A burst that ran its 5 pings without enough pongs (peer slow/lossy) is
+		// RESET after the ping interval so we keep retrying — otherwise pings
+		// stays pinned at LG_NUM_MEASUREMENTS and the peer is never measured.
+		if (lgMeasExhausted(&p->meas))
+		{
+			if ((now - p->meas.lastPingMicros) >= (s64)PING_INTERVAL_US) lgMeasReset(&p->meas);
+			else continue;
+		}
+		if ((now - p->meas.lastPingMicros) >= (s64)PING_INTERVAL_US)
 		{
 			sendPing(p);
 			p->meas.lastPingMicros = now;
@@ -429,6 +497,67 @@ void linkTelemetry(unsigned *peers, s64 *offsetUs, unsigned *pingsTx,
 	if (pingsTx)  *pingsTx  = s_pingsTx;
 	if (pongsRx)  *pongsRx  = s_pongsRx;
 	if (selfOwns) *selfOwns = lsSelfOwns(&s_session) ? 1 : 0;
+}
+
+// Inbound measurement counters: PINGs received from peers (Live measuring us) and
+// PONGs we sent back. pingsRx>0 proves peer->us reachability + that our ALIVE was
+// accepted; pingsRx==0 means the peer never measures us.
+void linkMeasCounters(unsigned *pingsRx, unsigned *pongsTx)
+{
+	if (pingsRx) *pingsRx = s_pingsRx;
+	if (pongsTx) *pongsTx = s_pongsTx;
+}
+
+// Hex of the last measurement frame a peer sent us (ground truth wire format).
+// Returns the byte count; writes up to max bytes of the raw frame into out and
+// the message type into *type.
+int linkLastMeas(u8 *out, int max, int *type)
+{
+	int n = s_lastMeasLen < max ? s_lastMeasLen : max;
+	for (int i = 0; i < n; i++) out[i] = s_lastMeas[i];
+	if (type) *type = s_lastMeasType;
+	return n;
+}
+
+int linkLastTxAlive(u8 *out, int max)
+{
+	int n = s_lastTxAliveLen < max ? s_lastTxAliveLen : max;
+	for (int i = 0; i < n; i++) out[i] = s_lastTxAlive[i];
+	return n;
+}
+int linkLastRxAlive(u8 *out, int max)
+{
+	int n = s_lastRxAliveLen < max ? s_lastRxAliveLen : max;
+	for (int i = 0; i < n; i++) out[i] = s_lastRxAlive[i];
+	return n;
+}
+int linkLastRxFrame(u8 *out, int max)
+{
+	int n = s_lastRxFrameLen < max ? s_lastRxFrameLen : max;
+	for (int i = 0; i < n; i++) out[i] = s_lastRxFrame[i];
+	return n;
+}
+
+// Network diagnostics for the :4445 LINK verb: our source IP (what our pings are
+// sourced from + what we advertise in mep4 — if this is the default 192.168.4.1
+// in station mode we never got a DHCP lease on "ticker", which makes the peer's
+// PONG unroutable back to us), our DHCP-lease state, and the first peer's parsed
+// mep4 endpoint (confirms we decoded where to ping it).
+void linkNetTelemetry(u8 ownIp[4], int *dhcp, u8 peerIp[4], int *peerPort, int *peerHasEp)
+{
+	if (ownIp) memcpy(ownIp, s_ownIP, 4);
+	if (dhcp)  *dhcp = wlanDhcpOK() ? 1 : 0;
+	for (int i = 0; i < LS_MAX_PEERS; i++)
+	{
+		if (!s_session.peers[i].used) continue;
+		if (peerIp)    memcpy(peerIp, s_session.peers[i].ipv4, 4);
+		if (peerPort)  *peerPort  = s_session.peers[i].mep4Port;
+		if (peerHasEp) *peerHasEp = s_session.peers[i].hasEndpoint ? 1 : 0;
+		return;
+	}
+	if (peerIp) { peerIp[0]=peerIp[1]=peerIp[2]=peerIp[3]=0; }
+	if (peerPort)  *peerPort = 0;
+	if (peerHasEp) *peerHasEp = 0;
 }
 
 void linkStart(unsigned originTicks)

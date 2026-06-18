@@ -77,7 +77,15 @@ void coreControlPlaneTick(void)
 	// SINGLE radio-RX drainer and demuxes Link + AP-DHCP + client-DHCP frames, so
 	// wlanDhcpServe()'s separate drain is gone (it used to eat inbound Link
 	// packets). wlanDhcpPoll() is timeout-only bookkeeping now (no RX).
-	if (!s_dhcpDone) s_dhcpDone = wlanDhcpPoll(&k->m_WLAN);
+	if (!s_dhcpDone) {
+		s_dhcpDone = wlanDhcpPoll(&k->m_WLAN);
+		// Edge: joined the existing ticker but it leased nothing (capped retries).
+		// Drop to hosting our own ticker AP so peers still rendezvous + get a lease.
+		if (s_dhcpDone && wlanDhcpFailed() && wlanStatusCode() == 1) {
+			extern void wlanFallbackToAP(CBcm4343Device *);
+			wlanFallbackToAP(&k->m_WLAN);
+		}
+	}
 	linkProcess();
 #endif
 	k->m_Scheduler.Yield();
@@ -118,14 +126,20 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 			if (buf[0] == 'W' && buf[1] == 'L' && buf[2] == 'A' && buf[3] == 'N')
 			{
 #ifdef LOOPER_ENABLE_WLAN
+				extern int  wlanDhcpAttempts(void);
+				extern bool wlanDhcpOK(void);
 				int wc = wlanStatusCode();
 				const char *mode = wc == 2 ? "hosting-ticker"
 				                 : wc == 1 ? "joined-ticker" : "off/failed";
+				int dhcpOK = wlanDhcpOK() ? 1 : 0;
+				int dhcpAtt = wlanDhcpAttempts();
 #else
 				const char *mode = "disabled";
+				int dhcpOK = 0, dhcpAtt = 0;
 #endif
 				CString s;
-				s.Format("wlan=%s link=%s bpm=%d p9err=%u", mode,
+				s.Format("wlan=%s dhcpOK=%d dhcpAtt=%d link=%s bpm=%d p9err=%u", mode,
+					dhcpOK, dhcpAtt,
 					linkIsSynced() ? "synced" : "no", (int)linkGetBPM(),
 					p9ErrorCount());
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
@@ -136,15 +150,61 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				// capture needed): peers, who owns, measured owner offset,
 				// ping/pong counters, shared beat phase, tempo.
 				extern void linkTelemetry(unsigned*, s64*, unsigned*, unsigned*, int*);
+				extern void linkNetTelemetry(u8*, int*, u8*, int*, int*);
+				extern void linkMeasCounters(unsigned*, unsigned*);
 				extern bool linkGhostPhase(s64*, s64*);
 				unsigned peers=0, pingsTx=0, pongsRx=0; s64 offUs=0; int selfOwns=1;
 				linkTelemetry(&peers, &offUs, &pingsTx, &pongsRx, &selfOwns);
+				unsigned pingsRx=0, pongsTx=0; linkMeasCounters(&pingsRx, &pongsTx);
+				u8 ownIp[4]={0}, peerIp[4]={0}; int dhcp=0, peerPort=0, peerHasEp=0;
+				linkNetTelemetry(ownIp, &dhcp, peerIp, &peerPort, &peerHasEp);
 				s64 ph=0, q=4000000; int phaseValid = linkGhostPhase(&ph, &q) ? 1 : 0;
 				int beatPhase100 = (q > 0) ? (int)((ph * 100) / q) : 0;
 				CString s;
-				s.Format("synced=%d peers=%u owner=%s offsetUs=%d pingsTx=%u pongsRx=%u phaseValid=%d beatPhase100=%d bpm=%d",
+				s.Format("synced=%d peers=%u owner=%s offsetUs=%d pingsTx=%u pongsRx=%u pingsRx=%u pongsTx=%u phaseValid=%d beatPhase100=%d bpm=%d ownip=%u.%u.%u.%u dhcp=%d peerip=%u.%u.%u.%u:%d peerEp=%d",
 					linkIsSynced() ? 1 : 0, peers, selfOwns ? "self" : "peer",
-					(int)offUs, pingsTx, pongsRx, phaseValid, beatPhase100, (int)linkGetBPM());
+					(int)offUs, pingsTx, pongsRx, pingsRx, pongsTx, phaseValid, beatPhase100, (int)linkGetBPM(),
+					ownIp[0],ownIp[1],ownIp[2],ownIp[3], dhcp,
+					peerIp[0],peerIp[1],peerIp[2],peerIp[3], peerPort, peerHasEp);
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='L' && buf[1]=='M' && buf[2]=='S' && buf[3]=='G')
+			{
+				// Hex of the last measurement (_link_v) frame a peer sent us =
+				// ground-truth ping/pong wire format to diff against our codec.
+				extern int linkLastMeas(u8*, int, int*);
+				u8 raw[64]; int mtype=-1; int n = linkLastMeas(raw, sizeof raw, &mtype);
+				CString s; CString h;
+				s.Format("lastMeasType=%d len=%d hex=", mtype, n);
+				for (int i = 0; i < n; i++) { h.Format("%02x", raw[i]); s.Append(h); }
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='T' && buf[1]=='A' && buf[2]=='L' && buf[3]=='V')
+			{
+				// Our last transmitted ALIVE (hex) — diff vs RALV (Live's ALIVE).
+				extern int linkLastTxAlive(u8*, int);
+				u8 raw[128]; int n = linkLastTxAlive(raw, sizeof raw);
+				CString s; CString h; s.Format("txAlive len=%d hex=", n);
+				for (int i = 0; i < n; i++) { h.Format("%02x", raw[i]); s.Append(h); }
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='R' && buf[1]=='A' && buf[2]=='L' && buf[3]=='V')
+			{
+				// Last ALIVE received from a peer (Live) = ground-truth valid frame.
+				extern int linkLastRxAlive(u8*, int);
+				u8 raw[128]; int n = linkLastRxAlive(raw, sizeof raw);
+				CString s; CString h; s.Format("rxAlive len=%d hex=", n);
+				for (int i = 0; i < n; i++) { h.Format("%02x", raw[i]); s.Append(h); }
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='R' && buf[1]=='F' && buf[2]=='R' && buf[3]=='M')
+			{
+				// Full received discovery frame (Eth+IP+UDP) — read Live's IP TTL
+				// (offset 22), UDP checksum (offset 40), flags etc. vs ours.
+				extern int linkLastRxFrame(u8*, int);
+				u8 raw[180]; int n = linkLastRxFrame(raw, sizeof raw);
+				CString s; CString h; s.Format("rxFrame len=%d hex=", n);
+				for (int i = 0; i < n; i++) { h.Format("%02x", raw[i]); s.Append(h); }
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='T' && buf[1]=='I' && buf[2]=='M' && buf[3]=='E')

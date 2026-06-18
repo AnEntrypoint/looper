@@ -18,6 +18,7 @@ param(
     [switch]$Clean,
     [switch]$LibsOnly,
     [switch]$AppOnly,
+    [switch]$Wlan,
     [int]$Jobs = 4
 )
 
@@ -288,16 +289,41 @@ $wlanS = Join-Path $env:TEMP 'wlan_firmware.S'
 # 7. Build looper app
 Copy-Item -Recurse -Force (Join-Path $appDir 'patches\rubberband')  $appDir
 Copy-Item -Recurse -Force (Join-Path $appDir 'patches\signalsmith') $appDir
+# -Wlan: compile in the WLAN + Ableton Link stack (LOOPER_ENABLE_WLAN, OFF by
+# default). Because CHECK_DEPS=0 ignores header deps AND the define toggles
+# #ifdef regions across many .cpp, force a clean app rebuild and regen
+# wlan_firmware.o (rm *.o deletes it and there is no make rule for it).
+$wlanDef = ''
+if ($Wlan) {
+    $wlanDef = 'LOOPER_ENABLE_WLAN=1 '
+    Write-Host '[build-local] -Wlan: clean app rebuild with LOOPER_ENABLE_WLAN=1'
+    Remove-Item -Force (Join-Path $appDir '*.o') -ErrorAction SilentlyContinue
+}
 Push-Location $appDir
 try {
-    & $bash -c "$makeEnv make RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 -j$Jobs"
-    if ($LASTEXITCODE -ne 0) { throw 'Looper build failed' }
+    # A full app rebuild (-Wlan) emits gcc warnings to stderr; PS 5.1 with
+    # ErrorActionPreference=Stop treats native stderr as terminating and would
+    # kill the make mid-flight. Drop to Continue for the native as/make calls and
+    # rely on the explicit $LASTEXITCODE checks below.
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    if ($Wlan) {
+        # rm *.o above also deleted wlan_firmware.o (no make rule for it) -> regen.
+        & arm-none-eabi-as -mcpu=cortex-a72 -mfpu=neon-fp-armv8 -mfloat-abi=hard `
+            -o (Join-Path $appDir 'wlan_firmware.o') $wlanS
+        if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $savedEAP; throw 'wlan_firmware.o assemble failed' }
+    }
+    & $bash -c "$makeEnv make RASPPI=4 AARCH=32 LOOPER_USB_AUDIO=1 LOOPER_OTG_AUDIO=1 ${wlanDef}ARM_ALLOW_MULTI_CORE=1 CHECK_DEPS=0 -j$Jobs"
+    $makeRc = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP
+    if ($makeRc -ne 0) { throw 'Looper build failed' }
 } finally { Pop-Location }
 
 # 8. Assemble dist/looper-sd.zip
 $dist = Join-Path $RepoRoot 'dist'
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 Copy-Item (Join-Path $appDir 'kernel7l.img') $dist -Force
+if ($Wlan) { Copy-Item (Join-Path $appDir 'kernel7l.img') (Join-Path $dist 'kernel7l-wlan.img') -Force }
 Copy-Item (Join-Path $circle 'boot\*') $dist -Recurse -Force
 Copy-Item $fwDir (Join-Path $dist 'firmware') -Recurse -Force
 'usbspeed=full' | Out-File -Encoding ascii -NoNewline (Join-Path $dist 'cmdline.txt')

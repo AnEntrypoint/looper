@@ -3,8 +3,10 @@
 #include <wlan/bcm4343.h>
 #include <circle/types.h>
 void wlanDhcpSendDiscover(CBcm4343Device *pWLAN, const u8 *mac);
-bool wlanDhcpPoll(CBcm4343Device *pWLAN);   // timeout-only bookkeeping; no RX drain
+bool wlanDhcpPoll(CBcm4343Device *pWLAN);   // drives DISCOVER retry; true when leased or capped
 bool wlanDhcpOK(void);
+int  wlanDhcpAttempts(void);                // DISCOVERs sent this burst (telemetry)
+bool wlanDhcpFailed(void);                   // capped without a lease
 const u8 *wlanDhcpIP(void);
 void wlanApSetIP(const u8 *ip);
 void wlanApInit(CBcm4343Device *pWLAN);

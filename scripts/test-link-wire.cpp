@@ -53,7 +53,12 @@ int main()
         check("CAPTURE off52 == 'sess' key", lwGet32(b,52) == LW_KEY_SESS);
         check("CAPTURE off56 sess size == 8", lwGet32(b,56) == 8);
         check("CAPTURE off60 sessionId matches", memcmp(b+60, sess, 8) == 0);
-        check("ALIVE total length == 20 + (8+24)+(8+8)+(8+6) = 82", n == 82);
+        // 'stst' (StartStopState) follows 'sess' — REQUIRED by Live's NodeState
+        // parser (confirmed in a real Live ALIVE capture: key 73747374, 17 bytes).
+        check("CAPTURE off68 == 'stst' key", lwGet32(b,68) == LW_KEY_STST);
+        check("CAPTURE off72 stst size == 17", lwGet32(b,72) == 17);
+        check("ALIVE off93 == 'mep4' key (after stst)", lwGet32(b,93) == LW_KEY_MEP4);
+        check("ALIVE total length == 20+(8+24)+(8+8)+(8+17)+(8+6) = 107", n == 107);
 
         LwMessage m;
         check("ALIVE decodes", lwDecode(b, n, &m) && m.valid && !m.isLink);

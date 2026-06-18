@@ -43,6 +43,27 @@ extern "C" int wlanStatusCode(void)
 	return s_wlanIsAP ? 2 : 1;
 }
 
+// Runtime AP fallback: joined the existing "ticker" but it gave no DHCP lease
+// (wlanDhcpFailed) -> own IP stuck, Link unroutable. Drop station mode and host
+// our own "ticker" AP (where wlanDHCPServer leases peers). Idempotent: no-op once
+// we are already the AP. Called from the control tick (kernel_run.cpp).
+void wlanFallbackToAP(CBcm4343Device *pWLAN)
+{
+	if (s_wlanIsAP || !s_wlanOK) return;
+	CLogger::Get()->Write("wlan", LogWarning, "ticker gave no DHCP lease -> AP fallback (CreateOpenNet)");
+	if (pWLAN->CreateOpenNet(WLAN_SSID, 6, false))
+	{
+		s_wlanIsAP = true;
+		s_wlanJoined = true;
+		wlanApInit(pWLAN);
+		CLogger::Get()->Write("wlan", LogNotice, "AP fallback up (hosting ticker)");
+	}
+	else
+	{
+		CLogger::Get()->Write("wlan", LogWarning, "AP fallback CreateOpenNet FAILED");
+	}
+}
+
 extern void setup(void);
 extern void loop(void);
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
@@ -129,19 +150,48 @@ boolean CKernel::Initialize(void)
 	// stability under sustained audio load can't be host-proven); until then it
 	// stays opt-in. Ethernet (boot/syslog/debug/MIDI sockets) is independent and
 	// always up. Observe the live error rate via the :4445 WLAN verb (p9err=).
+	// WLAN bring-up is DEFERRED to AFTER m_Net.Initialize() (below) so the
+	// Ethernet network + syslog are live first. The radio init (plan9/bcm4343
+	// SDIO) previously ran here, BEFORE the network — so a hang/wedge in it was
+	// totally silent (no syslog, no :4445, no static .100), exactly the symptom
+	// seen on hardware. Moved + instrumented so the last syslog line names the
+	// exact call that wedges. See the block after m_Net.Initialize().
+	m_ActLED.Blink(1);
+
+	if (bOK) bOK = m_Net.Initialize(FALSE);
+	m_ActLED.Blink(1);
+
 #ifdef LOOPER_ENABLE_WLAN
+	// Network is up now => these CLogger lines reach syslog (192.168.137.1:514),
+	// so a hang in any single radio call is localized to the last line printed.
+	m_Logger.Write(log_name, LogNotice, "WLAN: m_WLAN.Initialize() ...");
 	s_wlanOK = m_WLAN.Initialize();
+	m_Logger.Write(log_name, LogNotice, "WLAN: Initialize -> %s", s_wlanOK ? "OK" : "FAILED");
 	if (s_wlanOK)
 	{
-		s_wlanJoined = m_WLAN.JoinOpenNet(WLAN_SSID);
+		// PRIORITY 1: JOIN the existing "ticker" network (station mode). The join
+		// was flaky one-shot before, so retry a few times before giving up — a
+		// present ticker should be reliably joined. DHCP (station) then retries its
+		// DISCOVER in the control loop (wlanDhcpPoll) until it leases.
+		for (int attempt = 1; attempt <= 3 && !s_wlanJoined; attempt++)
+		{
+			m_Logger.Write(log_name, LogNotice, "WLAN: JoinOpenNet(\"%s\") attempt %d ...", WLAN_SSID, attempt);
+			s_wlanJoined = m_WLAN.JoinOpenNet(WLAN_SSID);
+			m_Logger.Write(log_name, LogNotice, "WLAN: Join attempt %d -> %s", attempt, s_wlanJoined ? "OK" : "FAILED");
+			if (!s_wlanJoined && attempt < 3) CTimer::Get()->MsDelay(500);
+		}
+		// PRIORITY 2 (backup): only if the existing ticker could not be joined,
+		// host our OWN "ticker" AP so peers still have a rendezvous.
 		if (!s_wlanJoined)
 		{
+			m_Logger.Write(log_name, LogNotice, "WLAN: join failed -> CreateOpenNet(\"%s\") [AP fallback] ...", WLAN_SSID);
 			boolean bAP = m_WLAN.CreateOpenNet(WLAN_SSID, 6, false);
 			m_Logger.Write(log_name, LogNotice, "WLAN AP start: %s", bAP ? "OK" : "FAILED");
 			if (bAP)
 			{
 				s_wlanIsAP = true;
 				s_wlanJoined = true;
+				m_Logger.Write(log_name, LogNotice, "WLAN: wlanApInit() ...");
 				wlanApInit(&m_WLAN);
 			}
 		}
@@ -149,13 +199,12 @@ boolean CKernel::Initialize(void)
 			{0x01, 0x00, 0x5e, 0x4c, 0x4e, 0x4b},
 			{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 		};
+		m_Logger.Write(log_name, LogNotice, "WLAN: SetMulticastFilter() ...");
 		m_WLAN.SetMulticastFilter(mcastGroups);
+		m_Logger.Write(log_name, LogNotice, "WLAN: bring-up complete (joined=%s ap=%s)",
+			s_wlanJoined ? "yes" : "no", s_wlanIsAP ? "yes" : "no");
 	}
 #endif
-	m_ActLED.Blink(1);
-
-	if (bOK) bOK = m_Net.Initialize(FALSE);
-	m_ActLED.Blink(1);
 
 	return bOK;
 }
