@@ -289,6 +289,17 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					t, st, pl, rc, nb, mx, run);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
+			else if (buf[0]=='U' && buf[1]=='D' && buf[2]=='S' && buf[3]=='C')
+			{
+				// Raw config descriptor (hex) of the last UAC2 device enumerated
+				// (Tascam US-2x2). Grounds UAC2 host bring-up: decode AS interfaces,
+				// Clock Source entity, Type-I format/subslot, iso + feedback EPs.
+				extern u8 g_uac2Desc[]; extern volatile unsigned g_uac2DescLen;
+				unsigned dn = g_uac2DescLen; if (dn > 500) dn = 500;  // 1000 hex chars fits one UDP datagram
+				CString s; CString h; s.Format("uac2desc len=%u hex=", g_uac2DescLen);
+				for (unsigned i = 0; i < dn; i++) { h.Format("%02x", g_uac2Desc[i]); s.Append(h); }
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
 			else if (buf[0]=='M' && buf[1]=='I' && buf[2]=='D' && buf[3]=='I')
 			{
 				// USB MIDI roster + flow: which umidi1..8 slots enumerated

@@ -51,6 +51,14 @@ private:
     u32 m_nPeakIn;
     u32 m_nLastMonitorTick;
 
+    // UAC2 (USB Audio Class 2.0, e.g. Tascam US-2x2). When m_bUAC2, samples are
+    // m_uSubslot bytes each (3 = 24-bit) x m_uChannels per frame, and the sample
+    // rate was set via a Clock Source control request (see Configure).
+    boolean  m_bUAC2;
+    unsigned m_uSubslot;    // bytes per sample (UAC1 path: 2)
+    unsigned m_uChannels;   // channels per frame (UAC1 path: 2)
+    boolean ConfigureUAC2 (void);
+
     static CUSBAudioDevice *s_pThis;
     static CUSBAudioDevice *s_pOut;
     static unsigned         s_nDeviceNumber;

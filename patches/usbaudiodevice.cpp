@@ -1,4 +1,5 @@
 #include "usbaudiodevice.h"
+#include "uac2parse.h"
 #include <circle/usb/usb.h>
 #include <circle/usb/usbhostcontroller.h>
 #include <circle/devicenameservice.h>
@@ -7,6 +8,29 @@
 #include <circle/util.h>
 #include <circle/string.h>
 #include <assert.h>
+
+// Raw config descriptor of the last UAC2 device, captured in usbdevice.cpp.
+extern u8 g_uac2Desc[];
+extern volatile unsigned g_uac2DescLen;
+
+// Convert one little-endian sample of subslot bytes to s16 (take the top 16
+// bits, matching the engine's s16 pipeline). 24-bit -> bytes [1..2], 16 -> [0..1].
+static inline s16 uac2ToS16 (const u8 *p, unsigned subslot)
+{
+    if (subslot >= 4) return (s16) ((p[3] << 8) | p[2]);
+    if (subslot == 3) return (s16) ((p[2] << 8) | p[1]);
+    if (subslot == 2) return (s16) ((p[1] << 8) | p[0]);
+    return (s16) (p[0] << 8);
+}
+
+// Write an s16 into subslot bytes little-endian (low bytes zero-padded).
+static inline void uac2FromS16 (u8 *p, unsigned subslot, s16 v)
+{
+    if (subslot >= 4) { p[0]=0; p[1]=0; p[2]=(u8)(v & 0xFF); p[3]=(u8)(v >> 8); }
+    else if (subslot == 3) { p[0]=0; p[1]=(u8)(v & 0xFF); p[2]=(u8)(v >> 8); }
+    else if (subslot == 2) { p[0]=(u8)(v & 0xFF); p[1]=(u8)(v >> 8); }
+    else p[0] = (u8)(v >> 8);
+}
 
 static const char FromAudio[] = "uaudio";
 
@@ -23,7 +47,10 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_pInURB       (0),
     m_pOutURB      (0),
     m_nPeakIn      (0),
-    m_nLastMonitorTick (0)
+    m_nLastMonitorTick (0),
+    m_bUAC2        (FALSE),
+    m_uSubslot     (2),
+    m_uChannels    (2)
 {
 }
 
@@ -48,17 +75,17 @@ boolean CUSBAudioDevice::Configure (void)
             bSelected = TRUE;
         }
     }
+    if (!bSelected && ConfigureUAC2 ())
+    {
+        bSelected = TRUE;   // UAC2 operational alt selected + clock set
+    }
     if (!bSelected)
     {
-        // SAFE-FAIL: no UAC1 audio-streaming alt (class 1 / subclass 2 / proto 0)
-        // could be selected. A UAC2 device (e.g. Tascam US-2x2) advertises its AS
-        // interfaces with protocol 0x20, so it never matches above; the old
-        // "scan anyway" path then grabbed its isochronous endpoints and submitted
-        // requests the UAC1 driver cannot service, wedging USB enumeration at boot
-        // before the network/syslog came up. Refuse the device instead of grabbing
-        // endpoints we cannot drive, so an unsupported interface cannot hang boot.
+        // SAFE-FAIL: neither a UAC1 (proto 0) nor a UAC2 (proto 0x20) audio-
+        // streaming alt could be selected -- refuse cleanly so an unsupported
+        // interface cannot hang boot (the boot-no-halt guard).
         CLogger::Get ()->Write (FromAudio, LogWarning,
-            "No UAC1 audio-streaming alt-setting (UAC2/unsupported?) -- refusing device");
+            "No usable audio-streaming alt-setting -- refusing device");
         ConfigurationError (FromAudio);
         return FALSE;
     }
@@ -69,6 +96,10 @@ boolean CUSBAudioDevice::Configure (void)
         boolean bIsIn   = (pDesc->bEndpointAddress & 0x80) == 0x80;
         boolean bIsIso  = (pDesc->bmAttributes & 0x03) == 0x01;
         if (!bIsIso) continue;
+        // Skip a UAC2 explicit feedback endpoint (iso, usage type 0x10): it is
+        // IN-direction but carries rate feedback, not audio -- grabbing it as the
+        // data endpoint would submit audio URBs on the wrong pipe.
+        if ((pDesc->bmAttributes & 0x30) == 0x10) continue;
 
         if (bIsIn && !m_pEndpointIn)
             m_pEndpointIn  = new CUSBEndpoint (GetDevice (), pDesc);
@@ -107,6 +138,53 @@ boolean CUSBAudioDevice::Configure (void)
     if (m_pEndpointOut)
         StartOutRequest ();
 
+    return TRUE;
+}
+
+// UAC2 (USB Audio Class 2.0): select this AS interface's operational alt
+// (protocol 0x20), learn its sample format (subslot/channels) from the captured
+// config descriptor, and set 48000 Hz on the device's Clock Source entity via a
+// class control request to the Audio Control interface (UAC2 sets rate on the
+// clock entity, NOT via a UAC1 endpoint request). Returns TRUE if a UAC2
+// operational alt was selected. The caller's endpoint-grab + StartIn/OutRequest
+// then run unchanged (the feedback EP is skipped there).
+boolean CUSBAudioDevice::ConfigureUAC2 (void)
+{
+    if (!SelectInterfaceByClass (1, 2, 0x20, 1))
+        return FALSE;
+
+    m_bUAC2 = TRUE;
+
+    Uac2Info info;
+    if (uac2ParseConfig (g_uac2Desc, g_uac2DescLen, &info))
+    {
+        int myIf = GetInterfaceNumber ();
+        const Uac2Stream *s = 0;
+        if (info.in.valid  && info.in.interfaceNum  == myIf) s = &info.in;
+        else if (info.out.valid && info.out.interfaceNum == myIf) s = &info.out;
+        if (s)
+        {
+            if (s->subslotSize > 0) m_uSubslot  = (unsigned) s->subslotSize;
+            if (s->channels    > 0) m_uChannels = (unsigned) s->channels;
+        }
+        if (info.clockId != 0 && info.acInterfaceNum >= 0)
+        {
+            // 48000 = 0x0000BB80, little-endian, in a DMA-capable buffer.
+            m_OutBuf[0] = 0x80; m_OutBuf[1] = 0xBB; m_OutBuf[2] = 0x00; m_OutBuf[3] = 0x00;
+            int r = GetHost ()->ControlMessage (GetEndpoint0 (),
+                        0x21,                                    // OUT | class | interface
+                        0x01,                                    // CUR
+                        (u16) (0x01 << 8),                       // CS_SAM_FREQ_CONTROL, ch 0
+                        (u16) ((info.clockId << 8) | info.acInterfaceNum),
+                        m_OutBuf, 4);
+            CLogger::Get ()->Write (FromAudio, LogNotice,
+                "UAC2 set 48000 clock=%u if=%d rc=%d fmt=%uch/%ubit",
+                (unsigned) info.clockId, info.acInterfaceNum, r,
+                m_uChannels, m_uSubslot * 8);
+        }
+    }
+    CLogger::Get ()->Write (FromAudio, LogNotice, "UAC2 alt selected (if %d sub=%u ch=%u)",
+        GetInterfaceNumber (), m_uSubslot, m_uChannels);
     return TRUE;
 }
 
@@ -155,18 +233,24 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
     assert (pURB != 0);
     assert (pURB == m_pInURB);
 
-    if (pURB->GetStatus () && pURB->GetResultLength () >= 4 && m_pInHandler != 0)
+    unsigned frameBytes = m_uSubslot * m_uChannels;   // UAC1: 2*2 = 4
+    if (frameBytes == 0) frameBytes = 4;
+    if (pURB->GetStatus () && pURB->GetResultLength () >= frameBytes && m_pInHandler != 0)
     {
-        unsigned nSamples = pURB->GetResultLength () / 4;
-        if (nSamples > USB_AUDIO_BLOCK_BYTES / 4) nSamples = USB_AUDIO_BLOCK_BYTES / 4;
-        const s16 *pBuf = (const s16 *) m_InBuf;
-        s16 left_buf[USB_AUDIO_BLOCK_BYTES / 4], right_buf[USB_AUDIO_BLOCK_BYTES / 4];
+        const unsigned cap = USB_AUDIO_BLOCK_BYTES / 4;
+        unsigned nSamples = pURB->GetResultLength () / frameBytes;
+        if (nSamples > cap) nSamples = cap;
+        const u8 *pb = (const u8 *) m_InBuf;
+        s16 left_buf[cap], right_buf[cap];
         for (unsigned i = 0; i < nSamples; i++)
         {
-            left_buf[i]  = pBuf[i*2];
-            right_buf[i] = pBuf[i*2+1];
-            u32 absL = left_buf[i]  < 0 ? (u32)(-left_buf[i])  : (u32)left_buf[i];
-            u32 absR = right_buf[i] < 0 ? (u32)(-right_buf[i]) : (u32)right_buf[i];
+            const u8 *f = pb + i * frameBytes;
+            s16 L = uac2ToS16 (f, m_uSubslot);
+            s16 R = (m_uChannels > 1) ? uac2ToS16 (f + m_uSubslot, m_uSubslot) : L;
+            left_buf[i]  = L;
+            right_buf[i] = R;
+            u32 absL = L < 0 ? (u32)(-L) : (u32)L;
+            u32 absR = R < 0 ? (u32)(-R) : (u32)R;
             if (absL > m_nPeakIn) m_nPeakIn = absL;
             if (absR > m_nPeakIn) m_nPeakIn = absR;
         }
@@ -188,16 +272,21 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
 
     u16 usPacketSize = (u16) m_pEndpointOut->GetMaxPacketSize ();
     if (usPacketSize > sizeof m_OutBuf) usPacketSize = sizeof m_OutBuf;
-    unsigned nSamples = usPacketSize / 4;
+    unsigned frameBytes = m_uSubslot * m_uChannels;   // UAC1: 4
+    if (frameBytes == 0) frameBytes = 4;
+    const unsigned cap = USB_AUDIO_BLOCK_BYTES / 4;
+    unsigned nSamples = usPacketSize / frameBytes;
+    if (nSamples > cap) nSamples = cap;
     if (m_pOutHandler)
     {
-        s16 left_buf[USB_AUDIO_BLOCK_BYTES / 4], right_buf[USB_AUDIO_BLOCK_BYTES / 4];
+        s16 left_buf[cap], right_buf[cap];
         (*m_pOutHandler) (left_buf, right_buf, nSamples);
-        s16 *pBuf = (s16 *) m_OutBuf;
+        u8 *pb = (u8 *) m_OutBuf;
         for (unsigned i = 0; i < nSamples; i++)
         {
-            pBuf[i*2]   = left_buf[i];
-            pBuf[i*2+1] = right_buf[i];
+            u8 *f = pb + i * frameBytes;
+            uac2FromS16 (f, m_uSubslot, left_buf[i]);
+            if (m_uChannels > 1) uac2FromS16 (f + m_uSubslot, m_uSubslot, right_buf[i]);
         }
     }
     else

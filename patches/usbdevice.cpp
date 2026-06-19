@@ -34,6 +34,13 @@
 
 static const char FromDevice[] = "usbdev";
 
+// LOOPER: raw config descriptor of the last UAC2 device seen (audio-streaming
+// interface with bInterfaceProtocol 0x20), captured during enumeration so the
+// :4445 UDSC verb can dump it for UAC2 host bring-up. Non-static so kernel_run
+// can extern it.
+u8       g_uac2Desc[512] = {};
+volatile unsigned g_uac2DescLen = 0;
+
 #if RASPPI <= 3
 CNumberPool CUSBDevice::s_DeviceAddressPool (USB_FIRST_DEDICATED_ADDRESS, USB_MAX_ADDRESS);
 #endif
@@ -336,6 +343,28 @@ boolean CUSBDevice::Initialize (void)
 	assert (m_pConfigParser == 0);
 	m_pConfigParser = new CUSBConfigurationParser (m_pConfigDesc, nTotalLength);
 	assert (m_pConfigParser != 0);
+
+	// LOOPER: if this config has a UAC2 audio-streaming interface (class 1 /
+	// subclass 2 / protocol 0x20), snapshot the whole raw config descriptor for
+	// the :4445 UDSC dump (UAC2 host bring-up needs the exact layout).
+	{
+		const u8 *p = (const u8 *) m_pConfigDesc;
+		unsigned i = 0;
+		while (i + 8 <= nTotalLength)
+		{
+			u8 len = p[i];
+			if (len == 0) break;
+			if (p[i+1] == DESCRIPTOR_INTERFACE &&
+			    p[i+5] == 0x01 && p[i+6] == 0x02 && p[i+7] == 0x20)
+			{
+				unsigned n = nTotalLength < sizeof g_uac2Desc ? nTotalLength : sizeof g_uac2Desc;
+				memcpy (g_uac2Desc, m_pConfigDesc, n);
+				g_uac2DescLen = n;
+				break;
+			}
+			i += len;
+		}
+	}
 
 	if (!m_pConfigParser->IsValid ())
 	{

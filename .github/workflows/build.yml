@@ -77,6 +77,7 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/usbfunction.cpp circle/lib/usb/usbfunction.cpp
           cp circle/_prh/_apps/Looper/patches/usbaudiodevice.h circle/lib/usb/usbaudiodevice.h
           cp circle/_prh/_apps/Looper/patches/usbaudiodevice.cpp circle/lib/usb/usbaudiodevice.cpp
+          cp circle/_prh/_apps/Looper/patches/uac2parse.h circle/lib/usb/uac2parse.h
           cp circle/_prh/_apps/Looper/patches/usbdevicefactory.cpp circle/lib/usb/usbdevicefactory.cpp
           cp circle/_prh/_apps/Looper/patches/usb_Makefile circle/lib/usb/Makefile
           cp circle/_prh/_apps/Looper/patches/AudioSystem.cpp circle/_prh/audio/AudioSystem.cpp

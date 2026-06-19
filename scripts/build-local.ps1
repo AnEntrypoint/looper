@@ -188,7 +188,7 @@ foreach ($name in $appInternal) {
 # circle/lib/usb/ patches
 $libUsbPatches = @(
     'usbmidihost.cpp', 'usbconfigparser.cpp', 'usbdevice.cpp', 'usbfunction.cpp',
-    'usbaudiodevice.h', 'usbaudiodevice.cpp', 'usbdevicefactory.cpp', 'usb_Makefile'
+    'usbaudiodevice.h', 'usbaudiodevice.cpp', 'uac2parse.h', 'usbdevicefactory.cpp', 'usb_Makefile'
 )
 foreach ($name in $libUsbPatches) {
     $src = Join-Path $RepoRoot ("patches\$name")

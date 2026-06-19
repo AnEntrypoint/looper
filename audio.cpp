@@ -204,6 +204,8 @@ static unsigned s_lastStatTicks   = 0;
 static u64      s_lastEngTicks    = 0;
 #define USB_WATCHDOG_TICKS  (CLOCKHZ / 200)
 #define USB_STAT_TICKS      CLOCKHZ
+// Free-run interval ~= one audio block at 48kHz (64 samples) in CTimer micros.
+#define USB_FREERUN_TICKS   (CLOCKHZ * AUDIO_BLOCK_SAMPLES / 48000)
 #endif
 
 void loop()
@@ -224,6 +226,22 @@ void loop()
 		AudioSystem::startUpdate();
 		g_inLastTicks = now;
 		s_watchdogForces++;
+	}
+	else if (!g_inLastTicks)
+	{
+		// No USB-IN device has EVER delivered (only an unsupported UAC2 device, or
+		// no audio interface at all). The IN ring-position push that normally
+		// drives startUpdate never fires, so without this the whole audio engine
+		// freezes -- cbwr never advances, no loops/sampler/effects/VU. Free-run the
+		// graph at ~block rate so the engine stays alive (input silent) until a
+		// real device appears; the per-block push takes over the moment it does.
+		static unsigned s_lastFreeRun = 0;
+		if ((now - s_lastFreeRun) >= USB_FREERUN_TICKS)
+		{
+			s_lastFreeRun = now;
+			AudioSystem::startUpdate();
+			s_watchdogForces++;
+		}
 	}
 
 	// Drain ISR-safe event ring on main thread. CRITICAL: per-event logging
