@@ -28,6 +28,7 @@
 
 #define LINK_PORT		20808
 #define OUR_MEP4_PORT	20808       // we accept unicast pings on our IP:this port
+#define LCLK_PORT		20810       // esp "ticker" clock-broadcast (multicast, same group)
 #define SEND_INTERVAL_US	1000000u
 #define PING_INTERVAL_US	50000u  // 50ms between measurement pings (Link default)
 #define MEASURE_RETRY_US	2000000u// re-measure a peer at least this often
@@ -270,6 +271,30 @@ static void republishTimeline(void)
 	s_peersTotal          = (unsigned)lsPeerCount(&s_session);
 }
 
+// ---- esp "ticker" clock broadcast (multicast, bypasses the unicast wall) ----
+// The bcm4343 in this setup delivers multicast/broadcast but NOT unicast-to-self
+// (witnessed: :4445 WLAN uniRx stays 0 while rxFrames climbs), so the standard
+// Link unicast ping/pong measurement can never complete and phase never locks.
+// The esp ticker therefore ALSO multicasts its current clock micros ("LCLK" +
+// i64 LE host-micros) to the Link group on LCLK_PORT. We treat that clock as the
+// owner peer's measured ghost offset (offset = espNow - ourNow; one-way WiFi
+// latency ~1-3ms is <1% of a beat, fine for phrase sync), which lets the existing
+// owner-election / timeline-adoption / lgBeatPhaseAtHost machinery validate phase
+// exactly as a real measurement would. Payload: "LCLK"(4) + i64 espNowMicros LE.
+static volatile unsigned g_clkRx = 0;          // diag: clock broadcasts consumed
+static void handleClockBroadcast(const u8 *pl, int plen)
+{
+	if (plen < 12 || memcmp(pl, "LCLK", 4) != 0) return;
+	s64 espNow; memcpy(&espNow, pl + 4, 8);    // both ends little-endian
+	g_clkRx++;
+	LinkPeer *owner = lsOwnerPeer(&s_session);
+	if (!owner || !owner->hasTimeline) return;  // need the owner's timeline to map
+	owner->xform.offsetMicros = espNow - nowMicros();
+	owner->measured = true;                     // trusted offset -> phase becomes valid
+	republishTimeline();
+}
+unsigned linkClkRx(void) { return g_clkRx; }
+
 // ---- decode an inbound Link message (discovery or measurement) ----
 static void handleMessage(const u8 *pl, int plen, const u8 *ethSrcMac)
 {
@@ -376,6 +401,11 @@ static bool linkTryParse(const u8 *buf, unsigned len)
 	// arrive, which is the phase-sync wall.
 	extern volatile unsigned g_uniRxToUs;
 	if (memcmp(ip + 16, s_ownIP, 4) == 0) g_uniRxToUs++;
+
+	// esp ticker clock broadcast: multicast (or broadcast) to the Link group on
+	// LCLK_PORT. Consume it directly (it carries phase, not a Link message).
+	bool toClk = (memcmp(ip + 16, MCAST, 4) == 0 || ip[16] == 255) && dport == LCLK_PORT;
+	if (toClk) { handleClockBroadcast(pl, plen); return true; }
 
 	bool toMcast   = (memcmp(ip + 16, MCAST, 4) == 0) && dport == LINK_PORT;
 	bool toUsUnicast = (memcmp(ip + 16, s_ownIP, 4) == 0) && dport == OUR_MEP4_PORT;
