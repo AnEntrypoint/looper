@@ -38,6 +38,18 @@ CUSBAudioDevice *CUSBAudioDevice::s_pThis = 0;
 CUSBAudioDevice *CUSBAudioDevice::s_pOut  = 0;
 unsigned         CUSBAudioDevice::s_nDeviceNumber = 1;
 
+// Live audio-IN status for the :4445 UAUD verb. These are EXTERNAL volatile
+// globals, written on the USB-enumeration/ISR cores and read on the Core-2
+// control plane. The class statics (s_pThis etc.) read stale across cores from
+// the verb, so the bound-state + format are mirrored here at bind time and the
+// delivery counters (g_audioInDeliv/g_audioInPeak, defined in usbdevicefactory)
+// are bumped from InCompletion. inDeliv climbing + inPeak>0 == real input flowing.
+volatile unsigned g_audioInBound  = 0;   // IN device (s_pThis) bound
+volatile unsigned g_audioOutBound = 0;   // OUT device (s_pOut) bound
+volatile unsigned g_audioUAC2     = 0;   // bound IN device is UAC2
+volatile unsigned g_audioChannels = 0;   // IN format channels
+volatile unsigned g_audioSubslot  = 0;   // IN format bytes/sample
+
 CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
 :   CUSBFunction (pFunction),
     m_pEndpointIn  (0),
@@ -58,14 +70,26 @@ CUSBAudioDevice::~CUSBAudioDevice (void)
 {
     delete m_pEndpointIn;
     delete m_pEndpointOut;
-    if (s_pThis == this) s_pThis = 0;
-    if (s_pOut == this) s_pOut = 0;
+    if (s_pThis == this) { s_pThis = 0; g_audioInBound = 0; }
+    if (s_pOut == this)  { s_pOut  = 0; g_audioOutBound = 0; }
 }
 
 boolean CUSBAudioDevice::Configure (void)
 {
-    CLogger::Get ()->Write (FromAudio, LogNotice, "Configure() called");
+    CLogger::Get ()->Write (FromAudio, LogNotice, "Configure() called proto=0x%02x",
+        (unsigned) GetInterfaceProtocol ());
     boolean bSelected = FALSE;
+
+    // If THIS interface is a UAC2 audio-streaming interface (protocol 0x20), go
+    // straight to the UAC2 path. The UAC1 SelectInterfaceByClass(1,2,0,..) loop
+    // below WALKS the config parser to the end looking for a proto-0 match; on a
+    // UAC2 device that finds nothing and leaves the parser exhausted (current
+    // interface descriptor null), so a subsequent UAC2 SelectInterfaceByClass
+    // finds nothing either -- the device would never bind. Branch up front.
+    if (GetInterfaceProtocol () == 0x20)
+    {
+        bSelected = ConfigureUAC2 ();
+    }
     for (unsigned nAlt = 1; nAlt <= 4 && !bSelected; nAlt++)
     {
         if (SelectInterfaceByClass (1, 2, 0, nAlt))
@@ -75,15 +99,8 @@ boolean CUSBAudioDevice::Configure (void)
             bSelected = TRUE;
         }
     }
-    if (!bSelected && ConfigureUAC2 ())
-    {
-        bSelected = TRUE;   // UAC2 operational alt selected + clock set
-    }
     if (!bSelected)
     {
-        // SAFE-FAIL: neither a UAC1 (proto 0) nor a UAC2 (proto 0x20) audio-
-        // streaming alt could be selected -- refuse cleanly so an unsupported
-        // interface cannot hang boot (the boot-no-halt guard).
         CLogger::Get ()->Write (FromAudio, LogWarning,
             "No usable audio-streaming alt-setting -- refusing device");
         ConfigurationError (FromAudio);
@@ -126,9 +143,18 @@ boolean CUSBAudioDevice::Configure (void)
     CDeviceNameService::Get ()->AddDevice (DeviceName, this, FALSE);
 
     if (m_pEndpointIn && !s_pThis)
+    {
         s_pThis = this;
+        g_audioInBound  = 1;            // mirror for the cross-core UAUD verb
+        g_audioUAC2     = m_bUAC2 ? 1 : 0;
+        g_audioChannels = m_uChannels;
+        g_audioSubslot  = m_uSubslot;
+    }
     if (m_pEndpointOut && !s_pOut)
+    {
         s_pOut = this;
+        g_audioOutBound = 1;
+    }
 
     CLogger::Get ()->Write (FromAudio, LogNotice, "USB audio configured (in=%s out=%s)",
         m_pEndpointIn ? "yes" : "no", m_pEndpointOut ? "yes" : "no");
@@ -255,6 +281,10 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
             if (absR > m_nPeakIn) m_nPeakIn = absR;
         }
         (*m_pInHandler) (left_buf, right_buf, nSamples);
+        // Reliable cross-core witnesses for the UAUD verb (input is flowing).
+        extern volatile unsigned g_audioInDeliv, g_audioInPeak;
+        g_audioInDeliv++;
+        if (m_nPeakIn > g_audioInPeak) g_audioInPeak = m_nPeakIn;
     }
 
     delete m_pInURB;

@@ -53,6 +53,12 @@
 #include <circle/usb/usbtouchscreen.h>
 #include "usbaudiodevice.h"
 
+// Reliable cross-core audio-IN witnesses for the :4445 UAUD verb (bumped from
+// CUSBAudioDevice::InCompletion). Defined here -- a plain external volatile reads
+// correctly on the Core-2 control plane where the audio class statics read stale.
+volatile unsigned g_audioInDeliv = 0;      // IN completions carrying audio
+volatile unsigned g_audioInPeak  = 0;      // max |sample| seen on IN
+
 CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pName)
 {
 	assert (pParent != 0);

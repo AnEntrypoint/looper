@@ -300,6 +300,21 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				for (unsigned i = 0; i < dn; i++) { h.Format("%02x", g_uac2Desc[i]); s.Append(h); }
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
+			else if (buf[0]=='U' && buf[1]=='A' && buf[2]=='U' && buf[3]=='D')
+			{
+				// Live USB-audio status: IN/OUT device bound, the bound IN device's
+				// format, and the IN delivery counter + peak. inDeliv climbing +
+				// inPeak>0 == the (US-2x2 UAC2) input is delivering audio. Globals
+				// live in libusb (always linked), so no USE_USB_AUDIO guard.
+				extern volatile unsigned g_audioInBound, g_audioOutBound, g_audioUAC2,
+				                         g_audioChannels, g_audioSubslot,
+				                         g_audioInDeliv, g_audioInPeak;
+				CString s;
+				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u inDeliv=%u inPeak=%u",
+					g_audioInBound, g_audioOutBound, g_audioUAC2, g_audioChannels,
+					g_audioSubslot*8, g_audioInDeliv, g_audioInPeak);
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
 			else if (buf[0]=='M' && buf[1]=='I' && buf[2]=='D' && buf[3]=='I')
 			{
 				// USB MIDI roster + flow: which umidi1..8 slots enumerated
