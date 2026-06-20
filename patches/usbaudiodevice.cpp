@@ -54,10 +54,14 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
 :   CUSBFunction (pFunction),
     m_pEndpointIn  (0),
     m_pEndpointOut (0),
+    m_pEndpointFb  (0),
     m_pInHandler   (0),
     m_pOutHandler  (0),
     m_pInURB       (0),
     m_pOutURB      (0),
+    m_pFbURB       (0),
+    m_fbRate       (6u << 16),   // nominal 48000/8000 (high-speed) until feedback
+    m_fbAccum      (0),
     m_nPeakIn      (0),
     m_nLastMonitorTick (0),
     m_bUAC2        (FALSE),
@@ -70,6 +74,7 @@ CUSBAudioDevice::~CUSBAudioDevice (void)
 {
     delete m_pEndpointIn;
     delete m_pEndpointOut;
+    delete m_pEndpointFb;
     if (s_pThis == this) { s_pThis = 0; g_audioInBound = 0; }
     if (s_pOut == this)  { s_pOut  = 0; g_audioOutBound = 0; }
 }
@@ -113,10 +118,15 @@ boolean CUSBAudioDevice::Configure (void)
         boolean bIsIn   = (pDesc->bEndpointAddress & 0x80) == 0x80;
         boolean bIsIso  = (pDesc->bmAttributes & 0x03) == 0x01;
         if (!bIsIso) continue;
-        // Skip a UAC2 explicit feedback endpoint (iso, usage type 0x10): it is
-        // IN-direction but carries rate feedback, not audio -- grabbing it as the
-        // data endpoint would submit audio URBs on the wrong pipe.
-        if ((pDesc->bmAttributes & 0x30) == 0x10) continue;
+        // A UAC2 explicit feedback endpoint (iso, usage type 0x10) is IN-direction
+        // but carries the device's desired sample rate, not audio. Keep it as the
+        // feedback pipe (services async OUT pacing) -- NOT as a data endpoint.
+        if ((pDesc->bmAttributes & 0x30) == 0x10)
+        {
+            if (!m_pEndpointFb)
+                m_pEndpointFb = new CUSBEndpoint (GetDevice (), pDesc);
+            continue;
+        }
 
         if (bIsIn && !m_pEndpointIn)
             m_pEndpointIn  = new CUSBEndpoint (GetDevice (), pDesc);
@@ -163,6 +173,8 @@ boolean CUSBAudioDevice::Configure (void)
         StartInRequest ();
     if (m_pEndpointOut)
         StartOutRequest ();
+    if (m_pEndpointFb)
+        StartFbRequest ();   // service async OUT feedback so the device paces/plays
 
     return TRUE;
 }
@@ -244,14 +256,101 @@ boolean CUSBAudioDevice::StartOutRequest (void)
     assert (m_pEndpointOut != 0);
     assert (m_pOutURB == 0);
 
-    u16 usPacketSize = (u16) m_pEndpointOut->GetMaxPacketSize ();
-    if (usPacketSize > sizeof m_OutBuf) usPacketSize = sizeof m_OutBuf;
+    u16 usMaxPacket = (u16) m_pEndpointOut->GetMaxPacketSize ();
+    if (usMaxPacket > sizeof m_OutBuf) usMaxPacket = sizeof m_OutBuf;
+    unsigned frameBytes = m_uSubslot * m_uChannels;
+    if (frameBytes == 0) frameBytes = 4;
+    const unsigned cap = USB_AUDIO_BLOCK_BYTES / 4;
 
-    m_pOutURB = new CUSBRequest (m_pEndpointOut, m_OutBuf, usPacketSize);
+    // Frames to send THIS packet. For UAC2 async OUT, pace by the feedback rate
+    // (Q16.16 accumulator) so we send exactly what the device's clock wants;
+    // sending the full maxPacket every microframe over-feeds it ~2x and the FIFO
+    // overflows -> silence. UAC1 keeps the legacy fixed maxPacket fill.
+    unsigned nSamples;
+    if (m_bUAC2 && m_pEndpointFb)
+    {
+        m_fbAccum += m_fbRate;
+        nSamples = m_fbAccum >> 16;
+        m_fbAccum &= 0xFFFF;
+    }
+    else
+    {
+        nSamples = usMaxPacket / frameBytes;
+    }
+    if (nSamples > cap) nSamples = cap;
+    if (nSamples * frameBytes > usMaxPacket) nSamples = usMaxPacket / frameBytes;
+    unsigned bytes = nSamples * frameBytes;
+
+    if (m_pOutHandler && nSamples > 0)
+    {
+        s16 left_buf[cap], right_buf[cap];
+        (*m_pOutHandler) (left_buf, right_buf, nSamples);
+        u8 *pb = (u8 *) m_OutBuf;
+        extern volatile unsigned g_audioOutDeliv, g_audioOutPeak;
+        g_audioOutDeliv++;
+        for (unsigned i = 0; i < nSamples; i++)
+        {
+            u8 *f = pb + i * frameBytes;
+            uac2FromS16 (f, m_uSubslot, left_buf[i]);
+            if (m_uChannels > 1) uac2FromS16 (f + m_uSubslot, m_uSubslot, right_buf[i]);
+            s16 v = left_buf[i] < 0 ? (s16) -left_buf[i] : left_buf[i];
+            if ((unsigned) v > g_audioOutPeak) g_audioOutPeak = (unsigned) v;
+        }
+    }
+    else
+    {
+        memset (m_OutBuf, 0, bytes ? bytes : frameBytes);
+        if (!bytes) bytes = frameBytes;
+    }
+
+    m_pOutURB = new CUSBRequest (m_pEndpointOut, m_OutBuf, bytes);
     assert (m_pOutURB != 0);
-    m_pOutURB->AddIsoPacket (usPacketSize);
+    m_pOutURB->AddIsoPacket (bytes);
     m_pOutURB->SetCompletionRoutine (OutStub, 0, this);
-    return GetHost ()->SubmitAsyncRequest (m_pOutURB);
+    boolean ok = GetHost ()->SubmitAsyncRequest (m_pOutURB);
+    if (!ok)
+    {
+        extern volatile unsigned g_audioOutSubmitFail;
+        g_audioOutSubmitFail++;
+    }
+    return ok;
+}
+
+boolean CUSBAudioDevice::StartFbRequest (void)
+{
+    assert (m_pEndpointFb != 0);
+    assert (m_pFbURB == 0);
+
+    u16 usPacketSize = (u16) m_pEndpointFb->GetMaxPacketSize ();
+    if (usPacketSize > sizeof m_FbBuf) usPacketSize = sizeof m_FbBuf;
+
+    m_pFbURB = new CUSBRequest (m_pEndpointFb, m_FbBuf, usPacketSize);
+    assert (m_pFbURB != 0);
+    m_pFbURB->AddIsoPacket (usPacketSize);
+    m_pFbURB->SetCompletionRoutine (FbStub, 0, this);
+    return GetHost ()->SubmitAsyncRequest (m_pFbURB);
+}
+
+void CUSBAudioDevice::FbCompletion (CUSBRequest *pURB)
+{
+    assert (pURB == m_pFbURB);
+    // Explicit feedback value: the device's desired data rate in frames per
+    // (micro)frame. High-speed = 4 bytes Q16.16; full-speed = 3 bytes Q10.14
+    // (shift left 2 to normalise to Q16.16). LE.
+    if (pURB->GetStatus () && pURB->GetResultLength () >= 3)
+    {
+        unsigned n = pURB->GetResultLength ();
+        const u8 *p = (const u8 *) m_FbBuf;
+        u32 v;
+        if (n >= 4) v = (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24);
+        else        v = ((u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16)) << 2;  // 10.14 -> 16.16
+        // Sanity-clamp to [1, cap) frames so a garbage feedback can't overrun.
+        u32 maxRate = (USB_AUDIO_BLOCK_BYTES / 4) << 16;
+        if (v > 0 && v < maxRate) m_fbRate = v;
+    }
+    delete m_pFbURB;
+    m_pFbURB = 0;
+    StartFbRequest ();
 }
 
 void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
@@ -296,33 +395,10 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
 {
     assert (pURB != 0);
     assert (pURB == m_pOutURB);
-
+    // The audio pull + 24-bit pack + feedback-paced sizing all live in
+    // StartOutRequest now; the completion just frees the URB and re-arms.
     delete m_pOutURB;
     m_pOutURB = 0;
-
-    u16 usPacketSize = (u16) m_pEndpointOut->GetMaxPacketSize ();
-    if (usPacketSize > sizeof m_OutBuf) usPacketSize = sizeof m_OutBuf;
-    unsigned frameBytes = m_uSubslot * m_uChannels;   // UAC1: 4
-    if (frameBytes == 0) frameBytes = 4;
-    const unsigned cap = USB_AUDIO_BLOCK_BYTES / 4;
-    unsigned nSamples = usPacketSize / frameBytes;
-    if (nSamples > cap) nSamples = cap;
-    if (m_pOutHandler)
-    {
-        s16 left_buf[cap], right_buf[cap];
-        (*m_pOutHandler) (left_buf, right_buf, nSamples);
-        u8 *pb = (u8 *) m_OutBuf;
-        for (unsigned i = 0; i < nSamples; i++)
-        {
-            u8 *f = pb + i * frameBytes;
-            uac2FromS16 (f, m_uSubslot, left_buf[i]);
-            if (m_uChannels > 1) uac2FromS16 (f + m_uSubslot, m_uSubslot, right_buf[i]);
-        }
-    }
-    else
-    {
-        memset (m_OutBuf, 0, usPacketSize);
-    }
     StartOutRequest ();
 }
 
@@ -338,4 +414,11 @@ void CUSBAudioDevice::OutStub (CUSBRequest *pURB, void *pParam, void *pContext)
     CUSBAudioDevice *pThis = (CUSBAudioDevice *) pContext;
     assert (pThis != 0);
     pThis->OutCompletion (pURB);
+}
+
+void CUSBAudioDevice::FbStub (CUSBRequest *pURB, void *pParam, void *pContext)
+{
+    CUSBAudioDevice *pThis = (CUSBAudioDevice *) pContext;
+    assert (pThis != 0);
+    pThis->FbCompletion (pURB);
 }

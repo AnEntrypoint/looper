@@ -111,6 +111,25 @@ void coreControlPlaneTick(void)
 			s_lastRxTicks = now;                                   // throttle re-attempts
 		}
 	}
+	// AP-fallback safety net (load-bearing for "always host when can't join"):
+	// guarantee the radio ends USABLE. If ~40s after the first control tick (join
+	// + DHCP window elapsed) we are NEITHER hosting our own AP (status 2) NOR a
+	// station with a lease (status 1 + dhcpOK), force-host the AP. Covers
+	// join-falsely-succeeded-no-lease, join-failed-and-CreateOpenNet-failed, and
+	// off/failed states the existing dhcpFailed path misses. No-op if already AP.
+	{
+		extern void wlanFallbackToAP(CBcm4343Device *);
+		extern bool wlanDhcpOK(void);
+		static unsigned s_apCheck = 0;
+		unsigned now2 = CTimer::GetClockTicks();
+		if (s_apCheck == 0) s_apCheck = now2;
+		else if ((now2 - s_apCheck) > 40u * CLOCKHZ) {
+			int sc = wlanStatusCode();
+			bool usable = (sc == 2) || (sc == 1 && wlanDhcpOK());
+			if (!usable) wlanFallbackToAP(&k->m_WLAN);
+			s_apCheck = now2;
+		}
+	}
 	linkProcess();
 #endif
 	k->m_Scheduler.Yield();
@@ -308,11 +327,13 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				// live in libusb (always linked), so no USE_USB_AUDIO guard.
 				extern volatile unsigned g_audioInBound, g_audioOutBound, g_audioUAC2,
 				                         g_audioChannels, g_audioSubslot,
-				                         g_audioInDeliv, g_audioInPeak;
+				                         g_audioInDeliv, g_audioInPeak,
+				                         g_audioOutDeliv, g_audioOutPeak, g_audioOutSubmitFail;
 				CString s;
-				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u inDeliv=%u inPeak=%u",
+				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u inDeliv=%u inPeak=%u outDeliv=%u outPeak=%u outFail=%u",
 					g_audioInBound, g_audioOutBound, g_audioUAC2, g_audioChannels,
-					g_audioSubslot*8, g_audioInDeliv, g_audioInPeak);
+					g_audioSubslot*8, g_audioInDeliv, g_audioInPeak,
+					g_audioOutDeliv, g_audioOutPeak, g_audioOutSubmitFail);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='M' && buf[1]=='I' && buf[2]=='D' && buf[3]=='I')

@@ -58,6 +58,9 @@
 // correctly on the Core-2 control plane where the audio class statics read stale.
 volatile unsigned g_audioInDeliv = 0;      // IN completions carrying audio
 volatile unsigned g_audioInPeak  = 0;      // max |sample| seen on IN
+volatile unsigned g_audioOutDeliv = 0;     // OUT completions (iso OUT transfers)
+volatile unsigned g_audioOutPeak  = 0;     // max |sample| sent to OUT
+volatile unsigned g_audioOutSubmitFail = 0;// StartOutRequest submit failures
 
 CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pName)
 {

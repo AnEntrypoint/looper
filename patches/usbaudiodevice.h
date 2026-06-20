@@ -29,24 +29,36 @@ public:
 private:
     boolean StartInRequest  (void);
     boolean StartOutRequest (void);
+    boolean StartFbRequest  (void);
 
     void InCompletion  (CUSBRequest *pURB);
     void OutCompletion (CUSBRequest *pURB);
+    void FbCompletion  (CUSBRequest *pURB);
 
     static void InStub  (CUSBRequest *pURB, void *pParam, void *pContext);
     static void OutStub (CUSBRequest *pURB, void *pParam, void *pContext);
+    static void FbStub  (CUSBRequest *pURB, void *pParam, void *pContext);
 
     CUSBEndpoint *m_pEndpointIn;
     CUSBEndpoint *m_pEndpointOut;
+    CUSBEndpoint *m_pEndpointFb;    // UAC2 async OUT explicit feedback (IN dir)
 
     TAudioInHandler  *m_pInHandler;
     TAudioOutHandler *m_pOutHandler;
 
     CUSBRequest *m_pInURB;
     CUSBRequest *m_pOutURB;
+    CUSBRequest *m_pFbURB;
+
+    // UAC2 async OUT pacing. m_fbRate = frames-per-(micro)frame in Q16.16, from the
+    // feedback endpoint (default = nominal 48000 / service rate); m_fbAccum carries
+    // the fractional remainder so the long-run OUT rate matches the device exactly.
+    u32 m_fbRate;
+    u32 m_fbAccum;
 
     DMA_BUFFER (u8, m_InBuf,  USB_AUDIO_BLOCK_BYTES);
     DMA_BUFFER (u8, m_OutBuf, USB_AUDIO_BLOCK_BYTES);
+    DMA_BUFFER (u8, m_FbBuf,  8);
 
     u32 m_nPeakIn;
     u32 m_nLastMonitorTick;
