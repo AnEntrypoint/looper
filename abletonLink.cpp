@@ -291,6 +291,14 @@ static void handleClockBroadcast(const u8 *pl, int plen)
 	if (!owner || !owner->hasTimeline) return;  // need the owner's timeline to map
 	owner->xform.offsetMicros = espNow - nowMicros();
 	owner->measured = true;                     // trusted offset -> phase becomes valid
+	// Throttle the republish so a misbehaving/high-rate broadcaster can never
+	// starve the Core-2 control plane: the offset above is updated every packet
+	// (cheap), but the timeline recompute runs at most ~50 Hz; the periodic
+	// republish at the end of linkProcess also refreshes between these.
+	static s64 s_lastRepub = 0;
+	s64 now = nowMicros();
+	if (now - s_lastRepub < 20000) return;
+	s_lastRepub = now;
 	republishTimeline();
 }
 unsigned linkClkRx(void) { return g_clkRx; }
