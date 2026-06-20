@@ -8,7 +8,7 @@
 audio_block_t *AudioOutputUSB::s_block_left  = 0;
 audio_block_t *AudioOutputUSB::s_block_right = 0;
 
-#define OUT_RING_SIZE     1024
+#define OUT_RING_SIZE     4096   // bigger ring: absorb bursty engine-vs-USB rate excursions
 #define OUT_RING_MASK     (OUT_RING_SIZE - 1)
 static s16 s_ring_left [OUT_RING_SIZE];
 static s16 s_ring_right[OUT_RING_SIZE];
@@ -19,6 +19,7 @@ static s16 s_out_last_right = 0;
 
 volatile unsigned g_outUnderruns   = 0;
 volatile unsigned g_otgResyncs     = 0;
+volatile unsigned g_outRingResync  = 0;   // main USB-OUT ring catastrophic resyncs (the glitch, pre-fix)
 volatile int      g_otgLastRateStep = 65536;
 
 unsigned AudioOutputUSB_outAvail (void) { return s_ring_wr - s_ring_rd; }
@@ -127,37 +128,68 @@ void AudioOutputUSB::start (void)
         pDev->RegisterOutHandler (outHandler);
 }
 
+// Main USB OUT reader -- rate-adaptive drift correction (same scheme as the OTG
+// tap above). PREVIOUSLY this read the ring 1:1 with only a catastrophic resync at
+// the ring edge: any small writer(engine)/reader(USB-OUT clock) rate mismatch
+// drifted `avail` monotonically to OUT_RING_SIZE-64 and then JUMPED rd by ~948
+// samples (~20ms skip) -- the ~1Hz Tascam analog line-out glitch (the device got a
+// clean stream digitally; the jump was a real ~20ms discontinuity in the samples
+// we sent). Now a fractional read with a deadband rate nudge holds avail at a
+// target lag and tracks the writer smoothly, so the resync (counted in
+// g_outRingResync) effectively never fires. Mirrors AudioOutputUSB_tapOTG.
+#define OUT_LAG_TARGET    384   // ~8ms buffered behind the writer
+#define OUT_DEADBAND      96
+#define OUT_RATE_GAIN     16384
+#define OUT_RATE_MAX_DEV  1024  // +/-6.25% max read-rate correction (absorbs the large
+                                // bursty Tascam OUT-ring mismatch so the catastrophic
+                                // resync -- the audible ~20ms skip -- never fires)
+#define OUT_FRAC_ONE      65536
+static unsigned s_out_rd_frac = 0;
+static bool     s_out_rd_init = false;
+
 void AudioOutputUSB::outHandler (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
     DataMemBarrier ();
-    unsigned wr_snap = s_ring_wr;
-    unsigned rd = s_ring_rd;
-    int avail = (int)(wr_snap - rd);
+    unsigned wr = s_ring_wr;
+    if (!s_out_rd_init) { s_ring_rd = wr - OUT_LAG_TARGET; s_out_rd_init = true; }
 
-    if (avail >= (int)(OUT_RING_SIZE - 64) || avail < (int)nSamples)
+    unsigned rd = s_ring_rd;
+    unsigned rd_frac = s_out_rd_frac;
+    int avail = (int)(wr - rd);
+
+    if (avail >= (int)(OUT_RING_SIZE - 64) || avail <= (int)nSamples)
     {
-        rd = wr_snap - nSamples * 2;
+        audioTelemetryPush (TELEM_OUT_UNDERRUN, (u32)avail);
+        rd      = wr - OUT_LAG_TARGET;
+        rd_frac = 0;
+        avail   = OUT_LAG_TARGET;
+        g_outRingResync++;
     }
+
+    int dev = avail - (int)OUT_LAG_TARGET;
+    int band_dev = 0;
+    if (dev > OUT_DEADBAND)       band_dev = dev - OUT_DEADBAND;
+    else if (dev < -OUT_DEADBAND) band_dev = dev + OUT_DEADBAND;
+    if (band_dev > OUT_RATE_MAX_DEV)  band_dev = OUT_RATE_MAX_DEV;
+    if (band_dev < -OUT_RATE_MAX_DEV) band_dev = -OUT_RATE_MAX_DEV;
+    int rate_step = OUT_FRAC_ONE + (band_dev * OUT_FRAC_ONE) / OUT_RATE_GAIN;
 
     for (unsigned i = 0; i < nSamples; i++)
     {
-        if ((int)(s_ring_wr - rd) > 0)
-        {
-            pLeft[i]  = s_ring_left [rd & (OUT_RING_SIZE - 1)];
-            pRight[i] = s_ring_right[rd & (OUT_RING_SIZE - 1)];
-            s_out_last_left  = pLeft[i];
-            s_out_last_right = pRight[i];
-            rd++;
-        }
-        else
-        {
-            pLeft[i]  = s_out_last_left;
-            pRight[i] = s_out_last_right;
-            g_outUnderruns++;
-            audioTelemetryPush (TELEM_OUT_UNDERRUN, 0);
-        }
+        s16 l0 = s_ring_left [rd       & OUT_RING_MASK];
+        s16 r0 = s_ring_right[rd       & OUT_RING_MASK];
+        s16 l1 = s_ring_left [(rd + 1) & OUT_RING_MASK];
+        s16 r1 = s_ring_right[(rd + 1) & OUT_RING_MASK];
+        pLeft[i]  = (s16)(l0 + (((s32)(l1 - l0) * (s32)rd_frac) >> 16));
+        pRight[i] = (s16)(r0 + (((s32)(r1 - r0) * (s32)rd_frac) >> 16));
+        s_out_last_left  = pLeft[i];
+        s_out_last_right = pRight[i];
+        rd_frac += rate_step;
+        rd      += rd_frac >> 16;
+        rd_frac &= 0xFFFF;
     }
-    s_ring_rd = rd;
+    s_ring_rd     = rd;
+    s_out_rd_frac = rd_frac;
 }
 
 void AudioOutputUSB::update (void)
