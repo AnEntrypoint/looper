@@ -401,6 +401,15 @@ static bool linkTryParse(const u8 *buf, unsigned len)
 	const u8 *udp = ip + ihl;
 	u16 dpRaw; memcpy(&dpRaw, udp+2, 2); u16 dport = swap16(dpRaw);
 	const u8 *pl = udp+8; int plen=(int)(len-(pl-buf));
+
+	// esp ticker clock broadcast: multicast (or broadcast) to the Link group on
+	// LCLK_PORT. Consume it directly (it carries phase, not a Link message). This
+	// MUST run BEFORE the LW_HEADER_LEN (20) guard below: the LCLK payload is only
+	// 12 bytes ("LCLK"+i64), so the guard would otherwise drop it and clkRx never
+	// climbs (the bug that left phase tempo-only despite the esp sending fine).
+	bool toClk = (memcmp(ip + 16, MCAST, 4) == 0 || ip[16] == 255) && dport == LCLK_PORT;
+	if (toClk) { handleClockBroadcast(pl, plen); return true; }
+
 	if (plen < (int)LW_HEADER_LEN) return false;
 
 	// Diagnostic: count ANY UDP unicast addressed to our IP (any port). If this
@@ -409,11 +418,6 @@ static bool linkTryParse(const u8 *buf, unsigned len)
 	// arrive, which is the phase-sync wall.
 	extern volatile unsigned g_uniRxToUs;
 	if (memcmp(ip + 16, s_ownIP, 4) == 0) g_uniRxToUs++;
-
-	// esp ticker clock broadcast: multicast (or broadcast) to the Link group on
-	// LCLK_PORT. Consume it directly (it carries phase, not a Link message).
-	bool toClk = (memcmp(ip + 16, MCAST, 4) == 0 || ip[16] == 255) && dport == LCLK_PORT;
-	if (toClk) { handleClockBroadcast(pl, plen); return true; }
 
 	bool toMcast   = (memcmp(ip + 16, MCAST, 4) == 0) && dport == LINK_PORT;
 	bool toUsUnicast = (memcmp(ip + 16, s_ownIP, 4) == 0) && dport == OUR_MEP4_PORT;
