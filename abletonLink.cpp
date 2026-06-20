@@ -83,6 +83,15 @@ static bool   s_ended     = false;
 static u64    s_timeOrigin = 0;      // us
 static s64    s_beatOrigin = 0;      // microbeats
 static double s_quantBeats = 0.0;
+// Tempo PROPOSAL hold (Link lets ANY peer set the group tempo). When the looper
+// records its first loop it derives a tempo and PROPOSES it to the session: for a
+// short window we broadcast OUR timeline and stop adopting a peer's, so the ticker
+// (esp) / Live adopt our tempo before we revert to following. After the window the
+// session tempo equals our proposed value and a later peer tempo change is followed
+// normally -> symmetric, every device can set tempo. Written on the audio core
+// (linkEnd), read on the control core (republishTimeline); same CTimer clock.
+static volatile s64 s_proposeUntil = 0;   // us deadline; 0 = not proposing
+#define TEMPO_PROPOSE_HOLD_US 4000000
 static unsigned s_rxFrames = 0;   // total frames pulled off the radio RX queue (diag)
 unsigned linkRxFrameCount(void) { return s_rxFrames; }
 volatile unsigned g_uniRxToUs = 0;   // UDP unicast frames addressed to our IP (diag)
@@ -223,7 +232,21 @@ static void republishTimeline(void)
 	LinkPeer *owner = lsOwnerPeer(&s_session);
 	LinkTimeline tl;
 	bool phaseTrusted = false;
-	if (owner && owner->measured)
+	bool proposing = (s_proposeUntil != 0 && nowMicros() < s_proposeUntil);
+	if (proposing)
+	{
+		// We just recorded a loop and are PROPOSING its tempo to the group. Broadcast
+		// OUR timeline; do NOT adopt a peer's during the hold so the proposal is not
+		// reverted before the ticker/Live pick it up. ownTimeline() carries s_bpm (the
+		// loop tempo from linkEnd) + our origin, exactly what a peer's tmln adopt reads.
+		s_ownXform.offsetMicros = 0;
+		tl = ownTimeline();
+		s_bpm = lgMicrosPerBeatToBpm(tl.tempoMicrosPerBeat);
+		s_ownerOffsetUs = 0;
+		s_synced = (lsPeerCount(&s_session) > 0);
+		phaseTrusted = s_started;   // our own loop defines phase
+	}
+	else if (owner && owner->measured)
 	{
 		// Follow the owner: our ghost xform = the offset we measured to it; adopt
 		// its timeline; tempo = owner tempo. Measured => beat phase is trustworthy.
@@ -716,6 +739,10 @@ double linkEnd(double clip_seconds)
 	s_bpm        = bpm;
 	s_quantBeats = beats;
 	s_ended      = true;
+	// Propose this loop's tempo to the Link session (any peer may set the group
+	// tempo). republishTimeline broadcasts OUR timeline for the hold window so the
+	// ticker/Live adopt it; then we resume following the (now-matching) session.
+	s_proposeUntil = nowMicros() + TEMPO_PROPOSE_HOLD_US;
 	return beats;
 }
 

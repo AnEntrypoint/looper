@@ -183,7 +183,10 @@ void loopClip::_startRecording()
     // FIRST loop on a clear bank (no master grid, not Link-synced to peers):
     // mark Link "have started" and anchor the timeline origin at the backdated
     // press instant, so this loop becomes beat 0 and replays/restarts seamlessly.
-    if (!linkIsSynced() && pTheLoopMachine->m_masterLoopBlocks == 0)
+    // Runs EVEN when synced: the first loop PROPOSES our tempo/phase to the session
+    // (Ableton Link lets any device set the group tempo) so the ticker/Live adopt it
+    // rather than us only ever following.
+    if (pTheLoopMachine->m_masterLoopBlocks == 0)
         linkStart(g_pendingPressTicks);
 
     m_state = CS_RECORDING;
@@ -209,18 +212,24 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
     // whenever the new loop happened to be longer than the established master).
     // Later loops align TO this grid; they do not redefine it.
     bool wasFirst = false;
-    if (!linkIsSynced() && pTheLoopMachine->m_masterLoopBlocks == 0)
+    if (pTheLoopMachine->m_masterLoopBlocks == 0)
     {
-        wasFirst = true;
-        pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
-        pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
-
-        // FIRST loop just defined the master grid: mark Link "have ended" and
-        // derive tempo+quant from this loop's length (nearest-120 subdivision),
-        // so the timeline broadcasts a clean musical grid Ableton can sync to as
-        // the song-start pattern. Quant SOURCE is this first loop, not Link peers.
+        // FIRST loop: derive tempo+quant from this loop's length (nearest-120
+        // subdivision) and PROPOSE it to the Link session. linkEnd runs EVEN when
+        // synced so the looper can set the group tempo (any Link device may) — the
+        // ticker/Live then adopt it. Quant SOURCE is this first loop.
         double clip_seconds = (double)m_num_blocks / (double)INTEGRAL_BLOCKS_PER_SECOND;
         linkEnd(clip_seconds);
+
+        if (!linkIsSynced())
+        {
+            // Not following a session: this loop also DEFINES the local master grid.
+            // When synced, loopMachine derives m_masterLoopBlocks from the (now
+            // proposed) session tempo instead, so loop and grid stay consistent.
+            wasFirst = true;
+            pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
+            pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
+        }
     }
 
     // NO stop-time phase floor. Playback reads the CLIP BUFFER (getBlock(m_play_block)),
