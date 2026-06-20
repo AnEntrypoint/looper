@@ -29,6 +29,7 @@
 #define LINK_PORT		20808
 #define OUR_MEP4_PORT	20808       // we accept unicast pings on our IP:this port
 #define LCLK_PORT		20810       // esp "ticker" clock-broadcast (multicast, same group)
+#define LTMP_PORT		20811       // looper->esp explicit tempo-set (multicast, same group)
 #define SEND_INTERVAL_US	1000000u
 #define PING_INTERVAL_US	50000u  // 50ms between measurement pings (Link default)
 #define MEASURE_RETRY_US	2000000u// re-measure a peer at least this often
@@ -43,7 +44,7 @@ static u8 s_ownIP[4]={192,168,4,1};       // AP IP by default; tracks wlanDhcpIP
 static u8 s_ownMac[6]={0};
 static CBcm4343Device *s_pWLAN=nullptr;
 static double s_bpm=120.0;
-static u64 s_nodeId=0, s_lastSend=0;
+static u64 s_nodeId=0, s_lastSend=0, s_lastTempoSet=0;
 static bool     s_synced=false;
 static unsigned s_lastIgmp=0;
 
@@ -191,6 +192,21 @@ static void sendDiscovery(u8 msgType)
 		memcpy(s_lastTxAlive, pl, c); s_lastTxAliveLen = c;
 	}
 	sendUDP(0, 0, LINK_PORT, pl, n);   // multicast
+}
+
+// Explicit tempo-set broadcast (looper -> esp ticker). Standard Link tempo
+// adoption requires the esp to have MEASURED us (unicast ping/pong), which the
+// bcm4343 unicast-RX wall blocks -- so the esp never adopts our broadcast
+// timeline tempo. This multicast command (mirroring LCLK in reverse) the esp
+// applies directly via g_link->setTempo(), bypassing the measurement gate.
+// Payload: "LTMP"(4) + i64 LE microsPerBeat.
+static void sendTempoSet(void)
+{
+	s64 mpb = lgBpmToMicrosPerBeat(s_bpm > 0 ? s_bpm : 120.0);
+	u8 pl[12];
+	memcpy(pl, "LTMP", 4);
+	memcpy(pl + 4, &mpb, 8);
+	sendUDP(0, 0, LTMP_PORT, pl, 12);   // multicast to the Link group
 }
 
 static void sendByeBye(void)
@@ -598,6 +614,15 @@ void linkProcess(void)
 		sendDiscovery(LW_MSG_ALIVE);
 		s_lastSend = (u64)now;
 		republishTimeline();   // refresh phase even with no traffic
+	}
+	// While PROPOSING our loop tempo, also push the explicit tempo-set command so
+	// the esp adopts it despite the unicast-measurement wall. ~10 Hz over the hold
+	// window is plenty for the esp to pick it up.
+	if (s_proposeUntil != 0 && now < s_proposeUntil &&
+	    (u64)now - s_lastTempoSet >= 100000u)
+	{
+		sendTempoSet();
+		s_lastTempoSet = (u64)now;
 	}
 	driveMeasurement(now);
 	if (wlanDhcpOK() && (unsigned)now - s_lastIgmp >= 30 * CLOCKHZ)
