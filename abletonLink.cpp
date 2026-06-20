@@ -453,20 +453,59 @@ static void driveMeasurement(s64 now)
 	}
 }
 
+// ARP responder (load-bearing for Link MEASUREMENT over our hosted AP). We run
+// no IP stack on WLAN, so we never answered ARP for our AP IP (192.168.4.1). A
+// peer that joins the hosted "ticker" AP discovers us fine (discovery is
+// MULTICAST) and we adopt its tempo, but the ping/pong MEASUREMENT is UNICAST:
+// the peer must resolve 192.168.4.1's MAC via ARP to send us pings (and to send
+// pongs back to our pings). With no ARP reply the peer can't unicast to us at all
+// -> pingsRx=0, pongsRx=0, phase never measured. Answering ARP for our IP closes
+// that loop. Reactive (post-RX, radio demonstrably live), so SendFrame is safe.
+static bool arpMaybeReply(const u8 *f, int len)
+{
+	if (len < 42) return false;
+	if (f[12] != 0x08 || f[13] != 0x06) return false;          // not ARP
+	const u8 *a = f + 14;
+	if (a[0]!=0x00 || a[1]!=0x01 || a[2]!=0x08 || a[3]!=0x00) return false; // not Eth/IPv4
+	if (a[6]!=6 || a[7]!=4) return false;
+	if (a[8]!=0x00 || a[9]!=0x01) return false;                // not a request
+	const u8 *tpa = a + 24;                                     // target protocol addr
+	if (memcmp(tpa, s_ownIP, 4) != 0) return false;            // not for our IP
+	if (s_ownIP[0]==0 && s_ownIP[1]==0 && s_ownIP[2]==0 && s_ownIP[3]==0) return false;
+
+	const u8 *sha = a + 8;   // sender hw addr
+	const u8 *spa = a + 18;  // sender protocol addr
+	u8 r[42];
+	memcpy(r+0, sha, 6);            // dst MAC = requester
+	memcpy(r+6, s_ownMac, 6);       // src MAC = us
+	r[12]=0x08; r[13]=0x06;
+	u8 *ra = r + 14;
+	ra[0]=0x00; ra[1]=0x01; ra[2]=0x08; ra[3]=0x00; ra[4]=6; ra[5]=4;
+	ra[6]=0x00; ra[7]=0x02;         // reply
+	memcpy(ra+8,  s_ownMac, 6);     // sender hw = us
+	memcpy(ra+14, s_ownIP, 4);      // sender proto = us
+	memcpy(ra+18, sha, 6);          // target hw = requester
+	memcpy(ra+24, spa, 4);          // target proto = requester
+	s_pWLAN->SendFrame(r, sizeof r);
+	return true;
+}
+
 void linkProcess(void)
 {
 	if (!s_pWLAN) return;
 
 	// SINGLE RX DEMUX: one drain, routed by port. Link multicast discovery +
 	// Link unicast measurement (to our IP:mep4 port) -> linkTryParse; DHCP :67 ->
-	// AP server; DHCP :68 -> station client. Draining is always safe; the per-tick
-	// cap keeps Core 2's control loop from being starved by a busy network.
+	// AP server; DHCP :68 -> station client; ARP -> arpMaybeReply (so a peer can
+	// resolve our AP IP and unicast measurement frames). Draining is always safe;
+	// the per-tick cap keeps Core 2's control loop from being starved.
 	u8 buf[FRAME_BUF];
 	unsigned len;
 	int budget = 64;
 	while (budget-- > 0 && s_pWLAN->ReceiveFrame(buf, &len))
 	{
 		s_rxFrames++;                                    // total frames off the radio (diag)
+		if (arpMaybeReply(buf, (int)len)) continue;      // ARP for our IP -> reply our MAC
 		if (linkTryParse(buf, len)) continue;            // Link mcast :20808 + unicast measurement
 		if (wlanDhcpServeFrame(buf, (int)len)) continue; // AP DHCP server :67
 		if (wlanDhcpClientFrame(buf, (int)len)) continue;// station DHCP client :68
