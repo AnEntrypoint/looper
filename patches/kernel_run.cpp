@@ -355,12 +355,14 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				// glitch should show as one side incrementing ~once/sec). These globals
 				// already live in libusb (input_usb/output_usb), so no lib rebuild.
 				extern volatile unsigned g_inUnderruns, g_inResyncs, g_outUnderruns, g_otgResyncs;
+				extern volatile unsigned g_audioFbRate, g_audioFbCount;
 				CString s;
-				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u rate=%u inDeliv=%u inPeak=%u outDeliv=%u outPeak=%u outFail=%u inUR=%u inRS=%u outUR=%u otgRS=%u",
+				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u rate=%u inDeliv=%u inPeak=%u outDeliv=%u outPeak=%u outFail=%u inUR=%u inRS=%u outUR=%u otgRS=%u fbRate=%u fbCnt=%u",
 					g_audioInBound, g_audioOutBound, g_audioUAC2, g_audioChannels,
 					g_audioSubslot*8, g_audioRate, g_audioInDeliv, g_audioInPeak,
 					g_audioOutDeliv, g_audioOutPeak, g_audioOutSubmitFail,
-					g_inUnderruns, g_inResyncs, g_outUnderruns, g_otgResyncs);
+					g_inUnderruns, g_inResyncs, g_outUnderruns, g_otgResyncs,
+					g_audioFbRate, g_audioFbCount);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='M' && buf[1]=='I' && buf[2]=='D' && buf[3]=='I')

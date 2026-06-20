@@ -401,6 +401,9 @@ void CUSBAudioDevice::FbCompletion (CUSBRequest *pURB)
         u32 maxRate = (USB_AUDIO_BLOCK_BYTES / 4) << 16;
         if (v > 0 && v < maxRate) m_fbRate = v;
     }
+    extern volatile unsigned g_audioFbRate, g_audioFbCount;
+    g_audioFbRate = m_fbRate;
+    g_audioFbCount++;
     delete m_pFbURB;
     m_pFbURB = 0;
     StartFbRequest ();
