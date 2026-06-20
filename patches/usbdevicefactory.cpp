@@ -63,6 +63,8 @@ volatile unsigned g_audioOutPeak  = 0;     // max |sample| sent to OUT
 volatile unsigned g_audioOutSubmitFail = 0;// StartOutRequest submit failures
 volatile unsigned g_audioFbRate   = 0;     // UAC2 feedback rate (Q16.16 frames/uframe)
 volatile unsigned g_audioFbCount  = 0;     // UAC2 feedback URBs completed
+volatile unsigned g_audioOutMaxGapUs = 0;  // max gap between OUT completions (us, reset on UAUD read)
+volatile unsigned g_audioOutLastTick = 0;  // last OUT completion tick (us)
 
 CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pName)
 {

@@ -451,6 +451,14 @@ void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
 {
     assert (pURB != 0);
     assert (pURB == m_pOutURB);
+    // Glitch diag: track the MAX gap between OUT completions. If the iso OUT stalls
+    // ~1Hz (scheduling/contention) this shows a ~20ms spike; if delivery is perfectly
+    // even (gap ~= one service interval) the glitch is device-internal, not delivery.
+    extern volatile unsigned g_audioOutMaxGapUs, g_audioOutLastTick;
+    u32 nowt = CTimer::GetClockTicks ();
+    if (g_audioOutLastTick) { u32 gap = nowt - g_audioOutLastTick;
+        if (gap > g_audioOutMaxGapUs) g_audioOutMaxGapUs = gap; }
+    g_audioOutLastTick = nowt;
     // The audio pull + 24-bit pack + feedback-paced sizing all live in
     // StartOutRequest now; the completion just frees the URB and re-arms.
     delete m_pOutURB;
