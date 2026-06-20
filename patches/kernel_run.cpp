@@ -326,13 +326,13 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				// inPeak>0 == the (US-2x2 UAC2) input is delivering audio. Globals
 				// live in libusb (always linked), so no USE_USB_AUDIO guard.
 				extern volatile unsigned g_audioInBound, g_audioOutBound, g_audioUAC2,
-				                         g_audioChannels, g_audioSubslot,
+				                         g_audioChannels, g_audioSubslot, g_audioRate,
 				                         g_audioInDeliv, g_audioInPeak,
 				                         g_audioOutDeliv, g_audioOutPeak, g_audioOutSubmitFail;
 				CString s;
-				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u inDeliv=%u inPeak=%u outDeliv=%u outPeak=%u outFail=%u",
+				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u rate=%u inDeliv=%u inPeak=%u outDeliv=%u outPeak=%u outFail=%u",
 					g_audioInBound, g_audioOutBound, g_audioUAC2, g_audioChannels,
-					g_audioSubslot*8, g_audioInDeliv, g_audioInPeak,
+					g_audioSubslot*8, g_audioRate, g_audioInDeliv, g_audioInPeak,
 					g_audioOutDeliv, g_audioOutPeak, g_audioOutSubmitFail);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}

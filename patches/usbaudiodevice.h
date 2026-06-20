@@ -67,6 +67,7 @@ private:
     // m_uSubslot bytes each (3 = 24-bit) x m_uChannels per frame, and the sample
     // rate was set via a Clock Source control request (see Configure).
     boolean  m_bUAC2;
+    unsigned m_uRate;       // negotiated sample rate (Hz)
     unsigned m_uSubslot;    // bytes per sample (UAC1 path: 2)
     unsigned m_uChannels;   // channels per frame (UAC1 path: 2)
     boolean ConfigureUAC2 (void);

@@ -49,6 +49,7 @@ volatile unsigned g_audioOutBound = 0;   // OUT device (s_pOut) bound
 volatile unsigned g_audioUAC2     = 0;   // bound IN device is UAC2
 volatile unsigned g_audioChannels = 0;   // IN format channels
 volatile unsigned g_audioSubslot  = 0;   // IN format bytes/sample
+volatile unsigned g_audioRate     = 0;   // negotiated sample rate (Hz)
 
 CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
 :   CUSBFunction (pFunction),
@@ -65,6 +66,7 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_nPeakIn      (0),
     m_nLastMonitorTick (0),
     m_bUAC2        (FALSE),
+    m_uRate        (48000),
     m_uSubslot     (2),
     m_uChannels    (2)
 {
@@ -159,6 +161,7 @@ boolean CUSBAudioDevice::Configure (void)
         g_audioUAC2     = m_bUAC2 ? 1 : 0;
         g_audioChannels = m_uChannels;
         g_audioSubslot  = m_uSubslot;
+        g_audioRate     = m_uRate;
     }
     if (m_pEndpointOut && !s_pOut)
     {
@@ -207,17 +210,64 @@ boolean CUSBAudioDevice::ConfigureUAC2 (void)
         }
         if (info.clockId != 0 && info.acInterfaceNum >= 0)
         {
-            // 48000 = 0x0000BB80, little-endian, in a DMA-capable buffer.
-            m_OutBuf[0] = 0x80; m_OutBuf[1] = 0xBB; m_OutBuf[2] = 0x00; m_OutBuf[3] = 0x00;
+            u16 wIndex = (u16) ((info.clockId << 8) | info.acInterfaceNum);
+
+            // Negotiate the sample rate generically (works on any UAC2 device, not
+            // just a 48000 one): GET_RANGE the Clock Source's supported sample
+            // frequencies, then prefer 48000 (the looper's USB rate), else 44100,
+            // else the highest supported. A device that doesn't do 48000 (e.g. a
+            // 44100-only looper) still engages at its native rate.
+            unsigned chosen = 48000;
+            int nr = GetHost ()->ControlMessage (GetEndpoint0 (),
+                        0xA1,                  // IN | class | interface
+                        0x02,                  // RANGE
+                        (u16) (0x01 << 8),     // CS_SAM_FREQ_CONTROL, ch 0
+                        wIndex, m_InBuf, sizeof m_InBuf);
+            if (nr >= 2)
+            {
+                const u8 *rb = (const u8 *) m_InBuf;
+                unsigned nsub = rb[0] | (rb[1] << 8);
+                boolean has48 = FALSE, has441 = FALSE; unsigned best = 0;
+                for (unsigned i = 0; i < nsub; i++)
+                {
+                    unsigned off = 2 + i * 12;
+                    if (off + 8 > (unsigned) nr) break;
+                    unsigned mn = rb[off]   | (rb[off+1]<<8) | (rb[off+2]<<16) | (rb[off+3]<<24);
+                    unsigned mx = rb[off+4] | (rb[off+5]<<8) | (rb[off+6]<<16) | (rb[off+7]<<24);
+                    if (48000 >= mn && 48000 <= mx) has48  = TRUE;
+                    if (44100 >= mn && 44100 <= mx) has441 = TRUE;
+                    if (mx > best && mx <= 192000)  best   = mx;
+                }
+                chosen = has48 ? 48000 : has441 ? 44100 : (best ? best : 48000);
+            }
+            m_uRate = chosen;
+
+            // SET_CUR the chosen rate (4-byte LE) via the Clock Source entity.
+            m_OutBuf[0] = (u8)(chosen & 0xFF);       m_OutBuf[1] = (u8)((chosen >> 8) & 0xFF);
+            m_OutBuf[2] = (u8)((chosen >> 16) & 0xFF); m_OutBuf[3] = (u8)((chosen >> 24) & 0xFF);
             int r = GetHost ()->ControlMessage (GetEndpoint0 (),
-                        0x21,                                    // OUT | class | interface
-                        0x01,                                    // CUR
-                        (u16) (0x01 << 8),                       // CS_SAM_FREQ_CONTROL, ch 0
-                        (u16) ((info.clockId << 8) | info.acInterfaceNum),
-                        m_OutBuf, 4);
+                        0x21, 0x01, (u16) (0x01 << 8), wIndex, m_OutBuf, 4);
+
+            // GET_CUR readback to confirm the device accepted it.
+            unsigned got = 0;
+            int gr = GetHost ()->ControlMessage (GetEndpoint0 (),
+                        0xA1, 0x01, (u16) (0x01 << 8), wIndex, m_InBuf, 4);
+            if (gr >= 4)
+            {
+                const u8 *gb = (const u8 *) m_InBuf;
+                got = gb[0] | (gb[1]<<8) | (gb[2]<<16) | (gb[3]<<24);
+                if (got) m_uRate = got;
+            }
+            // Seed the async-OUT feedback rate from the negotiated rate assuming a
+            // high-speed bInterval=1 endpoint (8000 service intervals/s); the
+            // explicit feedback endpoint refines this per-device within the first
+            // few ms. Q16.16 frames per service interval.
+            m_fbRate = (u32) (((u64) m_uRate << 16) / 8000);
+            if (m_fbRate == 0) m_fbRate = 6u << 16;
+
             CLogger::Get ()->Write (FromAudio, LogNotice,
-                "UAC2 set 48000 clock=%u if=%d rc=%d fmt=%uch/%ubit",
-                (unsigned) info.clockId, info.acInterfaceNum, r,
+                "UAC2 clock=%u if=%d set=%u rc=%d got=%u fmt=%uch/%ubit",
+                (unsigned) info.clockId, info.acInterfaceNum, chosen, r, got,
                 m_uChannels, m_uSubslot * 8);
         }
     }
@@ -286,6 +336,9 @@ boolean CUSBAudioDevice::StartOutRequest (void)
         s16 left_buf[cap], right_buf[cap];
         (*m_pOutHandler) (left_buf, right_buf, nSamples);
         u8 *pb = (u8 *) m_OutBuf;
+        // Multi-channel device (>2 out): zero the frame so unused channels carry
+        // silence, not stale bytes. We only drive L (ch0) + R (ch1).
+        if (m_uChannels > 2) memset (pb, 0, bytes);
         extern volatile unsigned g_audioOutDeliv, g_audioOutPeak;
         g_audioOutDeliv++;
         for (unsigned i = 0; i < nSamples; i++)
