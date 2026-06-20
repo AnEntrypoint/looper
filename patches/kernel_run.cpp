@@ -208,6 +208,15 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					p9ErrorCount());
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
+			else if (buf[0]=='L' && buf[1]=='T' && buf[2]=='X')
+			{
+				// Toggle proactive Link WiFi TX live to A/B-test the 1Hz audio glitch.
+				extern volatile bool g_linkProactiveTx;
+				if (n >= 4 && buf[3]=='0') g_linkProactiveTx = false;
+				else if (n >= 4 && buf[3]=='1') g_linkProactiveTx = true;
+				CString s; s.Format("linkProactiveTx=%d", g_linkProactiveTx ? 1 : 0);
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
 			else if (buf[0]=='L' && buf[1]=='I' && buf[2]=='N' && buf[3]=='K')
 			{
 				// Full Ableton Link state, capture-free (OUR view; no Live-side

@@ -623,28 +623,36 @@ void linkProcess(void)
 	s64 now = nowMicros();
 	lsExpire(&s_session, now);
 
-	if ((u64)now - s_lastSend >= SEND_INTERVAL_US)
+	// Runtime toggle (:4445 "LTX0"/"LTX1") to A/B-test whether our proactive WiFi TX
+	// (the 1Hz ALIVE beacon SendFrame etc.) is the source of the once-a-second audio
+	// glitch. RX/reactive path stays live so the Pi keeps syncing to the esp.
+	extern volatile bool g_linkProactiveTx;
+	if (g_linkProactiveTx)
 	{
-		sendDiscovery(LW_MSG_ALIVE);
-		s_lastSend = (u64)now;
-		republishTimeline();   // refresh phase even with no traffic
-	}
-	// While PROPOSING our loop tempo, also push the explicit tempo-set command so
-	// the esp adopts it despite the unicast-measurement wall. ~10 Hz over the hold
-	// window is plenty for the esp to pick it up.
-	if (s_proposeUntil != 0 && now < s_proposeUntil &&
-	    (u64)now - s_lastTempoSet >= 100000u)
-	{
-		sendTempoSet();
-		s_lastTempoSet = (u64)now;
-	}
-	driveMeasurement(now);
-	if (wlanDhcpOK() && (unsigned)now - s_lastIgmp >= 30 * CLOCKHZ)
-	{
-		sendIgmpJoin();
-		s_lastIgmp = (unsigned)now;
+		if ((u64)now - s_lastSend >= SEND_INTERVAL_US)
+		{
+			sendDiscovery(LW_MSG_ALIVE);
+			s_lastSend = (u64)now;
+			republishTimeline();   // refresh phase even with no traffic
+		}
+		// While PROPOSING our loop tempo, also push the explicit tempo-set command so
+		// the esp adopts it despite the unicast-measurement wall. ~10 Hz over the hold
+		// window is plenty for the esp to pick it up.
+		if (s_proposeUntil != 0 && now < s_proposeUntil &&
+		    (u64)now - s_lastTempoSet >= 100000u)
+		{
+			sendTempoSet();
+			s_lastTempoSet = (u64)now;
+		}
+		driveMeasurement(now);
+		if (wlanDhcpOK() && (unsigned)now - s_lastIgmp >= 30 * CLOCKHZ)
+		{
+			sendIgmpJoin();
+			s_lastIgmp = (unsigned)now;
+		}
 	}
 }
+volatile bool g_linkProactiveTx = true;
 
 double linkGetBPM(void)       { return s_bpm; }
 void   linkSetBPM(double bpm) { s_bpm = bpm; }
