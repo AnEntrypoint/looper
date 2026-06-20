@@ -65,6 +65,32 @@ void wlanFallbackToAP(CBcm4343Device *pWLAN)
 	}
 }
 
+// AP-yield (symmetric topology: either device hosts if none, joins if one exists).
+// While WE host the "ticker" AP, periodically re-scan via JoinOpenNet: if another
+// "ticker" AP is up (e.g. the esp came up / re-hosted), YIELD -- become a station
+// and join it so exactly one host remains. This is the reciprocal of the esp's own
+// tie-break (it drops its AP when a lower-BSSID ticker exists); together they
+// converge in either MAC ordering. SAFETY: JoinOpenNet may tear the AP down even on
+// failure, so on a failed join we re-CreateOpenNet to guarantee the radio ends
+// usable (no silent AP loss). Returns true iff we yielded to a station.
+bool wlanApYieldTry(CBcm4343Device *pWLAN)
+{
+	if (!s_wlanIsAP || !s_wlanOK) return false;
+	if (pWLAN->JoinOpenNet(WLAN_SSID))
+	{
+		s_wlanIsAP = false;
+		s_wlanJoined = true;
+		CLogger::Get()->Write("wlan", LogNotice, "another ticker AP exists -> yielded, joined as station");
+		u8 mac[6];
+		pWLAN->GetMACAddress()->CopyTo(mac);
+		wlanDhcpSendDiscover(pWLAN, mac);   // re-lease as a station
+		return true;
+	}
+	// No other ticker found (or join failed): make sure OUR AP is still up.
+	if (pWLAN->CreateOpenNet(WLAN_SSID, 6, false)) { s_wlanIsAP = true; s_wlanJoined = true; wlanApInit(pWLAN); }
+	return false;
+}
+
 // Station re-association: when the joined "ticker" AP bounces (esp32 reboot, power
 // save, range), the bcm4343 station drops association and JoinOpenNet (boot-only)
 // never recovers -> no frames, peers expire, no Link. The control tick calls this

@@ -110,6 +110,15 @@ void coreControlPlaneTick(void)
 			if (wlanStationRejoin(&k->m_WLAN)) s_dhcpDone = false;  // let wlanDhcpPoll re-lease
 			s_lastRxTicks = now;                                   // throttle re-attempts
 		}
+		// AP-yield: while WE host, if no station has joined and our RX is quiet (no
+		// peer traffic), another ticker AP may be up elsewhere. Every ~20s try to
+		// JoinOpenNet it and yield to a single host (symmetric any-config topology).
+		// Only when hosting (status 2) and RX is stale (no joined peer talking to us).
+		else if (wlanStatusCode() == 2 && (now - s_lastRxTicks) > 2u * STALE_US) {
+			extern bool wlanApYieldTry(CBcm4343Device *);
+			if (wlanApYieldTry(&k->m_WLAN)) s_dhcpDone = false;    // became station -> re-lease
+			s_lastRxTicks = now;                                   // throttle
+		}
 	}
 	// AP-fallback safety net (load-bearing for "always host when can't join"):
 	// guarantee the radio ends USABLE. If ~40s after the first control tick (join

@@ -45,6 +45,7 @@ static u8 s_ownMac[6]={0};
 static CBcm4343Device *s_pWLAN=nullptr;
 static double s_bpm=120.0;
 static u64 s_nodeId=0, s_lastSend=0, s_lastTempoSet=0;
+volatile s64 g_lastEspOffset = 0;   // esp clock - our clock (us), from last LCLK
 static bool     s_synced=false;
 static unsigned s_lastIgmp=0;
 
@@ -203,10 +204,17 @@ static void sendDiscovery(u8 msgType)
 static void sendTempoSet(void)
 {
 	s64 mpb = lgBpmToMicrosPerBeat(s_bpm > 0 ? s_bpm : 120.0);
-	u8 pl[12];
-	memcpy(pl, "LTMP", 4);
-	memcpy(pl + 4, &mpb, 8);
-	sendUDP(0, 0, LTMP_PORT, pl, 12);   // multicast to the Link group
+	// Phase: map our beat-0 (loop downbeat, Pi clock = s_timeOrigin) into esp clock
+	// via the preserved LCLK offset, plus the loop quantum. The esp forceBeatAtTime's
+	// beat 0 at espBeat0 so the whole group's phrase aligns to the loop downbeat.
+	s64 espBeat0 = (s64)s_timeOrigin + g_lastEspOffset;
+	s64 quantumMicroBeats = (s_quantBeats > 0 ? (s64)(s_quantBeats * 1e6) : 4000000);
+	u8 pl[28];
+	memcpy(pl,      "LTMP", 4);
+	memcpy(pl + 4,  &mpb, 8);
+	memcpy(pl + 12, &espBeat0, 8);
+	memcpy(pl + 20, &quantumMicroBeats, 8);
+	sendUDP(0, 0, LTMP_PORT, pl, 28);   // multicast to the Link group
 }
 
 static void sendByeBye(void)
@@ -326,6 +334,12 @@ static void handleClockBroadcast(const u8 *pl, int plen)
 	if (plen < 12 || memcmp(pl, "LCLK", 4) != 0) return;
 	s64 espNow; memcpy(&espNow, pl + 4, 8);    // both ends little-endian
 	g_clkRx++;
+	// Preserve the esp clock offset (esp = pi + offset) regardless of session/owner
+	// state. The tempo-PROPOSE path uses it to map our loop downbeat (Pi clock) into
+	// esp clock for the LTMP phase field, so the esp can forceBeatAtTime the loop's
+	// phrase even though it can't measure us.
+	extern volatile s64 g_lastEspOffset;
+	g_lastEspOffset = espNow - nowMicros();
 	LinkPeer *owner = lsOwnerPeer(&s_session);
 	if (!owner || !owner->hasTimeline) return;  // need the owner's timeline to map
 	owner->xform.offsetMicros = espNow - nowMicros();
