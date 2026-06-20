@@ -73,6 +73,27 @@ int main()
     CHECK(info.out.dataEp == 0x03);
     CHECK(info.out.feedbackEp == 0x83);
 
+    // REAL Tascam US-2x2 config descriptor (captured live via :4445 UDSC,
+    // len=361). Regression-guards the parser against the actual device: 24-bit
+    // in a 4-byte subslot, clock entity 0x29, IN on if2/ep0x83, OUT on if1/ep0x01
+    // with feedback ep0x81.
+    static const char *realHex =
+        "0902690105010080fa080b00030100200009040000000101200409240100020877000008240a290307000008240b280129030011240202010100280200000000000000001224060a02000000000c0000000c000000000c2403140103000a2800000011240203010200280200000000000000001224060b03000000000c0000000c000000000c2403150101000b28000000090401000001022005090401010201022005102401020001010000000200000000000624020104180705010568000108250100000000000705811104000809040200000102200809040201010102200810240115000101000000020000000000062402010418070583056800010825010000000000090403000201030000072401000125000624020110000624020240000924030120014001000924030230011001000905040200020000000525010110090584020002000000052501012009040400010300000709211001000122230007058503080009";
+    std::vector<uint8_t> rd;
+    for (const char *p = realHex; p[0] && p[1]; p += 2) {
+        auto hx = [](char c){ return c<='9'?c-'0':(c|0x20)-'a'+10; };
+        rd.push_back((uint8_t)((hx(p[0])<<4)|hx(p[1])));
+    }
+    Uac2Info ri;
+    CHECK(uac2ParseConfig(rd.data(), (unsigned)rd.size(), &ri) == 1);
+    CHECK(ri.acInterfaceNum == 0);
+    CHECK(ri.clockId == 0x29);
+    CHECK(ri.in.valid && ri.in.interfaceNum == 2 && ri.in.altSetting == 1);
+    CHECK(ri.in.channels == 2 && ri.in.subslotSize == 4 && ri.in.bitResolution == 24);
+    CHECK(ri.in.dataEp == 0x83 && ri.in.feedbackEp == 0x00);
+    CHECK(ri.out.valid && ri.out.interfaceNum == 1 && ri.out.dataEp == 0x01);
+    CHECK(ri.out.subslotSize == 4 && ri.out.feedbackEp == 0x81);
+
     // Degenerate inputs: must not crash, return 0.
     Uac2Info z; uint8_t junk[3] = {0,0,0};
     CHECK(uac2ParseConfig(junk, 3, &z) == 0);
