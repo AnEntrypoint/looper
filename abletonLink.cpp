@@ -84,6 +84,8 @@ static s64    s_beatOrigin = 0;      // microbeats
 static double s_quantBeats = 0.0;
 static unsigned s_rxFrames = 0;   // total frames pulled off the radio RX queue (diag)
 unsigned linkRxFrameCount(void) { return s_rxFrames; }
+volatile unsigned g_uniRxToUs = 0;   // UDP unicast frames addressed to our IP (diag)
+unsigned linkUniRxToUs(void) { return g_uniRxToUs; }
 
 static inline u16 swap16(u16 v) { return __builtin_bswap16(v); }
 static inline u32 swap32(u32 v) { return __builtin_bswap32(v); }
@@ -367,6 +369,13 @@ static bool linkTryParse(const u8 *buf, unsigned len)
 	u16 dpRaw; memcpy(&dpRaw, udp+2, 2); u16 dport = swap16(dpRaw);
 	const u8 *pl = udp+8; int plen=(int)(len-(pl-buf));
 	if (plen < (int)LW_HEADER_LEN) return false;
+
+	// Diagnostic: count ANY UDP unicast addressed to our IP (any port). If this
+	// stays 0 while discovery multicast climbs, the radio is not delivering
+	// unicast-to-self frames -> Link MEASUREMENT (unicast ping/pong) can never
+	// arrive, which is the phase-sync wall.
+	extern volatile unsigned g_uniRxToUs;
+	if (memcmp(ip + 16, s_ownIP, 4) == 0) g_uniRxToUs++;
 
 	bool toMcast   = (memcmp(ip + 16, MCAST, 4) == 0) && dport == LINK_PORT;
 	bool toUsUnicast = (memcmp(ip + 16, s_ownIP, 4) == 0) && dport == OUR_MEP4_PORT;
