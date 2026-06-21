@@ -8,6 +8,7 @@
 #include <circle/types.h>
 
 #define USB_AUDIO_BLOCK_BYTES   256
+#define USB_AUDIO_OUTBUF_BYTES  512   // holds N=8 microframes/URB for UAC2 multi-packet OUT
 
 typedef void TAudioInHandler  (const s16 *pLeft, const s16 *pRight, unsigned nSamples);
 typedef void TAudioOutHandler (s16 *pLeft, s16 *pRight, unsigned nSamples);
@@ -28,7 +29,7 @@ public:
 
 private:
     boolean StartInRequest  (void);
-    boolean StartOutRequest (void);
+    boolean StartOutRequest (unsigned slot = 0);
     boolean StartFbRequest  (void);
 
     void InCompletion  (CUSBRequest *pURB);
@@ -47,7 +48,7 @@ private:
     TAudioOutHandler *m_pOutHandler;
 
     CUSBRequest *m_pInURB;
-    CUSBRequest *m_pOutURB;
+    CUSBRequest *m_pOutURB[2];   // double-buffered: 2 OUT URBs always in flight (no iso re-arm gap)
     CUSBRequest *m_pFbURB;
 
     // UAC2 async OUT pacing. m_fbRate = frames-per-(micro)frame in Q16.16, from the
@@ -57,7 +58,7 @@ private:
     u32 m_fbAccum;
 
     DMA_BUFFER (u8, m_InBuf,  USB_AUDIO_BLOCK_BYTES);
-    DMA_BUFFER (u8, m_OutBuf, USB_AUDIO_BLOCK_BYTES);
+    DMA_BUFFER (u8, m_OutBuf, USB_AUDIO_OUTBUF_BYTES * 2);   // two slots for double-buffering
     DMA_BUFFER (u8, m_FbBuf,  8);
 
     u32 m_nPeakIn;

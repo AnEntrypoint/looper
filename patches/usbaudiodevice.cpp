@@ -59,7 +59,6 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_pInHandler   (0),
     m_pOutHandler  (0),
     m_pInURB       (0),
-    m_pOutURB      (0),
     m_pFbURB       (0),
     m_fbRate       (6u << 16),   // nominal 48000/8000 (high-speed) until feedback
     m_fbAccum      (0),
@@ -70,6 +69,8 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_uSubslot     (2),
     m_uChannels    (2)
 {
+    m_pOutURB[0] = 0;
+    m_pOutURB[1] = 0;
 }
 
 CUSBAudioDevice::~CUSBAudioDevice (void)
@@ -77,6 +78,8 @@ CUSBAudioDevice::~CUSBAudioDevice (void)
     delete m_pEndpointIn;
     delete m_pEndpointOut;
     delete m_pEndpointFb;
+    delete m_pOutURB[0];
+    delete m_pOutURB[1];
     if (s_pThis == this) { s_pThis = 0; g_audioInBound = 0; }
     if (s_pOut == this)  { s_pOut  = 0; g_audioOutBound = 0; }
 }
@@ -175,7 +178,14 @@ boolean CUSBAudioDevice::Configure (void)
     if (m_pEndpointIn)
         StartInRequest ();
     if (m_pEndpointOut)
-        StartOutRequest ();
+    {
+        // Double-buffer: submit BOTH OUT URBs up front so one is always in flight
+        // while the other is re-armed in its completion -- the high-speed iso pipe
+        // never has a re-arm gap, so no microframe is ever missing (the residual
+        // Tascam under-feed that multi-packet alone left at ~one drop every ~20s).
+        StartOutRequest (0);
+        StartOutRequest (1);
+    }
     if (m_pEndpointFb)
         StartFbRequest ();   // service async OUT feedback so the device paces/plays
 
@@ -301,32 +311,101 @@ boolean CUSBAudioDevice::StartInRequest (void)
     return GetHost ()->SubmitAsyncRequest (m_pInURB);
 }
 
-boolean CUSBAudioDevice::StartOutRequest (void)
+boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
 {
     assert (m_pEndpointOut != 0);
-    assert (m_pOutURB == 0);
+    assert (slot < 2);
+    assert (m_pOutURB[slot] == 0);
+
+    // Double-buffer: each slot owns half of m_OutBuf so the two in-flight URBs never
+    // share a buffer (the xHCI may DMA both concurrently).
+    u8 *outBuf = (u8 *) m_OutBuf + slot * USB_AUDIO_OUTBUF_BYTES;
 
     u16 usMaxPacket = (u16) m_pEndpointOut->GetMaxPacketSize ();
-    if (usMaxPacket > sizeof m_OutBuf) usMaxPacket = sizeof m_OutBuf;
+    if (usMaxPacket > USB_AUDIO_OUTBUF_BYTES) usMaxPacket = USB_AUDIO_OUTBUF_BYTES;
     unsigned frameBytes = m_uSubslot * m_uChannels;
     if (frameBytes == 0) frameBytes = 4;
     const unsigned cap = USB_AUDIO_BLOCK_BYTES / 4;
 
-    // Frames to send THIS packet. For UAC2 async OUT, pace by the feedback rate
-    // (Q16.16 accumulator) so we send exactly what the device's clock wants;
-    // sending the full maxPacket every microframe over-feeds it ~2x and the FIFO
-    // overflows -> silence. UAC1 keeps the legacy fixed maxPacket fill.
-    unsigned nSamples;
+    extern volatile unsigned g_audioOutDeliv, g_audioOutPeak, g_audioOutSubmitFail;
+
+    // UAC2 async OUT: carry MULTIPLE iso packets (microframes) in ONE URB. ROOT CAUSE
+    // of the Tascam line-out glitch: the single-URB completion rate was ~7955/s, NOT
+    // 8000/s -- the heavy per-URB pack work made the re-arm miss ~45 microframes/s on
+    // the high-speed device (the IN does 8006/s). Each missed microframe is ~6 lost
+    // samples; the ~270 samples/s deficit drained the DAC's small FIFO every ~0.85s ->
+    // periodic dropout (silence) on the analog line-out (the digital stream was clean;
+    // the device simply starved). The full-speed UCA222 (1ms re-arm window) never fell
+    // behind, so it never showed this. Fix (buffer math, no added latency): batch N
+    // microframes per URB so the completion rate drops to 8000/N/s (easily sustained)
+    // while the xHCI still emits one packet per microframe -> no microframe missing.
+    // Each packet stays feedback-paced (the device's requested rate).
     if (m_bUAC2 && m_pEndpointFb)
     {
-        m_fbAccum += m_fbRate;
-        nSamples = m_fbAccum >> 16;
-        m_fbAccum &= 0xFFFF;
+        const unsigned N = 8;                                  // microframes per URB (1ms; 1000 URB/s = the glitch-free full-speed UCA222 cadence)
+        unsigned maxPerPkt = usMaxPacket / frameBytes;
+        unsigned bufPerPkt = (USB_AUDIO_OUTBUF_BYTES / N) / frameBytes;
+        if (maxPerPkt > bufPerPkt) maxPerPkt = bufPerPkt;
+        u8 *pb = outBuf;
+        unsigned pkt[N];
+        unsigned total = 0;
+        // Final residual: the device's feedback value is ~static and ~0.02% off its
+        // true DAC rate, so feedback-pacing alone slowly drifted the DAC FIFO -> one
+        // dropout every ~20s. The engine writes the OUT ring at the device's IN clock,
+        // which EQUALS its DAC clock (one device clock), so a feedback-vs-DAC mismatch
+        // shows up as the OUT-ring level drifting -- observable. A gentle integral on
+        // the ring level biases the send rate so the ring (hence the DAC FIFO) holds,
+        // converging the long-run send rate to the true DAC rate. Double-buffering keeps
+        // the ring stable enough that this integral converges without windup.
+        extern unsigned AudioOutputUSB_outAvail (void);
+        static int s_outBias = 0;                              // Q16.16 added to feedback rate
+        int avail = (int) AudioOutputUSB_outAvail ();
+        s_outBias += (avail - 256) >> 3;                       // gentle integral toward avail=256
+        int biasLim = (int) (m_fbRate / 50);                   // clamp to ~2%
+        if (s_outBias >  biasLim) s_outBias =  biasLim;
+        if (s_outBias < -biasLim) s_outBias = -biasLim;
+        u32 effRate = (u32) ((int) m_fbRate + s_outBias);
+        for (unsigned k = 0; k < N; k++)
+        {
+            m_fbAccum += effRate;
+            unsigned ns = m_fbAccum >> 16;
+            m_fbAccum &= 0xFFFF;
+            if (ns > maxPerPkt) ns = maxPerPkt;
+            unsigned bytes = ns * frameBytes;
+            if (m_pOutHandler && ns > 0)
+            {
+                s16 lb[cap], rb[cap];
+                (*m_pOutHandler) (lb, rb, ns);
+                if (m_uChannels > 2) memset (pb, 0, bytes);
+                for (unsigned i = 0; i < ns; i++)
+                {
+                    u8 *f = pb + i * frameBytes;
+                    uac2FromS16 (f, m_uSubslot, lb[i]);
+                    if (m_uChannels > 1) uac2FromS16 (f + m_uSubslot, m_uSubslot, rb[i]);
+                    s16 v = lb[i] < 0 ? (s16) -lb[i] : lb[i];
+                    if ((unsigned) v > g_audioOutPeak) g_audioOutPeak = (unsigned) v;
+                }
+            }
+            else
+            {
+                memset (pb, 0, bytes);
+            }
+            pkt[k] = bytes;
+            pb    += bytes;
+            total += bytes;
+        }
+        g_audioOutDeliv++;
+        m_pOutURB[slot] = new CUSBRequest (m_pEndpointOut, outBuf, total);
+        assert (m_pOutURB[slot] != 0);
+        for (unsigned k = 0; k < N; k++) m_pOutURB[slot]->AddIsoPacket (pkt[k]);
+        m_pOutURB[slot]->SetCompletionRoutine (OutStub, 0, this);
+        boolean ok = GetHost ()->SubmitAsyncRequest (m_pOutURB[slot]);
+        if (!ok) g_audioOutSubmitFail++;
+        return ok;
     }
-    else
-    {
-        nSamples = usMaxPacket / frameBytes;
-    }
+
+    // UAC1 (UCA222) legacy single-packet, fixed maxPacket fill.
+    unsigned nSamples = usMaxPacket / frameBytes;
     if (nSamples > cap) nSamples = cap;
     if (nSamples * frameBytes > usMaxPacket) nSamples = usMaxPacket / frameBytes;
     unsigned bytes = nSamples * frameBytes;
@@ -335,11 +414,8 @@ boolean CUSBAudioDevice::StartOutRequest (void)
     {
         s16 left_buf[cap], right_buf[cap];
         (*m_pOutHandler) (left_buf, right_buf, nSamples);
-        u8 *pb = (u8 *) m_OutBuf;
-        // Multi-channel device (>2 out): zero the frame so unused channels carry
-        // silence, not stale bytes. We only drive L (ch0) + R (ch1).
+        u8 *pb = outBuf;
         if (m_uChannels > 2) memset (pb, 0, bytes);
-        extern volatile unsigned g_audioOutDeliv, g_audioOutPeak;
         g_audioOutDeliv++;
         for (unsigned i = 0; i < nSamples; i++)
         {
@@ -352,20 +428,16 @@ boolean CUSBAudioDevice::StartOutRequest (void)
     }
     else
     {
-        memset (m_OutBuf, 0, bytes ? bytes : frameBytes);
+        memset (outBuf, 0, bytes ? bytes : frameBytes);
         if (!bytes) bytes = frameBytes;
     }
 
-    m_pOutURB = new CUSBRequest (m_pEndpointOut, m_OutBuf, bytes);
-    assert (m_pOutURB != 0);
-    m_pOutURB->AddIsoPacket (bytes);
-    m_pOutURB->SetCompletionRoutine (OutStub, 0, this);
-    boolean ok = GetHost ()->SubmitAsyncRequest (m_pOutURB);
-    if (!ok)
-    {
-        extern volatile unsigned g_audioOutSubmitFail;
-        g_audioOutSubmitFail++;
-    }
+    m_pOutURB[slot] = new CUSBRequest (m_pEndpointOut, outBuf, bytes);
+    assert (m_pOutURB[slot] != 0);
+    m_pOutURB[slot]->AddIsoPacket (bytes);
+    m_pOutURB[slot]->SetCompletionRoutine (OutStub, 0, this);
+    boolean ok = GetHost ()->SubmitAsyncRequest (m_pOutURB[slot]);
+    if (!ok) g_audioOutSubmitFail++;
     return ok;
 }
 
@@ -450,20 +522,19 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
 void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)
 {
     assert (pURB != 0);
-    assert (pURB == m_pOutURB);
-    // Glitch diag: track the MAX gap between OUT completions. If the iso OUT stalls
-    // ~1Hz (scheduling/contention) this shows a ~20ms spike; if delivery is perfectly
-    // even (gap ~= one service interval) the glitch is device-internal, not delivery.
+    unsigned slot = (pURB == m_pOutURB[1]) ? 1 : 0;
+    assert (pURB == m_pOutURB[slot]);
+    // Glitch diag: track the MAX gap between OUT completions.
     extern volatile unsigned g_audioOutMaxGapUs, g_audioOutLastTick;
     u32 nowt = CTimer::GetClockTicks ();
     if (g_audioOutLastTick) { u32 gap = nowt - g_audioOutLastTick;
         if (gap > g_audioOutMaxGapUs) g_audioOutMaxGapUs = gap; }
     g_audioOutLastTick = nowt;
-    // The audio pull + 24-bit pack + feedback-paced sizing all live in
-    // StartOutRequest now; the completion just frees the URB and re-arms.
-    delete m_pOutURB;
-    m_pOutURB = 0;
-    StartOutRequest ();
+    // Re-arm THIS slot; the OTHER slot is still in flight, so the iso pipe never
+    // empties (no re-arm gap -> no missing microframe).
+    delete m_pOutURB[slot];
+    m_pOutURB[slot] = 0;
+    StartOutRequest (slot);
 }
 
 void CUSBAudioDevice::InStub (CUSBRequest *pURB, void *pParam, void *pContext)
