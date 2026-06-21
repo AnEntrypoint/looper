@@ -45,6 +45,12 @@ static u8 s_ownMac[6]={0};
 static CBcm4343Device *s_pWLAN=nullptr;
 static double s_bpm=120.0;
 static u64 s_nodeId=0, s_lastSend=0, s_lastTempoSet=0;
+// Tempo-set is sent as ONE short burst at loop-define (a clean phrase stop+start),
+// NOT continuously for the whole propose window. Repeatedly forceBeatAtTime'ing the
+// esp at 10Hz for 4s jerked the ticker clock every send ("went wild"); a tight
+// burst gives the gear a single clean restart on the new tempo+downbeat.
+static int s_tempoSetBurst = 0;
+#define TEMPO_SET_BURST_N 4
 volatile s64 g_lastEspOffset = 0;   // esp clock - our clock (us), from last LCLK
 static bool     s_synced=false;
 static unsigned s_lastIgmp=0;
@@ -635,14 +641,18 @@ void linkProcess(void)
 			s_lastSend = (u64)now;
 			republishTimeline();   // refresh phase even with no traffic
 		}
-		// While PROPOSING our loop tempo, also push the explicit tempo-set command so
-		// the esp adopts it despite the unicast-measurement wall. ~10 Hz over the hold
-		// window is plenty for the esp to pick it up.
+		// While PROPOSING our loop tempo, push the explicit tempo-set as ONE short
+		// burst (TEMPO_SET_BURST_N sends ~60ms apart, for multicast reliability) then
+		// STOP -- a single clean phrase restart on the gear, not a 4s stream of hard
+		// forceBeat corrections that made the tickers go wild. The tmln republish above
+		// continues the full window for smooth peer (Live) adoption.
 		if (s_proposeUntil != 0 && now < s_proposeUntil &&
-		    (u64)now - s_lastTempoSet >= 100000u)
+		    s_tempoSetBurst < TEMPO_SET_BURST_N &&
+		    (u64)now - s_lastTempoSet >= 60000u)
 		{
 			sendTempoSet();
 			s_lastTempoSet = (u64)now;
+			s_tempoSetBurst++;
 		}
 		driveMeasurement(now);
 		if (wlanDhcpOK() && (unsigned)now - s_lastIgmp >= 30 * CLOCKHZ)
@@ -789,7 +799,8 @@ double linkEnd(double clip_seconds)
 	// Propose this loop's tempo to the Link session (any peer may set the group
 	// tempo). republishTimeline broadcasts OUR timeline for the hold window so the
 	// ticker/Live adopt it; then we resume following the (now-matching) session.
-	s_proposeUntil = nowMicros() + TEMPO_PROPOSE_HOLD_US;
+	s_proposeUntil  = nowMicros() + TEMPO_PROPOSE_HOLD_US;
+	s_tempoSetBurst = 0;   // fresh clean burst for this loop-define
 	return beats;
 }
 
