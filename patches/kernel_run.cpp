@@ -72,6 +72,7 @@ void coreControlPlaneTick(void)
 		g_netRebootRequested = true;
 	usbMidiProcess(bPnP);
 	loop();
+	{ extern void usbWavTick(void); usbWavTick(); }   // continuous ring-WAV dump to USB (Core 2)
 #ifdef LOOPER_ENABLE_WLAN
 	// WLAN/plan9 + Link is opt-in (see kernel.cpp). linkProcess() is now the
 	// SINGLE radio-RX drainer and demuxes Link + AP-DHCP + client-DHCP frames, so
@@ -365,6 +366,18 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					g_inUnderruns, g_inResyncs, g_outUnderruns, g_otgResyncs, g_outRingResync,
 					g_audioFbRate, g_audioFbCount, g_audioOutMaxGapUs);
 				g_audioOutMaxGapUs = 0;   // reset so each probe shows the max since last read
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='U' && buf[1]=='W' && buf[2]=='A' && buf[3]=='V')
+			{
+				// Continuous ring-WAV dump to a USB drive. mounted=1 => a drive is
+				// present and looper-rec.wav is being written; bytes climbing => audio
+				// flowing to it; wraps>0 => the ring has looped over the full file.
+				extern volatile unsigned g_uwavMounted, g_uwavWraps;
+				extern volatile unsigned long long g_uwavBytes, g_uwavMaxData;
+				CString s;
+				s.Format("mounted=%u bytes=%llu maxData=%llu wraps=%u",
+					g_uwavMounted, g_uwavBytes, g_uwavMaxData, g_uwavWraps);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='M' && buf[1]=='I' && buf[2]=='D' && buf[3]=='I')
