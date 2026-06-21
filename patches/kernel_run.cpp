@@ -14,6 +14,8 @@ extern "C" void loopMonitorTelemetry(int*, int*);
 extern "C" unsigned p9ErrorCount(void);   // libwlan.a (patches/p9error.cpp)
 extern "C" int wlanStatusCode(void);   // kernel.cpp: 0 off/fail, 1 joined, 2 AP
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
+extern void gamepadProcess(bool bPlugAndPlayUpdated);
+extern void gamepadProcessTick(void);
 extern void loop(void);
 
 static const char kCDCDev[] = "utty1";
@@ -71,6 +73,8 @@ void coreControlPlaneTick(void)
 	if (k->pollSockets(s_pReboot, s_pDebug, s_pMidi) == ShutdownReboot)
 		g_netRebootRequested = true;
 	usbMidiProcess(bPnP);
+	gamepadProcess(bPnP);       // bind/unbind USB gamepad on plug/unplug (Core 2)
+	gamepadProcessTick();       // drain gamepad snapshot -> control surface (Core 2)
 	loop();
 	{ extern void usbWavTick(void); usbWavTick(); }   // continuous ring-WAV dump to USB (Core 2)
 #ifdef LOOPER_ENABLE_WLAN
@@ -316,6 +320,20 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					(unsigned)g_samplerLen,
 					(unsigned)g_samplerDrumCount,
 					(unsigned)g_samplerVoices);
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='G' && buf[1]=='P' && buf[2]=='A' && buf[3]=='D')
+			{
+				// USB gamepad state (capture-free witness of the mapping):
+				// connected, axis count, button bitmask, current glitch note,
+				// dropped snapshots, and whether SHIFT(L1)/reverb(R1) are held.
+				extern void gamepadTelemetry(int*, int*, unsigned*, int*, unsigned*, int*, int*);
+				int conn=0, axes=0, hatNote=0, shift=0, reverb=0;
+				unsigned buttons=0, dropped=0;
+				gamepadTelemetry(&conn, &axes, &buttons, &hatNote, &dropped, &shift, &reverb);
+				CString s;
+				s.Format("connected=%d axes=%d buttons=%x hat=%d dropped=%u shift=%d reverb=%d",
+					conn, axes, buttons, hatNote, dropped, shift, reverb);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='C' && buf[1]=='L' && buf[2]=='I' && buf[3]=='P')
