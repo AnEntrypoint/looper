@@ -24,6 +24,8 @@ void loopClip::init()
     m_buffer = 0;
     m_mark_point = -1;
     m_mark_point_active = false;
+    m_playRate = 1.0f;
+    m_playPos  = 0.0;
 }
 
 void loopClip::clearMarkPoint()
@@ -127,6 +129,8 @@ void loopClip::_startRecording()
     m_crossfade_start = 0;
     m_crossfade_offset = 0;
     m_num_blocks = 0;
+    m_playRate = 1.0f;   // fresh take is native to the current grid (varispeed resets)
+    m_playPos  = 0.0;
     // Clear any pending quantize auto-stop. A fresh recording must NOT inherit a
     // prior take's deferred-quantize target — otherwise the per-block auto-stop
     // (loopClipUpdate.cpp) fires almost immediately (m_record_block crosses the

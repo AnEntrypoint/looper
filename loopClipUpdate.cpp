@@ -55,6 +55,18 @@ void loopClip::update(s32 *ip, s32 *op)
             break;
     }
 
+    // VARISPEED Link-sync read: when the external tempo differs from this loop's
+    // native tempo, m_playRate != 1 (accumulated via setTempoRatio). Read the clip
+    // fractionally at m_playRate -> the loop is resampled, so a halved external tempo
+    // plays the loop at half speed AND half pitch (the simplest possible time-stretch).
+    // Replaces the block-granular phase-locked read below; the normal read/advance are
+    // skipped (pp_main/pp_fade nulled, advance gated on !varispeed). m_playPos is
+    // advanced unconditionally in the advance section so it tracks like the phase-lock
+    // (pause keeps the head moving). At rate==1 (no external tempo change) this branch
+    // is OFF and playback is byte-identical to before.
+    bool varispeed = (m_playRate != 1.0f) && (m_state == CS_PLAYING) && m_num_blocks > 0;
+    if (varispeed) { pp_main = 0; pp_fade = 0; }
+
     bool fade_in = (pp_main && use_play_block < CROSSFADE_BLOCKS);
 
     s16 tmp_L[AUDIO_BLOCK_SAMPLES] = {0};
@@ -97,7 +109,32 @@ void loopClip::update(s32 *ip, s32 *op)
     double pgStep = (pgEnd - pgStart) / (double)AUDIO_BLOCK_SAMPLES;
     double pg = pgStart;
 
-    if (!m_mute)
+    if (!m_mute && varispeed)
+    {
+        // Fractional resample read at m_playRate (linear interp). localPos is the
+        // block-start copy; m_playPos itself advances once per block in the advance
+        // section so it tracks even when muted.
+        u32 clipSamples = m_num_blocks * AUDIO_BLOCK_SAMPLES;
+        double localPos = m_playPos;
+        if (localPos >= (double)clipSamples) localPos = 0.0;
+        for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+        {
+            u32 i0 = (u32)localPos;
+            if (i0 >= clipSamples) i0 = 0;
+            double fr = localPos - (double)i0;
+            u32 i1 = i0 + 1; if (i1 >= clipSamples) i1 = 0;
+            s16 l0 = m_buffer[i0 * LOOPER_NUM_CHANNELS],     l1 = m_buffer[i1 * LOOPER_NUM_CHANNELS];
+            s16 r0 = m_buffer[i0 * LOOPER_NUM_CHANNELS + 1], r1 = m_buffer[i1 * LOOPER_NUM_CHANNELS + 1];
+            double L = ((double)l0 + (double)(l1 - l0) * fr) * m_volume * pg;
+            double R = ((double)r0 + (double)(r1 - r0) * fr) * m_volume * pg;
+            tmp_L[i] += (s16)(L + (L >= 0 ? 0.5 : -0.5));
+            tmp_R[i] += (s16)(R + (R >= 0 ? 0.5 : -0.5));
+            localPos += (double)m_playRate;
+            if (localPos >= (double)clipSamples) localPos -= (double)clipSamples;
+            pg += pgStep;
+        }
+    }
+    else if (!m_mute)
     {
         for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
         {
@@ -242,6 +279,25 @@ void loopClip::update(s32 *ip, s32 *op)
             m_play_block++;
             if (m_play_block == m_num_blocks && m_state == CS_PLAYING) _startCrossFade();
             else if (m_play_block >= m_num_blocks) m_play_block = 0;
+        }
+        // Keep the varispeed head aligned with the phase-locked block head while
+        // rate==1, so when an external tempo change first engages varispeed it picks
+        // up from the exact current position.
+        m_playPos = (double)m_play_block * (double)AUDIO_BLOCK_SAMPLES;
+    }
+
+    // VARISPEED advance (runs whether muted or not, like the head above): advance the
+    // fractional position one block's worth at m_playRate and wrap at the loop end.
+    if (varispeed)
+    {
+        u32 clipSamples = m_num_blocks * AUDIO_BLOCK_SAMPLES;
+        if (clipSamples > 0)
+        {
+            m_playPos += (double)AUDIO_BLOCK_SAMPLES * (double)m_playRate;
+            while (m_playPos >= (double)clipSamples) m_playPos -= (double)clipSamples;
+            if (m_playPos < 0.0) m_playPos = 0.0;
+            m_play_block = ((u32)m_playPos) / AUDIO_BLOCK_SAMPLES;
+            if (m_play_block >= m_num_blocks) m_play_block = 0;
         }
     }
 }
