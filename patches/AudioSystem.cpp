@@ -471,6 +471,7 @@ void AudioSystem::startUpdate()
 // file-scope globals each call; the free-function getters read the mirrors.
 // nInUpdate stuck non-zero while no doUpdate completes == Core 1 not draining
 // the dispatch ring (the graph-dead signature: cbwr/outWr frozen while IN fires).
+volatile unsigned g_diagOutGateHit   = 0;
 volatile unsigned g_diagWalkN        = 0;
 volatile unsigned g_diagTypeMask     = 0;
 volatile unsigned g_diagNInUpdate    = 0;
@@ -505,7 +506,11 @@ void AudioSystem::doUpdate()
 			// 0 at the gate) so the OUT ring was never written -> silence
 			// (witnessed: :4445 DIAG outUpd=0 while cbwr/looper.update climbed).
 			if (p->m_numConnections || p->getType() == AUDIO_DEVICE_OUTPUT)
+			{
+				extern volatile unsigned g_diagOutGateHit;
+				if (p->getType() == AUDIO_DEVICE_OUTPUT) g_diagOutGateHit++;
 				p->update();
+			}
 		}
 		g_diagWalkN = walkN;
 		g_diagTypeMask = typeMask;
