@@ -471,6 +471,8 @@ void AudioSystem::startUpdate()
 // file-scope globals each call; the free-function getters read the mirrors.
 // nInUpdate stuck non-zero while no doUpdate completes == Core 1 not draining
 // the dispatch ring (the graph-dead signature: cbwr/outWr frozen while IN fires).
+volatile unsigned g_diagWalkN        = 0;
+volatile unsigned g_diagTypeMask     = 0;
 volatile unsigned g_diagNInUpdate    = 0;
 volatile unsigned g_diagNumOverflows = 0;
 volatile unsigned g_diagUpdSched     = 0;
@@ -488,11 +490,25 @@ void AudioSystem::doUpdate()
 	int guard = DRAIN_MAX_ITERS;
 	for (;;)
 	{
+		// DIAG: count streams walked + OR together their getType() so the :4445
+		// DIAG verb can prove whether the OUTPUT node (0x8000) is even in the
+		// post-topo-sort s_pFirstStream chain this doUpdate traverses.
+		extern volatile unsigned g_diagWalkN, g_diagTypeMask;
+		unsigned walkN = 0, typeMask = 0;
 		for (AudioStream *p = s_pFirstStream; p; p = p->m_pNextStream)
 		{
-			if (p->m_numConnections)
+			walkN++;
+			typeMask |= p->getType();
+			// An OUTPUT sink must drain its input queue every block to feed the
+			// USB OUT ring, even though it has no OUTGOING connections. Gating
+			// purely on m_numConnections skipped the AudioOutputUSB node (it read
+			// 0 at the gate) so the OUT ring was never written -> silence
+			// (witnessed: :4445 DIAG outUpd=0 while cbwr/looper.update climbed).
+			if (p->m_numConnections || p->getType() == AUDIO_DEVICE_OUTPUT)
 				p->update();
 		}
+		g_diagWalkN = walkN;
+		g_diagTypeMask = typeMask;
 
 		s_updatePending = false;
 		// LATCHED HYSTERESIS drain. A bare threshold hunts: drain->over->stop->

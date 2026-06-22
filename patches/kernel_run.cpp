@@ -332,11 +332,15 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				extern unsigned AudioSystem_nInUpdate(void);
 				extern unsigned AudioSystem_numOverflows(void);
 				extern unsigned AudioSystem_updateScheduled(void);
+				extern volatile unsigned g_diagInHandler, g_diagInBlockCross, g_diagInResp;
+				extern volatile unsigned g_outUpdEntered, g_outNumConn;
+				extern volatile unsigned g_diagWalkN, g_diagTypeMask;
 				CString s;
-				s.Format("outWr=%u dispDrop=%u nInUpd=%u overflows=%u updSched=%u ready=%d c1busy=%u c1idle=%u",
-					(unsigned)g_outWrites, (unsigned)g_dispatchDropped,
+				s.Format("outWr=%u outUpd=%u outConn=%u walkN=%u typeMask=%x dispDrop=%u nInUpd=%u overflows=%u updSched=%u ready=%d inHnd=%u inXing=%u inResp=%u c1busy=%u c1idle=%u",
+					(unsigned)g_outWrites, (unsigned)g_outUpdEntered, (unsigned)g_outNumConn, (unsigned)g_diagWalkN, (unsigned)g_diagTypeMask, (unsigned)g_dispatchDropped,
 					AudioSystem_nInUpdate(), AudioSystem_numOverflows(), AudioSystem_updateScheduled(),
 					g_coreAudioReady?1:0,
+					(unsigned)g_diagInHandler, (unsigned)g_diagInBlockCross, (unsigned)g_diagInResp,
 					(unsigned)g_coreBusyTicks[1], (unsigned)g_coreIdleTicks[1]);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}

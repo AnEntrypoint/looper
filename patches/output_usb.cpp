@@ -26,6 +26,12 @@ volatile int      g_otgLastRateStep = 65536;
 // is not reaching the output node = no-output cause distinct from a rate/mix
 // fault. Surfaced as :4445 UAUD outWr.
 volatile unsigned g_outWrites      = 0;
+// DIAG: g_outUpdEntered = AudioOutputUSB::update() invocations (proves the
+// doUpdate stream-walk reaches the output node); g_outNumConn = its
+// m_numConnections (doUpdate gates `if(p->m_numConnections) p->update()`, so 0
+// would skip the output sink entirely).
+volatile unsigned g_outUpdEntered  = 0;
+volatile unsigned g_outNumConn     = 0;
 
 unsigned AudioOutputUSB_outAvail (void) { return s_ring_wr - s_ring_rd; }
 
@@ -193,6 +199,9 @@ void AudioOutputUSB::outHandler (s16 *pLeft, s16 *pRight, unsigned nSamples)
 
 void AudioOutputUSB::update (void)
 {
+    extern volatile unsigned g_outUpdEntered, g_outNumConn;
+    g_outUpdEntered++;                 // proves doUpdate's walk reached this node
+    g_outNumConn = m_numConnections;   // gate value (doUpdate skips if 0)
     audio_block_t *new_left  = receiveReadOnly (0);
     audio_block_t *new_right = receiveReadOnly (1);
 

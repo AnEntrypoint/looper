@@ -13,6 +13,14 @@ audio_block_t *AudioInputUSB::s_block_right = 0;
 bool           AudioInputUSB::s_update_responsibility = false;
 volatile u32   AudioInputUSB::s_peakLevel = 0;
 
+// DIAG (:4445 DIAG verb): prove the graph-tick driver. g_diagInHandler =
+// inHandler invocations; g_diagInBlockCross = block-boundary crossings (each
+// should call startUpdate); g_diagInResp = s_update_responsibility (0 => the
+// gate is closed and the graph never ticks despite IN flowing).
+volatile unsigned g_diagInHandler   = 0;
+volatile unsigned g_diagInBlockCross = 0;
+volatile unsigned g_diagInResp      = 0;
+
 #define IN_RING_SIZE 512
 #define IN_TARGET_LAG   96
 #define IN_DEADBAND     48
@@ -81,7 +89,14 @@ void AudioInputUSB::start (void)
 void AudioInputUSB_bindHandler (CUSBAudioDevice *pDev)
 {
     if (pDev)
+    {
         pDev->RegisterInHandler (AudioInputUSB::inHandler);
+        // Open the graph-tick gate now that a real IN device is bound. Without
+        // this the boot handshake could leave s_update_responsibility false, so
+        // inHandler never fired AudioSystem::startUpdate -> dead graph -> no
+        // output (witnessed live: DIAG inResp=0, inHnd/inXing climbing, outWr=0).
+        AudioInputUSB::claimUpdateResponsibility ();
+    }
 }
 
 void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
@@ -104,9 +119,18 @@ void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSa
     if (peak > s_peakLevel) s_peakLevel = peak;
     g_inLastTicks = CTimer::GetClockTicks ();
 
+    // DIAG: count inHandler calls + block-boundary crossings + expose the
+    // responsibility flag, to prove whether the graph-tick driver fires.
+    extern volatile unsigned g_diagInHandler, g_diagInBlockCross, g_diagInResp;
+    g_diagInHandler++;
+    g_diagInResp = s_update_responsibility ? 1u : 0u;
     unsigned cur_block = wr / AUDIO_BLOCK_SAMPLES;
-    if (cur_block != prev_block && s_update_responsibility)
-        AudioSystem::startUpdate ();
+    if (cur_block != prev_block)
+    {
+        g_diagInBlockCross++;
+        if (s_update_responsibility)
+            AudioSystem::startUpdate ();
+    }
 }
 
 void AudioInputUSB::update (void)
