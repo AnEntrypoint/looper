@@ -318,6 +318,28 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					(unsigned)g_samplerVoices);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
+			else if (buf[0]=='D' && buf[1]=='I' && buf[2]=='A' && buf[3]=='G')
+			{
+				// Graph-tick diagnostics: why is the audio graph dead (cbwr=0/outWr=0)
+				// while IN URBs fire? nInUpd stuck != 0 + outWr frozen == Core 1 not
+				// draining the dispatch ring; dispDrop climbing == ring overflow; ready=0
+				// == Core 1 never released; c1busy=0 == Core 1 never ran.
+				extern volatile unsigned g_outWrites;
+				extern volatile unsigned g_dispatchDropped;
+				extern volatile bool g_coreAudioReady;
+				extern volatile u64 g_coreBusyTicks[4];
+				extern volatile u64 g_coreIdleTicks[4];
+				extern unsigned AudioSystem_nInUpdate(void);
+				extern unsigned AudioSystem_numOverflows(void);
+				extern unsigned AudioSystem_updateScheduled(void);
+				CString s;
+				s.Format("outWr=%u dispDrop=%u nInUpd=%u overflows=%u updSched=%u ready=%d c1busy=%u c1idle=%u",
+					(unsigned)g_outWrites, (unsigned)g_dispatchDropped,
+					AudioSystem_nInUpdate(), AudioSystem_numOverflows(), AudioSystem_updateScheduled(),
+					g_coreAudioReady?1:0,
+					(unsigned)g_coreBusyTicks[1], (unsigned)g_coreIdleTicks[1]);
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
 			else if (buf[0]=='C' && buf[1]=='L' && buf[2]=='I' && buf[3]=='P')
 			{
 				// Clip-0 FSM telemetry for track 0 (or "CLIP<n>" for track n):

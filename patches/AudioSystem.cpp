@@ -440,6 +440,11 @@ static volatile bool s_draining = false;     // latched drain-mode (hysteresis)
 
 void AudioSystem::startUpdate()
 {
+	// Mirror private counters to the DIAG globals (member has access).
+	extern volatile unsigned g_diagNInUpdate, g_diagNumOverflows, g_diagUpdSched;
+	g_diagNInUpdate = s_nInUpdate;
+	g_diagNumOverflows = s_numOverflows;
+	g_diagUpdSched = s_bUpdateScheduled ? 1u : 0u;
 	// Atomic check+set: disable IRQ briefly to defeat ISR-vs-Core-2 race.
 	__disable_irq();
 	bool already = (s_nInUpdate != 0);
@@ -460,6 +465,18 @@ void AudioSystem::startUpdate()
 		doUpdate();
 	#endif
 }
+
+// Capture-free diagnostics for the :4445 DIAG verb. The class statics are
+// private, so startUpdate() (a member, has access) mirrors them into these
+// file-scope globals each call; the free-function getters read the mirrors.
+// nInUpdate stuck non-zero while no doUpdate completes == Core 1 not draining
+// the dispatch ring (the graph-dead signature: cbwr/outWr frozen while IN fires).
+volatile unsigned g_diagNInUpdate    = 0;
+volatile unsigned g_diagNumOverflows = 0;
+volatile unsigned g_diagUpdSched     = 0;
+unsigned AudioSystem_nInUpdate (void)     { return g_diagNInUpdate; }
+unsigned AudioSystem_numOverflows (void)  { return g_diagNumOverflows; }
+unsigned AudioSystem_updateScheduled (void) { return g_diagUpdSched; }
 
 
 void AudioSystem::doUpdate()
