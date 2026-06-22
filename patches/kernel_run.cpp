@@ -197,14 +197,16 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				unsigned dOf = wlanDhcpOffersSeen();
 				unsigned uni = linkUniRxToUs();
 				unsigned clk = linkClkRx();
+				extern unsigned linkTtmpRx(void);
+				unsigned ttmp = linkTtmpRx();
 #else
 				const char *mode = "disabled";
 				int dhcpOK = 0, dhcpAtt = 0;
-				unsigned rxF = 0, dRx = 0, dOf = 0, uni = 0, clk = 0;
+				unsigned rxF = 0, dRx = 0, dOf = 0, uni = 0, clk = 0, ttmp = 0;
 #endif
 				CString s;
-				s.Format("wlan=%s dhcpOK=%d dhcpAtt=%d rxFrames=%u uniRx=%u clkRx=%u dhcpRx=%u dhcpOffers=%u link=%s bpm=%d p9err=%u", mode,
-					dhcpOK, dhcpAtt, rxF, uni, clk, dRx, dOf,
+				s.Format("wlan=%s dhcpOK=%d dhcpAtt=%d rxFrames=%u uniRx=%u clkRx=%u ttmpRx=%u dhcpRx=%u dhcpOffers=%u link=%s bpm=%d p9err=%u", mode,
+					dhcpOK, dhcpAtt, rxF, uni, clk, ttmp, dRx, dOf,
 					linkIsSynced() ? "synced" : "no", (int)linkGetBPM(),
 					p9ErrorCount());
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);

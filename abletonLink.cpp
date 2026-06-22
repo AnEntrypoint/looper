@@ -30,6 +30,7 @@
 #define OUR_MEP4_PORT	20808       // we accept unicast pings on our IP:this port
 #define LCLK_PORT		20810       // esp "ticker" clock-broadcast (multicast, same group)
 #define LTMP_PORT		20811       // looper->esp explicit tempo-set (multicast, same group)
+#define TTMP_PORT		20812       // esp->looper ticker-timeline broadcast (tempo+phrase origin)
 #define SEND_INTERVAL_US	1000000u
 #define PING_INTERVAL_US	50000u  // 50ms between measurement pings (Link default)
 #define MEASURE_RETRY_US	2000000u// re-measure a peer at least this often
@@ -335,6 +336,45 @@ static void republishTimeline(void)
 // owner-election / timeline-adoption / lgBeatPhaseAtHost machinery validate phase
 // exactly as a real measurement would. Payload: "LCLK"(4) + i64 espNowMicros LE.
 static volatile unsigned g_clkRx = 0;          // diag: clock broadcasts consumed
+static volatile unsigned g_ttmpRx = 0;         // diag: ticker-timeline broadcasts consumed
+
+// esp -> looper TICKER TIMELINE (bidirectional Link tempo). Ableton Link lets ANY
+// device set the group tempo; the looper->esp direction is LTMP (sendTempoSet),
+// but the esp->looper direction was missing: the esp runs the real Link lib whose
+// native discovery never reaches the looper (unicast-RX wall -> RALV empty,
+// peers=0), so when the ESP changed tempo the looper never learned it. The esp now
+// ALSO multicasts its current Link timeline on TTMP_PORT; we register the esp as a
+// synthetic OWNER peer (fixed nodeId = all-0xFF so lsOwnerPeer always elects it)
+// carrying that timeline. Combined with the LCLK clock offset (which marks the
+// owner 'measured'), the existing republishTimeline adopts the esp's tempo+phase.
+// Payload: "TTMP"(4) + i64 LE microsPerBeat + i64 LE beatOriginMicroBeats(esp clock)
+//          + i64 LE timeOriginMicros(esp clock).  (28 bytes)
+static void handleTickerTimeline(const u8 *pl, int plen)
+{
+	if (plen < 28 || memcmp(pl, "TTMP", 4) != 0) return;
+	s64 mpb, beatOrigin, timeOrigin;
+	memcpy(&mpb,        pl + 4,  8);
+	memcpy(&beatOrigin, pl + 12, 8);
+	memcpy(&timeOrigin, pl + 20, 8);
+	if (mpb <= 0) return;
+	g_ttmpRx++;
+	// Synthetic esp peer id: all-0xFF outranks any real nodeId so the esp is the
+	// owner (it is the session clock master). Stable across packets so it is the
+	// same peer slot each time.
+	static const u8 espId[8] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+	s64 now = nowMicros();
+	LinkPeer *p = lsUpsert(&s_session, espId, now);
+	if (!p) return;
+	p->timeline.tempoMicrosPerBeat  = mpb;
+	p->timeline.beatOriginMicroBeats = beatOrigin;   // in esp (ghost) clock, matched by LCLK offset
+	p->timeline.timeOriginMicros     = timeOrigin;
+	p->hasTimeline = true;
+	// republish picks up the new tempo; LCLK handler supplies the measured offset
+	// so phase is trusted. Throttled there; do a light republish here too so a
+	// tempo change is adopted promptly even between LCLK packets.
+	republishTimeline();
+}
+
 static void handleClockBroadcast(const u8 *pl, int plen)
 {
 	if (plen < 12 || memcmp(pl, "LCLK", 4) != 0) return;
@@ -361,6 +401,7 @@ static void handleClockBroadcast(const u8 *pl, int plen)
 	republishTimeline();
 }
 unsigned linkClkRx(void) { return g_clkRx; }
+unsigned linkTtmpRx(void) { return g_ttmpRx; }
 
 // ---- decode an inbound Link message (discovery or measurement) ----
 static void handleMessage(const u8 *pl, int plen, const u8 *ethSrcMac)
@@ -468,6 +509,11 @@ static bool linkTryParse(const u8 *buf, unsigned len)
 	// climbs (the bug that left phase tempo-only despite the esp sending fine).
 	bool toClk = (memcmp(ip + 16, MCAST, 4) == 0 || ip[16] == 255) && dport == LCLK_PORT;
 	if (toClk) { handleClockBroadcast(pl, plen); return true; }
+
+	// esp ticker timeline broadcast (esp->looper tempo, bidirectional Link): same
+	// group, TTMP_PORT, 28-byte payload. Also before the LW_HEADER_LEN guard.
+	bool toTtmp = (memcmp(ip + 16, MCAST, 4) == 0 || ip[16] == 255) && dport == TTMP_PORT;
+	if (toTtmp) { handleTickerTimeline(pl, plen); return true; }
 
 	if (plen < (int)LW_HEADER_LEN) return false;
 
