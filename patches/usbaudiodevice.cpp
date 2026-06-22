@@ -157,6 +157,14 @@ boolean CUSBAudioDevice::Configure (void)
     DeviceName.Format ("uaudio%u", s_nDeviceNumber++);
     CDeviceNameService::Get ()->AddDevice (DeviceName, this, FALSE);
 
+    // The audio graph's start() ran at boot, before this device enumerated, so its
+    // RegisterIn/OutHandler call found GetIn()/GetOut() null and never wired the
+    // handlers -- the iso pipe would then run but ship silence. Bind the handlers
+    // NOW that the endpoints exist, so audio actually flows. (free funcs in
+    // input_usb.cpp / output_usb.cpp)
+    extern void AudioInputUSB_bindHandler  (CUSBAudioDevice *pDev);
+    extern void AudioOutputUSB_bindHandler (CUSBAudioDevice *pDev);
+
     if (m_pEndpointIn && !s_pThis)
     {
         s_pThis = this;
@@ -165,11 +173,13 @@ boolean CUSBAudioDevice::Configure (void)
         g_audioChannels = m_uChannels;
         g_audioSubslot  = m_uSubslot;
         g_audioRate     = m_uRate;
+        AudioInputUSB_bindHandler (this);
     }
     if (m_pEndpointOut && !s_pOut)
     {
         s_pOut = this;
         g_audioOutBound = 1;
+        AudioOutputUSB_bindHandler (this);
     }
 
     CLogger::Get ()->Write (FromAudio, LogNotice, "USB audio configured (in=%s out=%s)",

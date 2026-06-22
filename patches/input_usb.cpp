@@ -76,6 +76,14 @@ void AudioInputUSB::start (void)
         pDev->RegisterInHandler (inHandler);
 }
 
+// Late-bind hook (see AudioOutputUSB_bindHandler): register the IN handler when
+// the USB audio device enumerates after the graph already started.
+void AudioInputUSB_bindHandler (CUSBAudioDevice *pDev)
+{
+    if (pDev)
+        pDev->RegisterInHandler (AudioInputUSB::inHandler);
+}
+
 void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
 {
     unsigned wr = s_in_ring_wr;

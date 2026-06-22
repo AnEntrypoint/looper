@@ -12,11 +12,14 @@ public:
     virtual u16 getType (void)         { return AUDIO_DEVICE_INPUT; }
     virtual void start  (void);
 
+    // Public so the late-bind hook (AudioInputUSB_bindHandler) can register it
+    // from CUSBAudioDevice::Configure() when the device enumerates after boot.
+    static void inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSamples);
+
 protected:
     virtual void update (void);
 
 private:
-    static void inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSamples);
 
     static audio_block_t *s_block_left;
     static audio_block_t *s_block_right;

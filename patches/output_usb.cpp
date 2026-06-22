@@ -21,6 +21,11 @@ volatile unsigned g_outUnderruns   = 0;
 volatile unsigned g_otgResyncs     = 0;
 volatile unsigned g_outRingResync  = 0;   // main USB-OUT ring catastrophic resyncs (the glitch, pre-fix)
 volatile int      g_otgLastRateStep = 65536;
+// Diagnostic: counts AudioOutputUSB::update() block writes into the OUT ring.
+// If this is FROZEN while the OUT URBs clock (outDeliv climbing), the graph tick
+// is not reaching the output node = no-output cause distinct from a rate/mix
+// fault. Surfaced as :4445 UAUD outWr.
+volatile unsigned g_outWrites      = 0;
 
 unsigned AudioOutputUSB_outAvail (void) { return s_ring_wr - s_ring_rd; }
 
@@ -128,6 +133,16 @@ void AudioOutputUSB::start (void)
         pDev->RegisterOutHandler (outHandler);
 }
 
+// Late-bind hook: the audio graph's start() runs at boot, BEFORE the USB audio
+// device enumerates, so GetOut() is null then and the OUT handler never gets
+// registered -- the iso pipe runs but ships silence. CUSBAudioDevice::Configure()
+// calls this once the OUT endpoint is bound so the handler is always wired.
+void AudioOutputUSB_bindHandler (CUSBAudioDevice *pDev)
+{
+    if (pDev)
+        pDev->RegisterOutHandler (AudioOutputUSB::outHandler);
+}
+
 // Main USB OUT reader. Reads nSamples 1:1 from the ring. RATE control lives in the
 // SEND-COUNT (StartOutRequest's PI ring-fill controller sizes nSamples so the
 // long-run send rate converges to the engine = device-clock rate, compensating the
@@ -190,6 +205,7 @@ void AudioOutputUSB::update (void)
     }
     DataMemBarrier ();
     s_ring_wr = wr;
+    g_outWrites++;   // diag: proves update() (graph tick) reaches the output node
 
     if (new_left)  AudioSystem::release (new_left);
     if (new_right) AudioSystem::release (new_right);

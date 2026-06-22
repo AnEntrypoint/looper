@@ -83,9 +83,17 @@ publicLoopMachine::publicLoopMachine() :
 
     for (int i=0; i<LOOPER_NUM_CONTROLS; i++)
     {
-        m_control[i].value = 0;
-        m_control[i].default_value = control_default[i];
-        m_control[i].scale = 0.00;
+        u16 dflt = control_default[i];
+        m_control[i].value = dflt;
+        m_control[i].default_value = dflt;
+        // Seed scale from the default the SAME way setControl() derives it, so the
+        // thru/loop/mix volumes are at unity at boot. Without this they stayed 0
+        // until an APC fader moved -> a UCA222-only rig (no faders feeding these
+        // CCs) played SILENCE despite audio flowing through the graph.
+        if (i == LOOPER_CONTROL_INPUT_GAIN || i == LOOPER_CONTROL_OUTPUT_GAIN)
+            m_control[i].scale = ((float)dflt) / 127.00f;
+        else
+            m_control[i].scale = ((float)dflt) / 63.0f;
         m_control[i].multiplier = 0;
     }
     for (int i=0; i<NUM_METERS; i++)
