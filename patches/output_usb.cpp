@@ -159,21 +159,38 @@ void AudioOutputUSB::outHandler (s16 *pLeft, s16 *pRight, unsigned nSamples)
 {
     DataMemBarrier ();
     unsigned wr_snap = s_ring_wr;
-    // Seed the read pointer ~128 samples behind the writer on the first call so the
-    // ring starts at the PI target lag -- avoids a boot-time resync storm while the
-    // ring fills from empty (avail<nSamples would otherwise resync every call).
-    if (!s_out_rd_init) { s_ring_rd = wr_snap - 128; s_out_rd_init = true; }
+    // Low OUT target lag. UAC2 (async OUT, e.g. Tascam) controls the SEND rate via
+    // the feedback PI in StartOutRequest (holds the ring near avail=256) so this
+    // reader just reads passively there. UAC1 (UCA222, synchronous) has NO send-rate
+    // PI, so without help here the read position drifts and the OUT lag creeps up.
+    // For UAC1 we hold the lag at a SMALL target with a deadband skip/repeat trim
+    // (the same click-tolerant scheme as the OTG tap) so monitoring latency stays
+    // low. OUT_RD_TARGET = ~96 samples = ~2ms behind the writer.
+    extern volatile unsigned g_audioUAC2;
+    const int OUT_RD_TARGET  = 96;
+    const int OUT_RD_DEADBAND = 32;   // > per-block write oscillation, so it doesn't hunt
+    int seedLag = g_audioUAC2 ? 128 : OUT_RD_TARGET;
+    if (!s_out_rd_init) { s_ring_rd = wr_snap - seedLag; s_out_rd_init = true; }
     unsigned rd = s_ring_rd;
     int avail = (int)(wr_snap - rd);
 
     // ONLY hard-resync on OVERFLOW (writer about to overwrite unread data). A low
-    // avail (PI transient overshoot) is handled CLICK-FREE by the per-sample
-    // repeat-last fallback below -- a hard rd jump there was the audible resync
-    // burst. The PI holds avail ~128 so overflow effectively never fires.
+    // avail is handled CLICK-FREE by the per-sample repeat-last fallback below --
+    // a hard rd jump there was the audible resync burst.
     if (avail >= (int)(OUT_RING_SIZE - 64))
     {
-        rd = wr_snap - nSamples * 2;
+        rd = wr_snap - (g_audioUAC2 ? (int)nSamples * 2 : OUT_RD_TARGET);
         g_outRingResync++;
+    }
+
+    // UAC1 rate-trim: nudge the read position by ONE sample/call when avail leaves
+    // the deadband around the small target, so the OUT lag is pinned low instead of
+    // drifting toward overflow. UAC2 is skipped (its feedback PI already paces).
+    if (!g_audioUAC2)
+    {
+        int dev = avail - OUT_RD_TARGET;
+        if (dev > OUT_RD_DEADBAND)       { rd++;    avail--; }   // too much lag: drop one
+        else if (dev < -OUT_RD_DEADBAND) { if (rd) rd--; avail++; } // too little: repeat one
     }
 
     for (unsigned i = 0; i < nSamples; i++)
