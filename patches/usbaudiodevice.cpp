@@ -189,12 +189,17 @@ boolean CUSBAudioDevice::Configure (void)
         StartInRequest ();
     if (m_pEndpointOut)
     {
-        // Double-buffer: submit BOTH OUT URBs up front so one is always in flight
-        // while the other is re-armed in its completion -- the high-speed iso pipe
-        // never has a re-arm gap, so no microframe is ever missing (the residual
-        // Tascam under-feed that multi-packet alone left at ~one drop every ~20s).
+        // Double-buffer (2 OUT URBs in flight) is a UAC2-ONLY measure: the
+        // high-speed async-OUT device (Tascam US-2x2) misses microframes during
+        // the per-URB re-arm gap, so one URB must always be in flight. It costs
+        // ~1 URB period of extra pipeline latency. The full-speed UCA222 (UAC1,
+        // 1ms re-arm window) never falls behind, so it does NOT need the second
+        // URB -- and before the UAC2 work it ran single-buffered. Keep UAC1
+        // single-buffered to restore its original low monitoring latency;
+        // OutCompletion re-arms per-slot, so a single slot 0 self-sustains.
         StartOutRequest (0);
-        StartOutRequest (1);
+        if (m_bUAC2 && m_pEndpointFb)
+            StartOutRequest (1);
     }
     if (m_pEndpointFb)
         StartFbRequest ();   // service async OUT feedback so the device paces/plays
