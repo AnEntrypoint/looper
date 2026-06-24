@@ -256,7 +256,10 @@ static inline int midiMapDecodeValue(uint8_t valueMode, uint8_t data2)
 
 static const MidiInputMap g_apc25Inputs[] = {
     // --- modifier (must precede pad/button so SHIFT note isn't a pad) ---
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, APC25_BTN_SHIFT,  APC25_BTN_SHIFT,  MV_TRIGGER,  MA_SHIFT,               0  },
+    // CHANNEL 0 (button channel) ONLY: the keybed is channel 1 and note 98 ==
+    // APC25_BTN_SHIFT (== D three octaves up). Without the channel guard that
+    // keybed D would toggle SHIFT instead of playing. Buttons=ch0, keybed=ch1.
+    { MS_NOTE_ON,  0, APC25_BTN_SHIFT,  APC25_BTN_SHIFT,  MV_TRIGGER,  MA_SHIFT,               0  },
 
     // --- live-pitch notes by channel (APC multi-channel nuance) ---
     { MS_NOTE_ON,  0,  64, 64, MV_TRIGGER,  MA_BTN_TOGGLE_LIVE,     0 },   // ch0 note64 toggle
@@ -266,11 +269,13 @@ static const MidiInputMap g_apc25Inputs[] = {
     // --- microrepeat latch notes 82-86 (held = latched). MUST precede the
     // FORMAT button row so note 84 (== APC25_BTN_FORMAT) drives the 1/4-beat
     // repeat, not the FORMAT toggle. param = beat divisor. ---
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 82, 82, MV_TRIGGER, MA_MICROREPEAT,  1 },   // 1 beat
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 83, 83, MV_TRIGGER, MA_MICROREPEAT,  2 },   // 1/2 beat
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 84, 84, MV_TRIGGER, MA_MICROREPEAT,  4 },   // 1/4 beat
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 85, 85, MV_TRIGGER, MA_MICROREPEAT,  8 },   // 1/8 beat
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, 86, 86, MV_TRIGGER, MA_MICROREPEAT, 16 },   // 1/16 beat stutter
+    // CHANNEL 0 ONLY (glitch is a BUTTON function): notes 82-86 on the keybed
+    // (channel 1) must PLAY, not latch a microrepeat division.
+    { MS_NOTE_ON,  0, 82, 82, MV_TRIGGER, MA_MICROREPEAT,  1 },   // 1 beat
+    { MS_NOTE_ON,  0, 83, 83, MV_TRIGGER, MA_MICROREPEAT,  2 },   // 1/2 beat
+    { MS_NOTE_ON,  0, 84, 84, MV_TRIGGER, MA_MICROREPEAT,  4 },   // 1/4 beat
+    { MS_NOTE_ON,  0, 85, 85, MV_TRIGGER, MA_MICROREPEAT,  8 },   // 1/8 beat
+    { MS_NOTE_ON,  0, 86, 86, MV_TRIGGER, MA_MICROREPEAT, 16 },   // 1/16 beat stutter
 
     // --- sampler control buttons (free track buttons 65/66, channel 0). MUST
     // precede the pad/transport rows; 65/66 are outside the pad range so they
@@ -278,12 +283,13 @@ static const MidiInputMap g_apc25Inputs[] = {
     { MS_NOTE_ON,  0, 65, 65, MV_TRIGGER, MA_SAMPLER_RECORD,    0 },   // 65 hold = record chromatic sample
     { MS_NOTE_ON,  0, 66, 66, MV_TRIGGER, MA_SAMPLER_DRUM_MODE, 0 },   // 66 hold = drum-record arm
 
-    // --- grid pads + global transport buttons (channel-agnostic note range) ---
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, APC25_NOTE_PAD_LO, APC25_NOTE_PAD_HI, MV_TRIGGER, MA_PAD,          -1 },
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, APC25_BTN_STOP_ALL, APC25_BTN_STOP_ALL, MV_TRIGGER, MA_BTN_STOP_ALL, 0 },
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, APC25_BTN_RECORD,  APC25_BTN_RECORD,  MV_TRIGGER, MA_BTN_RECORD,    0 },
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, APC25_BTN_PLAY,    APC25_BTN_PLAY,    MV_TRIGGER, MA_BTN_PLAY,      0 },
-    { MS_NOTE_ON,  MIDI_ANY_CHANNEL, APC25_BTN_FORMAT,  APC25_BTN_FORMAT,  MV_TRIGGER, MA_BTN_TOGGLE_LIVE, 0 },
+    // --- grid pads + global transport buttons: CHANNEL 0 ONLY (button channel).
+    // Pads/transport must never be triggered by a keybed (channel 1) note. ---
+    { MS_NOTE_ON,  0, APC25_NOTE_PAD_LO, APC25_NOTE_PAD_HI, MV_TRIGGER, MA_PAD,          -1 },
+    { MS_NOTE_ON,  0, APC25_BTN_STOP_ALL, APC25_BTN_STOP_ALL, MV_TRIGGER, MA_BTN_STOP_ALL, 0 },
+    { MS_NOTE_ON,  0, APC25_BTN_RECORD,  APC25_BTN_RECORD,  MV_TRIGGER, MA_BTN_RECORD,    0 },
+    { MS_NOTE_ON,  0, APC25_BTN_PLAY,    APC25_BTN_PLAY,    MV_TRIGGER, MA_BTN_PLAY,      0 },
+    { MS_NOTE_ON,  0, APC25_BTN_FORMAT,  APC25_BTN_FORMAT,  MV_TRIGGER, MA_BTN_TOGGLE_LIVE, 0 },
 
     // --- continuous controllers ---
     { MS_CC, MIDI_ANY_CHANNEL,   1,   1, MV_ABSOLUTE, MA_LIVE_PITCH_MODWHEEL, 0 },   // CC1 mod wheel

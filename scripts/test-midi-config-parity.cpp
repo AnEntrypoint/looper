@@ -29,22 +29,26 @@ static const char* legacyInputTag(uint8_t status, uint8_t data1, uint8_t data2)
     uint8_t ch = status & 0x0F;
 
     if (st == 0x90 && data2 > 0) {                       // note-on
-        if (data1 == 0x62) return "SHIFT";
-        if (ch == 0 && data1 == 64) return "TOGGLE_LIVE";
+        // KEYBED is channel 1 (sampler + transpose ONLY) and owns the whole
+        // keyboard note range; ch2 is the UDP-MIDI test channel. EVERY button /
+        // glitch / pad function is BUTTON channel 0, guarded so a keybed note
+        // (e.g. 98==SHIFT, 82-86==microrepeat) is never intercepted.
         if (ch == 1) return "PITCH_CH1";
         if (ch == 2) return "PITCH_CH2";
+        if (ch == 0 && data1 == 0x62) return "SHIFT";
+        if (ch == 0 && data1 == 64) return "TOGGLE_LIVE";
         // microrepeat latch notes 82-86 checked BEFORE pad/button (note 84
         // overrides FORMAT) - matches the new handleMidi order.
-        if (data1 >= 82 && data1 <= 86) return "MICROREPEAT";
+        if (ch == 0 && data1 >= 82 && data1 <= 86) return "MICROREPEAT";
         // sampler control buttons (ch0, free track buttons 65/66) checked before
         // pad/button dispatch - matches the new handleMidi order.
         if (ch == 0 && data1 == 65) return "SAMPLER_RECORD";
         if (ch == 0 && data1 == 66) return "SAMPLER_DRUM_MODE";
-        if (data1 < 40)  return "PAD";                   // APC_ROWS*APC_COLS=40
-        if (data1 == 0x51) return "STOP_ALL";
-        if (data1 == 0x5D) return "RECORD";
-        if (data1 == 0x5B) return "PLAY";
-        if (data1 == 0x54) return "TOGGLE_LIVE";         // FORMAT button
+        if (ch == 0 && data1 < 40)  return "PAD";        // APC_ROWS*APC_COLS=40
+        if (ch == 0 && data1 == 0x51) return "STOP_ALL";
+        if (ch == 0 && data1 == 0x5D) return "RECORD";
+        if (ch == 0 && data1 == 0x5B) return "PLAY";
+        if (ch == 0 && data1 == 0x54) return "TOGGLE_LIVE";  // FORMAT button
         return "NONE";
     }
     if (st == 0xB0) {                                     // CC
