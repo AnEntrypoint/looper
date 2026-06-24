@@ -88,7 +88,12 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
 
     if (msgType == APC_CH_NOTE_ON && data2 > 0)
     {
-        if (data1 == APC_BTN_SHIFT) { m_shift = true; return; }
+        // SHIFT lives on the BUTTON channel (0). Without the channel guard the
+        // keybed (channel 1) note 98 == APC_BTN_SHIFT (0x62) -- which is the D
+        // three octaves up -- was swallowed as SHIFT and never played. The keybed
+        // (ch1) must be handled ONLY by the channel==1 block below; no button
+        // function may intercept it.
+        if (channel == 0 && data1 == APC_BTN_SHIFT) { m_shift = true; return; }
         if (channel == 0 && data1 == 64) {
             m_liveEngaged = !m_liveEngaged;
             if (!m_liveEngaged) m_livePitchSemitones = 0.0f;
@@ -131,7 +136,8 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
         // Microrepeat latch notes 82-86 (1, 1/2, 1/4, 1/8, 1/16 beat). Checked
         // BEFORE the pad/button dispatch so note 84 overrides APC_BTN_FORMAT.
         // Held = latched; last-pressed wins. Released in the note-off block.
-        if (data1 >= 82 && data1 <= 86) {
+        // BUTTON channel (0) only -- a keybed (ch1) note 82-86 must play, not latch.
+        if (channel == 0 && data1 >= 82 && data1 <= 86) {
             static const u8 div[5] = {1, 2, 4, 8, 16};   // 82..86 -> 1/div beat
             m_microRepeatDiv = div[data1 - 82];
             return;
@@ -148,22 +154,27 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             g_samplerDrumMode = 1;
             return;
         }
-        if (data1 < APC_ROWS * APC_COLS)
+        // Pads + transport buttons are BUTTON channel (0) only -- never the keybed.
+        if (channel == 0 && data1 < APC_ROWS * APC_COLS)
         {
             _onPadPress(data1 / APC_COLS, data1 % APC_COLS);
             return;
         }
-        _onButton(data1);
+        if (channel == 0) { _onButton(data1); return; }
         return;
     }
 
     if (msgType == APC_CH_NOTE_OFF || (msgType == APC_CH_NOTE_ON && data2 == 0))
     {
-        if (data1 == APC_BTN_SHIFT) { m_shift = false; return; }
+        // SHIFT + microrepeat latches are BUTTON-channel (0) functions. Guard them
+        // by channel so a keybed (ch1) note-off -- e.g. note 98 (D, +3 oct) ==
+        // APC_BTN_SHIFT, or notes 82-86 at +octaves -- is NOT intercepted and
+        // reaches the channel==1 keybed release below (otherwise voices stick).
+        if (channel == 0 && data1 == APC_BTN_SHIFT) { m_shift = false; return; }
         // Release a microrepeat latch: clear only if the released note owns the
         // currently-active division (so releasing a stale earlier note doesn't
         // cancel a newer held one).
-        if (data1 >= 82 && data1 <= 86) {
+        if (channel == 0 && data1 >= 82 && data1 <= 86) {
             static const u8 div[5] = {1, 2, 4, 8, 16};
             if (m_microRepeatDiv == div[data1 - 82]) m_microRepeatDiv = 0;
             return;
@@ -184,23 +195,25 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
         if (channel == 0 && data1 == 64) return;
         if (channel == 1) {
             // Mirror the note-on routing: stop a drum-record on key release, or
-            // send the sampler a NOTE_OFF (release sustaining chromatic voices).
+            // send the sampler a NOTE_OFF. The NOTE_OFF is forwarded
+            // UNCONDITIONALLY (not gated on chromaticLoaded/drumLoaded) -- gating
+            // it could SUPPRESS the release if content changed between press and
+            // release, stranding a sustaining voice (the "auto-sustain" bug). An
+            // unmatched NOTE_OFF is harmless in the sampler.
             if (pSampler) {
-                int keyIdx = sampler::keyIndex((int)data1);
                 if (m_drumRecordMode) {
+                    int keyIdx = sampler::keyIndex((int)data1);
                     if (keyIdx >= 0)
                         pSampler->pushEvent(sampler::EV_REC_STOP, 0, 0);
                     return;
                 }
-                if (pSampler->chromaticLoaded() || pSampler->drumLoaded(keyIdx)) {
-                    pSampler->pushEvent(sampler::EV_NOTE_OFF, (int)data1, 0);
-                    return;
-                }
+                pSampler->pushEvent(sampler::EV_NOTE_OFF, (int)data1, 0);
             }
             m_transposeLocked = false;
             return;
         }
-        if (data1 < APC_ROWS * APC_COLS)
+        // Pad releases are BUTTON channel (0) only.
+        if (channel == 0 && data1 < APC_ROWS * APC_COLS)
             _onPadRelease(data1 / APC_COLS, data1 % APC_COLS);
         return;
     }

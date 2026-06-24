@@ -50,7 +50,9 @@ public:
     static const int VOICES         = 16;             // poly voice pool
     static const int EVENT_RING     = 64;             // ISR->Core1 event ring
     static const int TRIM_THRESH    = 200;            // |s16| silence threshold
-    static const int EDGE_FADE      = 64;             // trim edge fade (samples)
+    static const int EDGE_FADE      = 64;             // trailing fade-out (samples)
+    static const int PREROLL        = 32;             // samples kept before onset (preserve attack)
+    static const int LEAD_DECLICK   = 8;              // tiny leading fade-in (declick only, keeps punch)
 
     enum EvType { EV_NONE = 0, EV_NOTE_ON, EV_NOTE_OFF,
                   EV_REC_START, EV_REC_STOP };
@@ -151,9 +153,11 @@ public:
                 float sl = _readInterp(vo.L, vo.len, vo.pos);
                 float sr = _readInterp(vo.R, vo.len, vo.pos);
 
-                // Per-sample gain ramp toward target (attack/release).
-                if (vo.gain < vo.target)      { vo.gain += GAIN_STEP; if (vo.gain > vo.target) vo.gain = vo.target; }
-                else if (vo.gain > vo.target) { vo.gain -= GAIN_STEP; if (vo.gain < vo.target) vo.gain = vo.target; }
+                // Per-sample gain ramp toward target. Attack uses the per-voice
+                // (duration-scaled) step so short/fast voices open in time; release
+                // uses the fixed ~1ms step for a consistent click-free tail.
+                if (vo.gain < vo.target)      { vo.gain += vo.attackStep; if (vo.gain > vo.target) vo.gain = vo.target; }
+                else if (vo.gain > vo.target) { vo.gain -= GAIN_STEP;     if (vo.gain < vo.target) vo.gain = vo.target; }
 
                 inout[i]     += (int)(sl * vo.gain);
                 inout[n + i] += (int)(sr * vo.gain);
@@ -194,6 +198,7 @@ private:
         int    note;        // raw MIDI note this voice answers NOTE_OFF for (-1 = none)
         float  gain;
         float  target;
+        float  attackStep;  // per-voice attack ramp; scaled so short/fast (high-note) voices still reach audible gain before the sample ends
         unsigned age;
     };
 
@@ -272,15 +277,26 @@ private:
             if ((a > b ? a : b) > TRIM_THRESH) { if (start < 0) start = i; end = i; }
         }
         if (start < 0 || end < start) return 0;     // all silence
+        // PRE-ROLL: keep a few samples BEFORE the first threshold crossing so the
+        // real attack transient (drum hit / pluck) is preserved, not chopped at
+        // the steep part of its rise. Without this the onset starts mid-transient
+        // and a leading fade would further soften the punch.
+        if (start > PREROLL) start -= PREROLL; else start = 0;
         int newLen = end - start + 1;
         if (start > 0) {
             memmove(L, L + start, sizeof(short) * newLen);
             memmove(R, R + start, sizeof(short) * newLen);
         }
-        int fade = newLen < EDGE_FADE ? newLen : EDGE_FADE;
-        for (int i = 0; i < fade; i++) {
-            float g = (float)i / (float)fade;
+        // Leading edge: only a TINY declick (preserve the attack), not a long
+        // fade-in. Trailing edge: a longer fade-out so one-shots end click-free.
+        int fin = newLen < LEAD_DECLICK ? newLen : LEAD_DECLICK;
+        for (int i = 0; i < fin; i++) {
+            float g = (float)i / (float)fin;
             L[i] = (short)(L[i] * g); R[i] = (short)(R[i] * g);
+        }
+        int fout = newLen < EDGE_FADE ? newLen : EDGE_FADE;
+        for (int i = 0; i < fout; i++) {
+            float g = (float)i / (float)fout;
             int j = newLen - 1 - i;
             L[j] = (short)(L[j] * g); R[j] = (short)(R[j] * g);
         }
@@ -299,6 +315,15 @@ private:
         vo.active = true; vo.L = L; vo.R = R; vo.len = len;
         vo.pos = 0.0; vo.rate = rate; vo.sustain = sustain; vo.note = note;
         vo.gain = 0.0f; vo.target = 1.0f; vo.age = ++m_ageCtr;
+        // Attack ramp scaled to how long the voice will actually play. A fast
+        // (high-note) voice covers the sample in len/rate output samples; with the
+        // default ~1ms (48-sample) attack it would release before the gain opened
+        // -> SILENT (the "high notes don't play" bug). Reach full gain within the
+        // first quarter of the playable length (but never slower than the default
+        // ~1ms, and never instant -> declick).
+        double playable = (rate > 0.0) ? ((double)len / rate) : (double)len;
+        float fastStep = (playable > 4.0) ? (float)(1.0 / (playable * 0.25)) : 0.25f;
+        vo.attackStep = fastStep > GAIN_STEP ? fastStep : GAIN_STEP;
     }
 
     void _noteOn(int note, int /*vel*/)
@@ -310,6 +335,12 @@ private:
             return;
         }
         if (m_chromLoaded) {
+            // Mono-per-note retrigger: release any voice already sustaining THIS
+            // note so a re-press doesn't stack voices and so the 16-voice steal
+            // can't orphan a held note's eventual NOTE_OFF (auto-sustain bug).
+            for (int v = 0; v < VOICES; v++)
+                if (m_voice[v].active && m_voice[v].sustain && m_voice[v].note == note)
+                    m_voice[v].target = 0.0f;
             double rate = pow(2.0, (double)(note - ROOT_NOTE) / 12.0);
             _spawnVoice(m_chromL, m_chromR, m_chromLen, rate, true, note);
         }

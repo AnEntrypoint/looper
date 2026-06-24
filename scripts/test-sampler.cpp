@@ -177,6 +177,70 @@ int main()
         check("no-content no-op", s.activeVoices()==0 && silent);
     }
 
+    // (9) NEW: high-rate (high-note) chromatic voice still produces AUDIBLE output
+    // (the "3 octaves up doesn't play" / fast-attack fix). Record a short tone,
+    // play it 3 octaves up (note 96 = +36 semis -> rate ~8x) and assert non-trivial
+    // peak output (it must open the attack before the short fast voice ends).
+    {
+        sampler s;
+        recordInto(s, -1, 30, [](int){ return 8000; });   // ~30 blocks of tone
+        s.pushEvent(sampler::EV_NOTE_ON, 96, 100);
+        int peak = 0;
+        // NOTE_ON spawns inside the first renderInto (event drain), so render
+        // unconditionally for a fixed window rather than gating on activeVoices.
+        for(int b=0;b<40;b++){
+            int o[2*N]; for(int i=0;i<2*N;i++)o[i]=0; s.renderInto(o,N);
+            for(int i=0;i<N;i++){ int v=o[i]; if(v<0)v=-v; if(v>peak)peak=v; }
+        }
+        check("high-note (3oct up) audible", peak > 1000);
+    }
+
+    // (10) NEW: a held chromatic note RELEASES after NOTE_OFF (no auto-sustain),
+    // and a same-note re-press is mono (doesn't stack), so the release always lands.
+    {
+        sampler s;
+        recordInto(s, -1, 40, [](int){ return 8000; });
+        s.pushEvent(sampler::EV_NOTE_ON, 60, 100);
+        { int o[2*N]; s.renderInto(o,N); }
+        s.pushEvent(sampler::EV_NOTE_ON, 60, 100);   // re-press same note
+        { int o[2*N]; s.renderInto(o,N); }
+        check("same-note mono (no stack)", s.activeVoices() <= 1);
+        s.pushEvent(sampler::EV_NOTE_OFF, 60, 0);
+        // render until the release ramp completes; must reach 0 voices.
+        int b=0; for(; b<2000 && s.activeVoices()>0; b++){ int o[2*N]; s.renderInto(o,N); }
+        check("held note releases after note-off", s.activeVoices()==0);
+    }
+
+    // (11) NEW: auto-trim preserves the onset transient. Record leading silence
+    // then a sharp transient (full-scale step), and assert the trimmed sample's
+    // peak lands within the first few samples (attack preserved, not faded away).
+    {
+        sampler s;
+        // 5 silent blocks, then a transient at the start of block 5, decaying.
+        auto shape = [](int b){ return 0; };   // unused; we drive captureBlock manually
+        (void)shape;
+        s.pushEvent(sampler::EV_REC_START, -1, 0);
+        { int o[2*N]; s.renderInto(o,N); }
+        int blk[2*N];
+        for(int b=0;b<5;b++){ constBlock(blk, 0); s.captureBlock(blk, N); }      // leading silence
+        for(int i=0;i<2*N;i++) blk[i] = (i%N < 8) ? 20000 : 4000;                // transient onset then body
+        s.captureBlock(blk, N);
+        for(int b=0;b<5;b++){ constBlock(blk, 4000); s.captureBlock(blk, N); }   // body
+        s.pushEvent(sampler::EV_REC_STOP, 0, 0);
+        { int o[2*N]; s.renderInto(o,N); }
+        // play it and find where the peak occurs in the trimmed output.
+        s.pushEvent(sampler::EV_NOTE_ON, 60, 100);
+        int peak=0, peakAt=-1, idx=0;
+        for(int b=0;b<20;b++){
+            int o[2*N]; for(int i=0;i<2*N;i++)o[i]=0; s.renderInto(o,N);
+            for(int i=0;i<N;i++,idx++){ int v=o[i]; if(v<0)v=-v; if(v>peak){peak=v;peakAt=idx;} }
+        }
+        // the trimmed sample should START at/near the transient (leading silence
+        // removed), so the loud onset appears early, not buried after a long fade.
+        check("trim preserves onset (peak early)", peakAt >= 0 && peakAt < 4*N);
+        check("trim removed leading silence (loud)", peak > 8000);
+    }
+
     printf(g_fails ? "\n%d FAIL\n" : "\nALL PASS\n", g_fails);
     return g_fails ? 1 : 0;
 }

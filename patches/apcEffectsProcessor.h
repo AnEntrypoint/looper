@@ -41,6 +41,15 @@ class apcEffectsProcessor {
   size_t m_sampleRate;
 
   // Ableton-style SVF lowpass: cutoff 0-1 (normalized), resonance 0-1
+  // Cubic soft-clip: y = x - x^3/3 for |x|<1, flat at +-2/3 beyond. Linear slope
+  // ~1 near 0 (transparent at normal level), smooth saturating knee that bounds
+  // the resonant filter peak click-free (vs a hard limiter).
+  static inline float _softClip(float x) {
+    if (x >  1.0f) return  2.0f / 3.0f;
+    if (x < -1.0f) return -2.0f / 3.0f;
+    return x - (x * x * x) / 3.0f;
+  }
+
   void svfLowpass(float input, float &ic1eq, float &ic2eq,
                   float cutoff, float res, float &out) {
     // Map cutoff 0-1 to frequency: 20Hz at 0, ~20kHz at 1 (exponential)
@@ -49,9 +58,13 @@ class apcEffectsProcessor {
     float maxFreq = (float)m_sampleRate * 0.45f;
     if (freq > maxFreq) freq = maxFreq;
     float g = tanf(3.14159265f * freq / (float)m_sampleRate);
-    // Log-curve res for pronounced sweep at top of knob: 0->0.5, 0.5->~0.85, 1.0->1.0
+    // Cytomic/Ableton-style TPT SVF lowpass. Resonance comes ONLY from the Q
+    // feedback (k = 1/Q), peaking AT the cutoff -- the previous version blended
+    // raw bandpass into the output (y = v2 + v1*bandpass) which thinned the low
+    // end and read as un-musical vs Ableton's "Clean" LP. Output the pure LP (v2).
+    // Res curve: gentle at the bottom, self-oscillating near the top, like Live.
     float resCurve = res * res;
-    float Q = 0.5f + resCurve * 29.5f;
+    float Q = 0.5f + resCurve * 24.5f;       // 0.5 (Butterworth-ish) .. ~25 (near self-osc)
     float k = 1.0f / Q;
     float a1 = 1.0f / (1.0f + g * (g + k));
     float a2 = g * a1;
@@ -62,13 +75,9 @@ class apcEffectsProcessor {
     float v2 = ic2eq + a2 * ic1eq + a3 * v3;
     ic1eq = 2.0f * v1 - ic1eq;
     ic2eq = 2.0f * v2 - ic2eq;
-    // Mix lowpass + bandpass (resonance peak) — formant-like emphasis at cutoff
-    float bpMix = res * 1.5f;
-    float y = v2 + v1 * bpMix;
-    // Soft-clip to keep resonance peak from blowing up on loud input
-    if (y > 1.2f) y = 1.2f - (y - 1.2f) * 0.3f;
-    else if (y < -1.2f) y = -1.2f + (-y - 1.2f) * 0.3f;
-    out = y;
+    // Pure lowpass output, through a gentle cubic soft-clip ("drive" character)
+    // that bounds the resonant peak click-free instead of a hard knee.
+    out = _softClip(v2);
   }
 
   // Ableton-style SVF highpass: cutoff 0-1 (normalized)
@@ -113,7 +122,8 @@ public:
     memset(m_reverbLines, 0, sizeof(m_reverbLines));
     memset(m_reverbPos, 0, sizeof(m_reverbPos));
     memset(m_reverbFilter, 0, sizeof(m_reverbFilter));
-    m_delayTargetSamples = m_time * 450.0f * sampleRate / 1000.0f + 50.0f * sampleRate / 1000.0f;
+    // Match setTime(): min 1ms .. ~1000ms (m_time defaults to 0.5 -> ~500ms).
+    m_delayTargetSamples = (m_time * 999.0f + 1.0f) * (float)sampleRate / 1000.0f;
   }
 
   void setHighpassCutoff(float norm) { m_hpCutoff = norm; }
@@ -124,8 +134,11 @@ public:
 
   void setTime(float norm) {
     m_time = norm;
-    float delayMs = m_time * 990.0f + 10.0f;
+    // Min delay lowered from 10ms -> 1ms so tight slapback/flanger/comb times are
+    // reachable at the bottom of the knob. Range 1ms .. ~1000ms.
+    float delayMs = m_time * 999.0f + 1.0f;
     m_delayTargetSamples = delayMs * (float)m_sampleRate / 1000.0f;
+    if (m_delayTargetSamples < 1.0f) m_delayTargetSamples = 1.0f;
     if (m_delayTargetSamples > (float)(MAX_DELAY_SAMPLES - 1))
       m_delayTargetSamples = (float)(MAX_DELAY_SAMPLES - 1);
   }
@@ -185,21 +198,35 @@ public:
       l = l + delayL * m_delayAmount;
       r = r + delayR * m_delayAmount;
 
-      // Reverb: parallel comb filters with lowpass damping
+      // Reverb: parallel comb filters with lowpass damping.
       if (m_reverbAmount > 0.001f) {
         float revL = 0.0f, revR = 0.0f;
-        // Time controls reverb decay: maps to feedback 0.7-1.02 (runaway at max for freeze/infinity FX)
-        float revFeedback = 0.7f + m_time * 0.32f;
+        // Decay grows with BOTH time and amount so the reverb knob at MAX is
+        // feedback-capable (freeze / near-infinite tail). Base from time as
+        // before, pushed toward unity by the amount; the amount's top end takes
+        // it to ~0.998 (sustains for many seconds without true runaway). Clamped
+        // just under 1.0 so it never diverges to NaN/clipping on its own.
+        float decay = 0.70f + m_time * 0.25f + m_reverbAmount * m_reverbAmount * 0.05f;
+        if (decay > 0.998f) decay = 0.998f;
+        const float revFeedback = decay;
+        // Damping opens up (less lowpass) as the amount rises so a big reverb
+        // keeps its brightness/energy and sustains, instead of the tail dying.
+        float damp = 0.7f - m_reverbAmount * 0.4f;   // 0.7 (subtle) .. 0.3 (open) at max
+        if (damp < 0.3f) damp = 0.3f;
 
         for (int line = 0; line < REVERB_LINES; line++) {
           float lineOut = m_reverbLines[line][m_reverbPos[line]];
 
-          // Damping lowpass on feedback
-          m_reverbFilter[line] = m_reverbFilter[line] * 0.7f + lineOut * 0.3f;
+          // Damping lowpass on feedback (one-pole; complement keeps unity gain).
+          m_reverbFilter[line] = m_reverbFilter[line] * damp + lineOut * (1.0f - damp);
           float dampedOut = m_reverbFilter[line];
 
           float input = (line < 4) ? l * 0.15f : r * 0.15f;
-          m_reverbLines[line][m_reverbPos[line]] = input + dampedOut * revFeedback;
+          float fed = input + dampedOut * revFeedback;
+          // Safety clamp: bound the line state so a sustained near-unity feedback
+          // can ring/freeze but never diverge.
+          if (fed > 4.0f) fed = 4.0f; else if (fed < -4.0f) fed = -4.0f;
+          m_reverbLines[line][m_reverbPos[line]] = fed;
 
           if (line < 4) revL += dampedOut;
           else          revR += dampedOut;
