@@ -232,7 +232,7 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
             // proposed) session tempo instead, so loop and grid stay consistent.
             wasFirst = true;
             pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
-            pTheLoopMachine->m_masterPhase = pTheLoopMachine->m_masterPhase % m_num_blocks;
+            pTheLoopMachine->m_masterPhase = m_recordStartPhaseOffset % m_num_blocks;
         }
     }
 

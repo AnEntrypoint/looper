@@ -98,7 +98,7 @@ u32 loopClip::_calcQuantizeTarget()
         // accept c if it is <= rec (always closer-or-equal from below), OR if rec
         // is at least halfway from the previous accepted grid up to c (round up).
         if (c <= rec) best = c;                 // largest candidate not exceeding rec
-        else { if (rec * 2 > c) best = c; break; } // first candidate above rec: round up iff past midpoint
+        else { if (rec * 2 > best + c) best = c; break; } // round up only past midpoint between prev best and c
     }
     return best;
 }

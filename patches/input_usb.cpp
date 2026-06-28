@@ -128,7 +128,15 @@ void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSa
     if (cur_block != prev_block)
     {
         g_diagInBlockCross++;
-        if (s_update_responsibility)
+        // Guard: only tick the DSP when the ring holds a full drain's worth.
+        // UAC2 delivers 48 samples/URB (N=8 microframes); the DSP drains 64
+        // per tick. Without this guard, two rapid block-boundary crossings
+        // fire two startUpdate calls that drain 128 samples when only 96 were
+        // deposited -- avail hits 0, update() resyncs, re-reads stale samples
+        // -> smeared/warped audio on UAC2. For UAC1 (UCA222) avail is always
+        // >= IN_TARGET_LAG=96 when this fires, so the guard is a no-op there.
+        if (s_update_responsibility &&
+            (int)(wr - s_in_ring_rd) >= (int)AUDIO_BLOCK_SAMPLES)
             AudioSystem::startUpdate ();
     }
 }

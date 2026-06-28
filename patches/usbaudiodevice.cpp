@@ -375,7 +375,15 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
         extern unsigned AudioOutputUSB_outAvail (void);
         static int s_outBias = 0;                              // Q16.16 added to feedback rate
         int avail = (int) AudioOutputUSB_outAvail ();
-        s_outBias += (avail - 256) >> 3;                       // gentle integral toward avail=256
+        // Only integrate when the OUT ring has data. At boot the DSP has not
+        // ticked yet so avail=0; integrating at (0-256)>>3=-32/URB winds
+        // s_outBias to -biasLim in ~245 URBs (~245ms) reducing effRate ~2%
+        // and causing DAC underruns before the first sample arrives.
+        // Hold s_outBias=0 while the ring is empty so effRate stays nominal.
+        if (avail > 0)
+            s_outBias += (avail - 256) >> 3;                   // gentle integral toward avail=256
+        else
+            s_outBias = 0;
         int biasLim = (int) (m_fbRate / 50);                   // clamp to ~2%
         if (s_outBias >  biasLim) s_outBias =  biasLim;
         if (s_outBias < -biasLim) s_outBias = -biasLim;
