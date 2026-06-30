@@ -45,6 +45,19 @@ CUSBMIDIHostDevice::~CUSBMIDIHostDevice (void)
 		m_hTimer = 0;
 	}
 
+	// Release all OUT slots owned by this device so AllocSlot can reuse them.
+	// Without this, each unplug leaves the slot's pOwner pointing to the now-
+	// destroyed CUSBMIDIHostDevice (dangling). After 8 unplug/replug cycles all
+	// 8 slots are permanently claimed by dead owners; AllocSlot returns nullptr
+	// and every LED send drops silently until a full reboot. pOwner is safe to
+	// clear here even with an in-flight URB: MIDIOutCompletion only touches the
+	// TMIDIOutSlot* (static global storage) and never dereferences pOwner.
+	for (int i = 0; i < USBMIDI_OUT_SLOTS; i++)
+	{
+		if (s_MIDIOutSlots[i].pOwner == this)
+			s_MIDIOutSlots[i].pOwner = 0;
+	}
+
 	delete m_pInterface;
 	m_pInterface = 0;
 
