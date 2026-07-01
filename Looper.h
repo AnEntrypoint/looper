@@ -119,6 +119,16 @@ typedef struct logString_type
 class loopClip;
 class loopTrack;
 
+// Momentary global speed-scrub multiplier (notes 70/71 on the APC, channel 0).
+// Applied ON TOP OF the per-clip Link-varispeed m_playRate as a second,
+// independent multiplicative layer -- it never writes m_playRate itself, so
+// Ableton Link's tempo/quantization state is completely untouched and reverts
+// exactly when released. 1.0=off, 2.0=double speed (held), 0.5=half speed
+// (held). Written only from the Core-2 command dispatch (loopMachine::command),
+// read every block from loopClipUpdate.cpp's varispeed read (Core 1) -- a
+// plain float write/read race is benign here (worst case one stale block).
+extern volatile float g_globalSpeedMul;
+
 // static externs
 
 extern CString *getClipStateName(ClipState state);

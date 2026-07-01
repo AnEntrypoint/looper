@@ -73,6 +73,7 @@ void coreControlPlaneTick(void)
 	usbMidiProcess(bPnP);
 	loop();
 	{ extern void usbWavTick(void); usbWavTick(); }   // continuous ring-WAV dump to USB (Core 2)
+	{ extern void loopDumpTick(void); loopDumpTick(); }   // per-track dump-on-demand (Core 2)
 #ifdef LOOPER_ENABLE_WLAN
 	// WLAN/plan9 + Link is opt-in (see kernel.cpp). linkProcess() is now the
 	// SINGLE radio-RX drainer and demuxes Link + AP-DHCP + client-DHCP frames, so

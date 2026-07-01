@@ -42,6 +42,10 @@ u16 control_default[LOOPER_NUM_CONTROLS] = {
 s32 loopMachine::m_input_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];
 s32 loopMachine::m_output_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];
 
+// Momentary global speed-scrub multiplier (see Looper.h for the full comment).
+// 1.0 = off (default). Written only by loopMachine::command() on Core 2.
+volatile float g_globalSpeedMul = 1.0f;
+
 
 
 const char *getLoopCommandName(u16 cmd)
@@ -493,6 +497,32 @@ void loopMachine::command(u16 command)
         int track_num = command - LOOP_COMMAND_DOUBLE_TRACK_BASE;
         LOOPER_LOG("DOUBLE_TRACK(%d)", track_num);
         getTrack(track_num)->doubleLength();
+    }
+    else if (command == LOOP_COMMAND_DUMP_TRACKS)
+    {
+        LOOPER_LOG("DUMP_TRACKS",0);
+        extern void loopDumpRequest(void);
+        loopDumpRequest();
+    }
+    else if (command == LOOP_COMMAND_HALFSPEED_ON)
+    {
+        LOOPER_LOG("HALFSPEED_ON",0);
+        g_globalSpeedMul = 0.5f;
+    }
+    else if (command == LOOP_COMMAND_HALFSPEED_OFF)
+    {
+        LOOPER_LOG("HALFSPEED_OFF",0);
+        if (g_globalSpeedMul == 0.5f) g_globalSpeedMul = 1.0f;
+    }
+    else if (command == LOOP_COMMAND_DOUBLESPEED_ON)
+    {
+        LOOPER_LOG("DOUBLESPEED_ON",0);
+        g_globalSpeedMul = 2.0f;
+    }
+    else if (command == LOOP_COMMAND_DOUBLESPEED_OFF)
+    {
+        LOOPER_LOG("DOUBLESPEED_OFF",0);
+        if (g_globalSpeedMul == 2.0f) g_globalSpeedMul = 1.0f;
     }
 
 }

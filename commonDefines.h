@@ -31,6 +31,11 @@
 #define LOOP_COMMAND_LOOP_IMMEDIATE     0x08      // immediatly loop back to all clip starts ...
 #define LOOP_COMMAND_SET_LOOP_START     0x09      // immediatly set the "restart point" for the clips in the track
 #define LOOP_COMMAND_CLEAR_LOOP_START   0x0A      // immediatly set the "restart point" for the clips in the track
+#define LOOP_COMMAND_DUMP_TRACKS        0x0B      // dump every recorded track to the USB flash drive as WAV files
+#define LOOP_COMMAND_HALFSPEED_ON       0x0C      // momentary: all PLAYING tracks read at 0.5x rate (held)
+#define LOOP_COMMAND_HALFSPEED_OFF      0x0D      // release of the above -> back to native rate
+#define LOOP_COMMAND_DOUBLESPEED_ON     0x0E      // momentary: all PLAYING tracks read at 2x rate (held)
+#define LOOP_COMMAND_DOUBLESPEED_OFF    0x0F      // release of the above -> back to native rate
 #define LOOP_COMMAND_TRACK_BASE         0x20      // 20 slots: 0x20-0x33 (per-track rec/play toggle)
 #define LOOP_COMMAND_ERASE_TRACK_BASE   0x60      // 20 slots: 0x60-0x73 (whole-track erase)
 #define LOOP_COMMAND_GET_STATE			0x30	  // NEW the looper will dump all state

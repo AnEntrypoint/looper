@@ -133,6 +133,18 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
             _applyLivePitch();
             return;
         }
+        // Momentary speed-scrub: notes 70 (half) / 71 (double), BUTTON channel
+        // (0) only. Held = engaged; released (note-off block below) = back to
+        // native rate. Checked before the pad/button dispatch since both notes
+        // are outside the 40-pad grid and outside APC_BTN_* anyway, but keeping
+        // them explicit here (rather than falling into _onButton) lets the
+        // note-off release the SAME command pair cleanly.
+        if (channel == 0 && data1 == 70) { _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_HALFSPEED_ON); return; }
+        if (channel == 0 && data1 == 71) { _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_DOUBLESPEED_ON); return; }
+        // Track dump-to-USB-drive trigger: note 93, BUTTON channel (0) only.
+        // One-shot on press; completion is signalled back via a flashing pad
+        // LED (see _updateGridLeds / m_dumpFlash*), not a note-off action.
+        if (channel == 0 && data1 == 93) { _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_DUMP_TRACKS); return; }
         // Microrepeat latch notes 82-86 (1, 1/2, 1/4, 1/8, 1/16 beat). Checked
         // BEFORE the pad/button dispatch so note 84 overrides APC_BTN_FORMAT.
         // Held = latched; last-pressed wins. Released in the note-off block.
@@ -171,6 +183,9 @@ void apcKey25::handleMidi(u8 status, u8 data1, u8 data2)
         // APC_BTN_SHIFT, or notes 82-86 at +octaves -- is NOT intercepted and
         // reaches the channel==1 keybed release below (otherwise voices stick).
         if (channel == 0 && data1 == APC_BTN_SHIFT) { m_shift = false; return; }
+        // Release the speed-scrub buttons: back to native rate.
+        if (channel == 0 && data1 == 70) { _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_HALFSPEED_OFF); return; }
+        if (channel == 0 && data1 == 71) { _queueCmd(ApcCmd::LOOPER, LOOP_COMMAND_DOUBLESPEED_OFF); return; }
         // Release a microrepeat latch: clear only if the released note owns the
         // currently-active division (so releasing a stale earlier note doesn't
         // cancel a newer held one).

@@ -20,6 +20,7 @@
 #ifdef ARM_ALLOW_MULTI_CORE
 #include "patches/coreBusy.h"
 #include "usbWavRecorder.h"
+#include "loopDump.h"
 #endif
 
 #define log_name "audio"
@@ -130,6 +131,7 @@ void setup()
 	pTheLoopMachine = new loopMachine();   // ctor runs cbInit() (continuous buffer ready)
 	pTheLooper = (publicLoopMachine *) pTheLoopMachine;
 	usbWavInit();   // continuous ring-WAV dump to a USB drive (auto-detect, Core-2 drained)
+	loopDumpInit(); // per-track WAV dump-on-demand (APC note 93), reuses the USB: mount above
 
 	debug_blink(1);
 	pLivePitchWrapper = new RubberBandWrapper(AUDIO_SAMPLE_RATE, LOOPER_NUM_CHANNELS);

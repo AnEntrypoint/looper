@@ -64,7 +64,17 @@ void loopClip::update(s32 *ip, s32 *op)
     // advanced unconditionally in the advance section so it tracks like the phase-lock
     // (pause keeps the head moving). At rate==1 (no external tempo change) this branch
     // is OFF and playback is byte-identical to before.
-    bool varispeed = (m_playRate != 1.0f) && (m_state == CS_PLAYING) && m_num_blocks > 0;
+    //
+    // effectiveRate layers the momentary global speed-scrub (notes 70/71,
+    // g_globalSpeedMul: 1.0 off, 2.0 double, 0.5 half) ON TOP of m_playRate --
+    // it is a separate multiplier, never written into m_playRate, so Link's
+    // tempo/quantization state is untouched and the effect reverts exactly on
+    // release. m_playPos is never reset when the multiplier engages/releases,
+    // only its per-block advance changes, so the playhead position itself
+    // (which sample plays "now") is never jumped by holding/releasing 70/71 --
+    // it simply advances faster or slower than it otherwise would have.
+    float effectiveRate = m_playRate * g_globalSpeedMul;
+    bool varispeed = (effectiveRate != 1.0f) && (m_state == CS_PLAYING) && m_num_blocks > 0;
     if (varispeed) { pp_main = 0; pp_fade = 0; }
 
     bool fade_in = (pp_main && use_play_block < CROSSFADE_BLOCKS);
@@ -129,7 +139,7 @@ void loopClip::update(s32 *ip, s32 *op)
             double R = ((double)r0 + (double)(r1 - r0) * fr) * m_volume * pg;
             tmp_L[i] += (s16)(L + (L >= 0 ? 0.5 : -0.5));
             tmp_R[i] += (s16)(R + (R >= 0 ? 0.5 : -0.5));
-            localPos += (double)m_playRate;
+            localPos += (double)effectiveRate;
             if (localPos >= (double)clipSamples) localPos -= (double)clipSamples;
             pg += pgStep;
         }

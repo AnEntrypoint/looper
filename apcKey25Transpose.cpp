@@ -215,4 +215,36 @@ void apcKey25::_updateGridLeds()
     sendLedCoalesced(APC_BTN_STOP_ALL, running ? (pending == LOOP_COMMAND_STOP ? APC_VEL_LED_YELLOW : APC_VEL_LED_GREEN) : APC_VEL_LED_OFF);
     sendLedCoalesced(APC_BTN_RECORD,   pTheLooper->getDubMode() ? APC_VEL_LED_RED : APC_VEL_LED_OFF);
     sendLedCoalesced(APC_BTN_PLAY,     pTheAPC->m_shift ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF);
+
+    // Speed-scrub buttons (70=half, 71=double): steady color while the
+    // corresponding hold is engaged, off otherwise. g_globalSpeedMul is the
+    // single global engaged/idle witness (see Looper.h) -- reading it here is
+    // exactly the same cross-core read pattern as m_masterLoopBlocks above.
+    extern volatile float g_globalSpeedMul;
+    sendLedCoalesced(70, (g_globalSpeedMul == 0.5f) ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF);
+    sendLedCoalesced(71, (g_globalSpeedMul == 2.0f) ? APC_VEL_LED_YELLOW : APC_VEL_LED_OFF);
+
+    // Track-dump-to-USB-drive button (note 93): red while writing, green flash
+    // on completion, red blink if it finished with an error (e.g. no drive
+    // present). g_loopDumpState==2/3 are one-shot "just finished" states --
+    // consumed (reset to 0) here after a few frames so the flash is visible
+    // but doesn't stick forever with no dump running.
+    {
+        extern volatile unsigned g_loopDumpState;
+        static unsigned s_dumpFlashFrames = 0;
+        unsigned st = g_loopDumpState;
+        u8 dumpColor = APC_VEL_LED_OFF;
+        if (st == 1) dumpColor = APC_VEL_LED_RED;
+        else if (st == 2 || st == 3)
+        {
+            dumpColor = (st == 2) ? APC_VEL_LED_GREEN_BLINK : APC_VEL_LED_RED_BLINK;
+            if (++s_dumpFlashFrames > 60)   // ~2s at 30Hz grid refresh, then clear
+            {
+                s_dumpFlashFrames = 0;
+                g_loopDumpState = 0;
+            }
+        }
+        else s_dumpFlashFrames = 0;
+        sendLedCoalesced(93, dumpColor);
+    }
 }
