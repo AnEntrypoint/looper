@@ -87,18 +87,31 @@ u32 loopClip::_calcQuantizeTarget()
     // "records then silent, never starts" stall when a short tap snapped up to a
     // much larger division). A tap near/just under a phrase (rec close to M) is
     // >= M/2's midpoint toward M, so it rounds UP to M (505 play-through). A tap
-    // over a phrase rounds to the nearest multiple {2M,4M,8M}.
-    u32 cand[] = { floorLen, M/8, M/4, M/2, M, M*2, M*4, M*8 };
-    const int N = (int)(sizeof cand / sizeof cand[0]);
+    // over a phrase rounds to the nearest multiple {2M,4M,8M,...} with NO hard cap
+    // -- previously capped at 8M, which clipped recordings longer than 8 beats
+    // when the first loop was 1 beat.
+    //
+    // Sub-phrase candidates (M/8..M/2) are evaluated first; then the phrase-multiple
+    // sweep walks powers of 2 of M until the next candidate would be > 2*rec
+    // (unreachable by the rounding rule). Guard against overflow: stop at 2^30.
+    u32 sub[] = { floorLen, M/8, M/4, M/2 };
     u32 best = floorLen;
-    for (int i = 0; i < N; i++)
+    for (int i = 0; i < (int)(sizeof sub / sizeof sub[0]); i++)
     {
-        u32 c = cand[i];
-        if (c < floorLen) continue;            // never below the seam floor
-        // accept c if it is <= rec (always closer-or-equal from below), OR if rec
-        // is at least halfway from the previous accepted grid up to c (round up).
-        if (c <= rec) best = c;                 // largest candidate not exceeding rec
-        else { if (rec * 2 > best + c) best = c; break; } // round up only past midpoint between prev best and c
+        u32 c = sub[i];
+        if (c < floorLen) continue;
+        if (c <= rec) best = c;
+        else { if (rec * 2 > best + c) best = c; break; }
+    }
+    // Walk phrase multiples: M, 2M, 4M, 8M, 16M, ... until the next step is
+    // too far away to round up to (c > 2*rec means even the midpoint exceeds rec).
+    for (u32 mult = 1; mult <= (1u << 30) / (M > 0 ? M : 1); mult <<= 1)
+    {
+        u32 c = M * mult;
+        if (c < floorLen) continue;
+        if (c <= rec) { best = c; continue; }
+        if (rec * 2 > best + c) best = c;
+        break;   // c > rec and rec didn't reach the midpoint; no larger cand can win
     }
     return best;
 }

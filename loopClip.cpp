@@ -24,8 +24,9 @@ void loopClip::init()
     m_buffer = 0;
     m_mark_point = -1;
     m_mark_point_active = false;
-    m_playRate = 1.0f;
-    m_playPos  = 0.0;
+    m_playRate     = 1.0f;
+    m_playPos      = 0.0;
+    m_nativeBlocks = 0;
 }
 
 void loopClip::clearMarkPoint()
@@ -257,6 +258,10 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
 void loopClip::_finishRecording()
 {
     LOOPER_LOG("clip(%d,%d)::finishRecording() willPlay=%d", m_track_num, m_clip_num, m_state == CS_RECORDING_TAIL);
+    // Lock in the current phrase length as the native reference so setMasterBlocks
+    // can always compute the correct absolute varispeed ratio from originals.
+    if (m_nativeBlocks == 0)
+        m_nativeBlocks = pTheLoopMachine->m_masterLoopBlocks;
     bool willPlay = (m_state == CS_RECORDING_TAIL);
     m_state = CS_RECORDED;
     m_pLoopTrack->incDecRunning(-1);

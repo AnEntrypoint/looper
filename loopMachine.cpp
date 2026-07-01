@@ -596,9 +596,8 @@ void loopMachine::update(void)
 					u32 oldBlocks = m_masterLoopBlocks;
 					m_masterLoopBlocks = blocks;
 					LOOPER_LOG("link quantum: bpm=%.1f masterLoopBlocks=%u (was %u)", bpm, blocks, oldBlocks);
-					if (oldBlocks > 0 && blocks > 0)
+					if (blocks > 0)
 					{
-						float tempoRatio = (float)oldBlocks / (float)blocks;
 						for (int i = 0; i < LOOPER_NUM_TRACKS; i++)
 						{
 							loopTrack *pTrack = getTrack(i);
@@ -607,7 +606,7 @@ void loopMachine::update(void)
 								loopClip *pClip = pTrack->getClip(j);
 								if (pClip && (pClip->getClipState() == CS_PLAYING ||
 											   pClip->getClipState() == CS_LOOPING))
-									pClip->setTempoRatio(tempoRatio);
+									pClip->setMasterBlocks(blocks);
 							}
 						}
 					}

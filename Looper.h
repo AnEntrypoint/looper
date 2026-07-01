@@ -279,11 +279,16 @@ class loopClip : public publicClip
         void doubleLength();
         // SIMPLEST-POSSIBLE Link tempo sync = VARISPEED (resample), not pitch-preserving
         // time-stretch: an external tempo change resamples the loop, so HALVING the
-        // tempo HALVES the pitch (and doubles the duration to stay in the grid). The
-        // grid-change ratio (oldBlocks/newBlocks) is accumulated into m_playRate; the
-        // clip is then read fractionally at m_playRate in loopClipUpdate. Native = 1.0
-        // (tempo halves -> blocks double -> ratio 0.5 -> rate 0.5 -> octave down).
-        void setTempoRatio(float ratio)  { if (ratio > 0.0f) m_playRate *= ratio; }
+        // tempo HALVES the pitch (and doubles the duration to stay in the grid).
+        // m_playRate is recomputed as m_nativeBlocks/newMaster on EVERY call so
+        // floating-point error never accumulates across multiple tempo changes
+        // (the old *= ratio path drifted after N events). m_nativeBlocks is set
+        // once at _finishRecording and never changes while the clip lives.
+        void setMasterBlocks(u32 newMaster)
+        {
+            if (newMaster > 0 && m_nativeBlocks > 0)
+                m_playRate = (float)m_nativeBlocks / (float)newMaster;
+        }
         RubberBandWrapper::DebugState getWrapperDebugState() const { return { 1.0f, 0, 0 }; }
 
     private:
@@ -293,8 +298,9 @@ class loopClip : public publicClip
         s16 *m_buffer;
         RubberBandWrapper m_wrapper;
 
-        float  m_playRate;   // varispeed Link-sync rate (1.0 = native; <1 = slower+lower pitch)
-        double m_playPos;    // fractional sample position into the clip for the varispeed read
+        float  m_playRate;      // varispeed Link-sync rate (1.0 = native; <1 = slower+lower pitch)
+        double m_playPos;       // fractional sample position into the clip for the varispeed read
+        u32    m_nativeBlocks;  // phrase length (masterLoopBlocks) at record-finish; 0 until set
 
         void _startRecording();
         void _startEndingRecording(u32 trimToBlocks, bool willPlay);

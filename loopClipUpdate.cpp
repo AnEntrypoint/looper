@@ -56,7 +56,7 @@ void loopClip::update(s32 *ip, s32 *op)
     }
 
     // VARISPEED Link-sync read: when the external tempo differs from this loop's
-    // native tempo, m_playRate != 1 (accumulated via setTempoRatio). Read the clip
+    // native tempo, m_playRate != 1 (set absolutely via setMasterBlocks). Read the clip
     // fractionally at m_playRate -> the loop is resampled, so a halved external tempo
     // plays the loop at half speed AND half pitch (the simplest possible time-stretch).
     // Replaces the block-granular phase-locked read below; the normal read/advance are
