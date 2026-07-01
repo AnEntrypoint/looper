@@ -279,6 +279,21 @@ void loopClip::update(s32 *ip, s32 *op)
             m_play_block++;
             if (m_play_block == m_num_blocks && m_state == CS_PLAYING) _startCrossFade();
             else if (m_play_block >= m_num_blocks) m_play_block = 0;
+
+            // PHRASE-BOUNDARY RE-ANCHOR for L>M loops: at every phrase downbeat
+            // (masterPhase % M == 0) while CS_PLAYING (not mid-crossfade), snap
+            // m_play_block to the exact grid position derived from masterPhase.
+            // Self-advance accumulates no per-step error, but two L>M loops started
+            // at different times stay permanently out of phase with each other.
+            // The formula is identical to the sub-phrase lock so the snap is always
+            // at an expected grid position and produces no audio discontinuity.
+            // CS_PLAYING gate avoids corrupting the crossfade block index (CS_LOOPING).
+            if (masterLen > 0 && m_num_blocks > 0 && m_state == CS_PLAYING &&
+                (pTheLoopMachine->m_masterPhase % masterLen) == 0)
+            {
+                u32 expected = (u32)(pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset) % m_num_blocks;
+                m_play_block = expected;
+            }
         }
         // Keep the varispeed head aligned with the phase-locked block head while
         // rate==1, so when an external tempo change first engages varispeed it picks
@@ -288,13 +303,25 @@ void loopClip::update(s32 *ip, s32 *op)
 
     // VARISPEED advance (runs whether muted or not, like the head above): advance the
     // fractional position one block's worth at m_playRate and wrap at the loop end.
+    // After each natural loop wrap, quantise m_playPos to a block boundary so
+    // floating-point accumulation errors (AUDIO_BLOCK_SAMPLES*m_playRate iterated
+    // thousands of times) never compound into a sub-sample drift that shifts all
+    // subsequent reads.
     if (varispeed)
     {
         u32 clipSamples = m_num_blocks * AUDIO_BLOCK_SAMPLES;
         if (clipSamples > 0)
         {
             m_playPos += (double)AUDIO_BLOCK_SAMPLES * (double)m_playRate;
-            while (m_playPos >= (double)clipSamples) m_playPos -= (double)clipSamples;
+            bool wrapped = false;
+            while (m_playPos >= (double)clipSamples) { m_playPos -= (double)clipSamples; wrapped = true; }
+            if (wrapped)
+            {
+                // Snap to the nearest block boundary so float drift resets each loop.
+                u32 blk = ((u32)m_playPos) / AUDIO_BLOCK_SAMPLES;
+                if (blk >= m_num_blocks) blk = 0;
+                m_playPos = (double)blk * (double)AUDIO_BLOCK_SAMPLES;
+            }
             if (m_playPos < 0.0) m_playPos = 0.0;
             m_play_block = ((u32)m_playPos) / AUDIO_BLOCK_SAMPLES;
             if (m_play_block >= m_num_blocks) m_play_block = 0;
