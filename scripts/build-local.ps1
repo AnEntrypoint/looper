@@ -179,7 +179,8 @@ if ((Test-Path $p9Src) -and (Test-Path (Split-Path $p9Dst))) { Copy-Item -Path $
 $appInternal = @(
     'kernel.h','kernel.cpp','kernel_run.cpp','multicore.cpp',
     'coreDispatch.h','coreDispatch.cpp','coreBusy.h','coreBusy.cpp',
-    'paramSnapshot.h','paramSnapshot.cpp','main.cpp'
+    'paramSnapshot.h','paramSnapshot.cpp','main.cpp',
+    'gamepadInput.h','gamepadInput.cpp','gamepadState.h'
 )
 foreach ($name in $appInternal) {
     Copy-Item -Path (Join-Path $RepoRoot "patches\$name") -Destination (Join-Path $appDir $name) -Force

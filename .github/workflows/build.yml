@@ -93,6 +93,9 @@ jobs:
           cp circle/_prh/_apps/Looper/patches/paramSnapshot.h circle/_prh/_apps/Looper/paramSnapshot.h
           cp circle/_prh/_apps/Looper/patches/paramSnapshot.cpp circle/_prh/_apps/Looper/paramSnapshot.cpp
           cp circle/_prh/_apps/Looper/patches/main.cpp circle/_prh/_apps/Looper/main.cpp
+          cp circle/_prh/_apps/Looper/patches/gamepadInput.h circle/_prh/_apps/Looper/gamepadInput.h
+          cp circle/_prh/_apps/Looper/patches/gamepadInput.cpp circle/_prh/_apps/Looper/gamepadInput.cpp
+          cp circle/_prh/_apps/Looper/patches/gamepadState.h circle/_prh/_apps/Looper/gamepadState.h
           cp circle/_prh/_apps/Looper/patches/p9chan.h circle/addon/wlan/p9chan.h
           cp circle/_prh/_apps/Looper/patches/p9chan.cpp circle/addon/wlan/p9chan.cpp
           cp circle/_prh/_apps/Looper/patches/p9error.cpp circle/addon/wlan/p9error.cpp

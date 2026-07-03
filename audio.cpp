@@ -16,6 +16,7 @@
 #include "patches/apcEffectsProcessor.h"
 #include "patches/microRepeat.h"
 #include "patches/sampler.h"
+#include "patches/gamepadInput.h"
 #include "patches/audioTelemetry.h"
 #ifdef ARM_ALLOW_MULTI_CORE
 #include "patches/coreBusy.h"
@@ -138,6 +139,7 @@ void setup()
 	pEffectsProcessor = new apcEffectsProcessor(AUDIO_SAMPLE_RATE);
 	pMicroRepeat = new microRepeat();
 	pSampler = new sampler();
+	pTheGamepad = new gamepadInput();   // USB gamepad control surface (Core-2 driven)
 	// Note: pLivePitchWrapper and pEffectsProcessor are NOT AudioStreams; they're fed directly in loopMachine::update()
 	// Audio path: input → loopMachine (which internally feeds pLivePitchWrapper and pEffectsProcessor) → output
 	new AudioConnection(input,      0,  *pTheLooper,    0);
