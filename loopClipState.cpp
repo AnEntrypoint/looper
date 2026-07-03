@@ -105,11 +105,26 @@ u32 loopClip::_calcQuantizeTarget()
     }
     // Walk phrase multiples: M, 2M, 4M, 8M, 16M, ... until the next step is
     // too far away to round up to (c > 2*rec means even the midpoint exceeds rec).
+    //
+    // The FIRST multiple (c == M) gets a biased round-up instead of the
+    // symmetric midpoint rule: once a phrase length is established, a loop
+    // 2+ take that's close to M (>= 0.6M) almost always means the performer
+    // intended to match the existing phrasing, not to deliberately record a
+    // half-length loop. The symmetric rule required rec > 0.75M (since best
+    // was M/2 at this point) to round up, so takes trimmed by normal human
+    // stop-press timing or backdate/latency compensation (see
+    // _backdatedRecordLength) could land in [0.6M, 0.75M) and get silently
+    // quantized to M/2 -- a loop that then re-triggers twice per phrase
+    // relative to the others, reading as "shorter and drifting" even though
+    // each cycle is phase-exact (see loopClipUpdate.cpp phase re-anchor).
+    // Sub-divisions (M/2 and below) still use the symmetric rule above, so a
+    // genuinely short take (rec < 0.6M) is unaffected.
     for (u32 mult = 1; mult <= (1u << 30) / (M > 0 ? M : 1); mult <<= 1)
     {
         u32 c = M * mult;
         if (c < floorLen) continue;
         if (c <= rec) { best = c; continue; }
+        if (mult == 1) { if (rec * 5 > c * 3) best = c; break; }
         if (rec * 2 > best + c) best = c;
         break;   // c > rec and rec didn't reach the midpoint; no larger cand can win
     }

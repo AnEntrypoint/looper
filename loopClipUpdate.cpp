@@ -322,7 +322,7 @@ void loopClip::update(s32 *ip, s32 *op)
         u32 clipSamples = m_num_blocks * AUDIO_BLOCK_SAMPLES;
         if (clipSamples > 0)
         {
-            m_playPos += (double)AUDIO_BLOCK_SAMPLES * (double)m_playRate;
+            m_playPos += (double)AUDIO_BLOCK_SAMPLES * (double)effectiveRate;
             bool wrapped = false;
             while (m_playPos >= (double)clipSamples) { m_playPos -= (double)clipSamples; wrapped = true; }
             if (wrapped)
