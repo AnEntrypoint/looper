@@ -123,9 +123,10 @@ static inline int lwAppendMep4(uint8_t *b, int o, const uint8_t addr[4], uint16_
 // StartStopState value = isPlaying(u8) + beats(i64 microbeats BE) + timestamp(i64
 // micros BE) = 17 bytes. CONFIRMED present in real Ableton Live ALIVE frames
 // (key 'stst', between 'sess' and 'mep4'); Live's NodeState parser requires it,
-// so omitting it made Live discard our ALIVE entirely (one-way discovery). The
-// looper has no transport start/stop yet, so we send all-zero (matches Live's
-// observed all-zero stst byte-for-byte).
+// so omitting it made Live discard our ALIVE entirely (one-way discovery).
+// isPlaying/beatsMicro/tsMicros now reflect the looper's actual transport state
+// (set true + beat 0 + the downbeat instant when a first loop (re)defines the
+// phrase) rather than always-zero -- see abletonLink.cpp s_isPlaying.
 static inline int lwAppendStartStop(uint8_t *b, int o, uint8_t isPlaying,
                                     int64_t beatsMicro, int64_t tsMicros)
 {
@@ -141,12 +142,14 @@ static inline int lwAppendStartStop(uint8_t *b, int o, uint8_t isPlaying,
 static inline int lwEncodeAlive(uint8_t *b, uint8_t msgType, uint8_t ttl, uint16_t groupId,
                                 const uint8_t nodeId[8], const uint8_t sessionId[8],
                                 int64_t mpb, int64_t beatOrigin, int64_t timeOrigin,
-                                const uint8_t mep4Addr[4], uint16_t mep4Port)
+                                const uint8_t mep4Addr[4], uint16_t mep4Port,
+                                uint8_t isPlaying = 0, int64_t startStopBeatsMicro = 0,
+                                int64_t startStopTsMicros = 0)
 {
     int o = lwWriteHeader(b, LW_HDR_ASDP, msgType, ttl, groupId, nodeId);
     o = lwAppendTimeline(b, o, mpb, beatOrigin, timeOrigin);
     o = lwAppendSession(b, o, sessionId);
-    o = lwAppendStartStop(b, o, 0, 0, 0);   // required by Live's NodeState parser
+    o = lwAppendStartStop(b, o, isPlaying, startStopBeatsMicro, startStopTsMicros);
     o = lwAppendMep4(b, o, mep4Addr, mep4Port);
     return o;
 }
@@ -190,6 +193,7 @@ typedef struct {
     bool     hasHost;     int64_t hostTime;
     bool     hasGhost;    int64_t ghostTime;
     bool     hasPrevGhost;int64_t prevGhostTime;
+    bool     hasStartStop; uint8_t isPlaying; int64_t startStopBeatsMicro, startStopTsMicros;
 } LwMessage;
 
 // Parse a full UDP payload (the bytes after the UDP header). Returns false if it
@@ -228,6 +232,11 @@ static inline bool lwDecode(const uint8_t *b, int len, LwMessage *m)
             m->hasGhost = true; m->ghostTime = (int64_t)lwGet64(b, vo);
         } else if (key == LW_KEY_PRGH && sz >= 8) {
             m->hasPrevGhost = true; m->prevGhostTime = (int64_t)lwGet64(b, vo);
+        } else if (key == LW_KEY_STST && sz >= 17) {
+            m->hasStartStop = true;
+            m->isPlaying = b[vo];
+            m->startStopBeatsMicro = (int64_t)lwGet64(b, vo + 1);
+            m->startStopTsMicros   = (int64_t)lwGet64(b, vo + 9);
         }
         o = vo + (int)sz;
     }

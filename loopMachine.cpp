@@ -309,6 +309,7 @@ void loopMachine::command(u16 command)
     {
         LOOPER_LOG("LOOP_COMMAND_CLEAR",0);
         init();
+        linkResetTransport();   // re-arm: the next first loop must Start/Stop again
     }
     else if (command == LOOP_COMMAND_DUB_MODE)
     {
@@ -392,6 +393,7 @@ void loopMachine::command(u16 command)
         {
             m_masterLoopBlocks = 0;
             m_masterPhase = 0;
+            linkResetTransport();   // re-arm: the next first loop must Start/Stop again
         }
     }
 
@@ -478,6 +480,7 @@ void loopMachine::command(u16 command)
                 {
                     m_masterLoopBlocks = 0;
                     m_masterPhase = 0;
+                    linkResetTransport();   // re-arm: the next first loop must Start/Stop again
                 }
             }
         }

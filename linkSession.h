@@ -30,6 +30,7 @@ typedef struct {
     bool         hasEndpoint;     // mep4 learned
     LinkTimeline timeline;
     bool         hasTimeline;
+    bool         isPlaying;        // peer's real Link transport Start/Stop state ('stst')
     int64_t      lastSeenMicros;
     // measurement state for THIS peer
     LinkMeasurement meas;

@@ -30,6 +30,12 @@ void linkDeriveQuant(double clip_seconds, double *out_beats, double *out_bpm);
 bool   linkHasStarted(void);   // timeline anchored (rec started, not yet ended)
 bool   linkHasEnded(void);     // timeline finalized (loop length known)
 double linkQuantBeats(void);   // chosen quant subdivision in beats (0 if none)
+bool   linkIsPlaying(void);    // real Link transport Start/Stop state (see abletonLink.cpp s_isPlaying)
+
+// Call when a full erase drops the bank back to empty so the NEXT first loop
+// re-triggers its own Start/Stop broadcast instead of being skipped because a
+// prior (now-erased) phrase already set the transport playing.
+void linkResetTransport(void);
 
 // Shared ghost beat phase from the adopted session timeline. Returns false until
 // a valid session phase exists. phaseMicroBeats in [0, quantumMicroBeats). Read

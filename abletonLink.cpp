@@ -92,6 +92,24 @@ static bool   s_ended     = false;
 static u64    s_timeOrigin = 0;      // us
 static s64    s_beatOrigin = 0;      // microbeats
 static double s_quantBeats = 0.0;
+// Real Link transport Start/Stop state (the 'stst' payload entry was previously
+// always sent as isPlaying=0/beat=0/ts=0 -- present only to satisfy Live's
+// NodeState parser, never reflecting the looper's actual transport). Now true
+// from the instant a first loop (re)defines the local phrase (linkEnd, the
+// same point that seeds m_masterLoopBlocks from the loop's own length) until a
+// full erase clears the bank back to m_masterLoopBlocks==0 (linkResetTransport).
+// s_startStopTs/BeatsMicro record the downbeat instant broadcast in that message
+// so a peer's Start/Stop handler can align its own transport to the SAME
+// instant, not merely to a live SendFrame timestamp.
+static bool   s_isPlaying        = false;
+static s64    s_startStopTsMicros = 0;
+static s64    s_startStopBeatsMicro = 0;
+// One-shot Start/Stop burst (mirrors the existing TEMPO_SET_BURST_N pattern):
+// send a few closely-spaced copies for multicast reliability, then stop -- not
+// a continuous per-ALIVE broadcast, so peers see one clean transport restart.
+static int s_startStopBurst = 0;
+#define STARTSTOP_BURST_N 4
+static s64 s_lastStartStopSend = 0;
 // Tempo PROPOSAL hold (Link lets ANY peer set the group tempo). When the looper
 // records its first loop it derives a tempo and PROPOSES it to the session: for a
 // short window we broadcast OUR timeline and stop adopting a peer's, so the ticker
@@ -194,7 +212,8 @@ static void sendDiscovery(u8 msgType)
 	u8 pl[256];
 	int n = lwEncodeAlive(pl, msgType, /*ttl*/5, /*groupId*/0, nid, sess,
 	                      tl.tempoMicrosPerBeat, tl.beatOriginMicroBeats, tl.timeOriginMicros,
-	                      s_ownIP, OUR_MEP4_PORT);
+	                      s_ownIP, OUR_MEP4_PORT,
+	                      s_isPlaying ? 1 : 0, s_startStopBeatsMicro, s_startStopTsMicros);
 	if (msgType == LW_MSG_ALIVE) {
 		int c = n < (int)sizeof s_lastTxAlive ? n : (int)sizeof s_lastTxAlive;
 		memcpy(s_lastTxAlive, pl, c); s_lastTxAliveLen = c;
@@ -222,6 +241,19 @@ static void sendTempoSet(void)
 	memcpy(pl + 12, &espBeat0, 8);
 	memcpy(pl + 20, &quantumMicroBeats, 8);
 	sendUDP(0, 0, LTMP_PORT, pl, 28);   // multicast to the Link group
+}
+
+// Explicit Link Start/Stop broadcast (real Ableton Link transport message,
+// key 'stst'): tells peers our transport just (re)started at beat 0, at the
+// timestamp the new phrase's downbeat occurred. Sent as a discovery ALIVE
+// (Start/Stop rides in the same 'stst' entry sendDiscovery already emits every
+// ALIVE via s_isPlaying/s_startStopBeatsMicro/s_startStopTsMicros) -- this
+// function just forces an immediate extra send during the burst window so
+// peers see the transition promptly rather than waiting for the next 1Hz
+// periodic ALIVE.
+static void sendStartStop(void)
+{
+	sendDiscovery(LW_MSG_ALIVE);
 }
 
 static void sendByeBye(void)
@@ -440,9 +472,24 @@ static void handleMessage(const u8 *pl, int plen, const u8 *ethSrcMac)
 			p->timeline.timeOriginMicros      = m.timeOrigin;
 			p->hasTimeline = true;
 		}
+		// Real Link Start/Stop ('stst'): a peer transitioning to isPlaying=true is
+		// telling the group its transport (re)started at beat 0 at this instant --
+		// the symmetric direction of our own linkEnd()->s_isPlaying broadcast. We
+		// don't force our OWN transport state from this (a peer restarting doesn't
+		// silently start recording for us), but we DO force an immediate
+		// republishTimeline() on the rising edge so, if we are the follower and
+		// idle (no running clips -- loopMachine's existing idle phase-align block
+		// gates the same way), our masterPhase re-aligns to the peer's NEW phrase
+		// origin right away rather than waiting for the periodic republish. The
+		// alignment mechanism itself (owner-adopt branch, idle-gated read via
+		// linkGhostPhase/paramSnapshot) already exists; this only makes a Start/Stop
+		// edge a trigger for it, same as a timeline change already is.
+		bool startStopRisingEdge = m.hasStartStop && m.isPlaying && !p->isPlaying;
+		if (m.hasStartStop) p->isPlaying = (m.isPlaying != 0);
 		// A new ALIVE => reply RESPONSE so the peer learns us promptly.
 		if (m.msgType == LW_MSG_ALIVE) sendDiscovery(LW_MSG_RESPONSE);
 		republishTimeline();
+		(void)startStopRisingEdge;   // republishTimeline() above already covers it; named for clarity/telemetry
 		return;
 	}
 
@@ -700,6 +747,18 @@ void linkProcess(void)
 			s_lastTempoSet = (u64)now;
 			s_tempoSetBurst++;
 		}
+		// Start/Stop burst: same window/cadence as the tempo-set burst above (both
+		// fire only while s_proposeUntil is active, i.e. right after a first loop
+		// (re)defines the phrase) so peers see "transport restarted" and "tempo is
+		// X" together as one clean phrase-restart event, not two uncoordinated ones.
+		if (s_proposeUntil != 0 && now < s_proposeUntil &&
+		    s_startStopBurst < STARTSTOP_BURST_N &&
+		    (u64)now - s_lastStartStopSend >= 60000u)
+		{
+			sendStartStop();
+			s_lastStartStopSend = (u64)now;
+			s_startStopBurst++;
+		}
 		driveMeasurement(now);
 		if (wlanDhcpOK() && (unsigned)now - s_lastIgmp >= 30 * CLOCKHZ)
 		{
@@ -717,6 +776,18 @@ bool   linkIsSynced(void)     { return s_synced; }
 bool   linkHasStarted(void)   { return s_started; }
 bool   linkHasEnded(void)     { return s_ended; }
 double linkQuantBeats(void)   { return s_quantBeats; }
+bool   linkIsPlaying(void)    { return s_isPlaying; }
+
+// Called when a full erase drops the bank back to empty (m_masterLoopBlocks==0,
+// loopMachine.cpp ERASE_TRACK/CLEAR_LAYER anyClips scan) so the transport is
+// re-armable: the NEXT recorded loop is a fresh "first loop" and must trigger
+// its own Start/Stop broadcast again, not silently skip it because s_isPlaying
+// was already true from a prior (now-erased) phrase.
+void linkResetTransport(void)
+{
+	s_isPlaying      = false;
+	s_startStopBurst = STARTSTOP_BURST_N;   // no stale burst continues after reset
+}
 
 // Shared ghost beat phase for loopMachine (read on Core 2 by apcKey25::update,
 // then published into the paramSnapshot). Returns false when no valid session
@@ -847,6 +918,16 @@ double linkEnd(double clip_seconds)
 	// ticker/Live adopt it; then we resume following the (now-matching) session.
 	s_proposeUntil  = nowMicros() + TEMPO_PROPOSE_HOLD_US;
 	s_tempoSetBurst = 0;   // fresh clean burst for this loop-define
+	// linkEnd only fires when THIS loop is (re)defining the local phrase (the
+	// caller gates it on m_masterLoopBlocks==0) -- so this is exactly the "new
+	// loop's phrase begins now" instant. Real Link Start/Stop: transport starts
+	// playing at beat 0, timestamped at this downbeat, so a peer's own transport
+	// (Live's play head) restarts in step with OUR new phrase rather than only
+	// adopting our tempo. Burst is one-shot, mirroring sendTempoSet's pattern.
+	s_isPlaying           = true;
+	s_startStopBeatsMicro = 0;                 // new phrase always starts at beat 0
+	s_startStopTsMicros   = nowMicros();        // the downbeat instant
+	s_startStopBurst      = 0;
 	return beats;
 }
 
