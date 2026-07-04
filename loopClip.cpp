@@ -216,7 +216,6 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
     // (the intermittent "a 3rd loop messed up an existing loop" bug — it fired
     // whenever the new loop happened to be longer than the established master).
     // Later loops align TO this grid; they do not redefine it.
-    bool wasFirst = false;
     if (pTheLoopMachine->m_masterLoopBlocks == 0)
     {
         // FIRST loop: derive tempo+quant from this loop's length (nearest-120
@@ -226,15 +225,23 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
         double clip_seconds = (double)m_num_blocks / (double)INTEGRAL_BLOCKS_PER_SECOND;
         linkEnd(clip_seconds);
 
-        if (!linkIsSynced())
-        {
-            // Not following a session: this loop also DEFINES the local master grid.
-            // When synced, loopMachine derives m_masterLoopBlocks from the (now
-            // proposed) session tempo instead, so loop and grid stay consistent.
-            wasFirst = true;
-            pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
-            pTheLoopMachine->m_masterPhase = m_recordStartPhaseOffset % m_num_blocks;
-        }
+        // This loop ALWAYS defines the local master grid from its own recorded
+        // length, Link-synced or not. Previously this was gated on !linkIsSynced(),
+        // on the assumption that loopMachine::update()'s linkSynced+anyRecorded
+        // branch would immediately re-derive m_masterLoopBlocks from the peer's
+        // tempo instead — but that branch only fires once a clip is already
+        // recorded (anyRecorded==true), which happens on the very NEXT block at
+        // the earliest, and linkEnd's tempo-propose hold does not guarantee the
+        // peer's advertised BPM matches what we just proposed before then. Net
+        // effect: leaving m_masterLoopBlocks at 0 here let a first loop recorded
+        // while Link-synced pick up a stale/unrelated PEER tempo/grid instead of
+        // its own length — "first loop follows an existing phrase" even though
+        // the bank was clear. Set it from this loop unconditionally; the
+        // subsequent linkSynced+anyRecorded varispeed branch in loopMachine.cpp
+        // still retimes it to the session's tempo once linkEnd's proposal round-
+        // trips, exactly as it does for every later loop.
+        pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
+        pTheLoopMachine->m_masterPhase = m_recordStartPhaseOffset % m_num_blocks;
     }
 
     // NO stop-time phase floor. Playback reads the CLIP BUFFER (getBlock(m_play_block)),
