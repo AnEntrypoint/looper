@@ -68,7 +68,10 @@ tmp_*
 console.log('DONE')
 docs/junk.md
 docs/junk/
-.gm/
+.gm/*
+!.gm/memories/
+.gm/memories/.flat-export-done
+.gm/memories/*.tmp-*
 # >>> gm managed (do not edit between markers)
 .gm-stop-verified
 .gm/prd-state.json
