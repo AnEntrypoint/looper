@@ -583,11 +583,27 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         // length is available -- so nSamples is derived from that aggregate and
         // the frames are parsed contiguously from the front of the buffer, same
         // as the pre-batching single-packet path.
+        //
+        // left_buf/right_buf are STATIC, not stack-allocated: this handler runs
+        // in the USB completion-handler/ISR context (Core 0 hard-RT dispatch),
+        // where stack budget is small and unverified. cap=USB_AUDIO_INBUF_BYTES/4
+        // (512 samples) x 2 buffers x 2 bytes = 2KB -- fine as static storage,
+        // fatal as a per-call stack frame (caused total audio loss on real
+        // hardware: an 8x stack-frame blowup applied to EVERY completion on
+        // EVERY device, not just the UAC2 batched path, overran the completion-
+        // handler stack and crashed the whole system). Per-slot arrays because
+        // slot 0/1 completions can interleave on UAC2 double-buffering, and
+        // (*m_pInHandler) is called synchronously before this function returns
+        // (no concurrent reentry into the SAME slot's buffer is possible: a URB
+        // is deleted+resubmitted only after its own completion finishes).
         const unsigned cap = USB_AUDIO_INBUF_BYTES / 4;
+        static s16 s_left_buf[2][cap];
+        static s16 s_right_buf[2][cap];
+        s16 *left_buf  = s_left_buf[slot];
+        s16 *right_buf = s_right_buf[slot];
         unsigned nSamples = pURB->GetResultLength () / frameBytes;
         if (nSamples > cap) nSamples = cap;
         const u8 *pb = (const u8 *) m_InBuf + slot * USB_AUDIO_INBUF_BYTES;
-        s16 left_buf[cap], right_buf[cap];
         for (unsigned i = 0; i < nSamples; i++)
         {
             const u8 *f = pb + i * frameBytes;
