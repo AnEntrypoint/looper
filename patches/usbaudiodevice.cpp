@@ -72,6 +72,8 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_pInURB[1]  = 0;
     m_pOutURB[0] = 0;
     m_pOutURB[1] = 0;
+    m_nInSubmitBytes[0] = 0;
+    m_nInSubmitBytes[1] = 0;
 }
 
 CUSBAudioDevice::~CUSBAudioDevice (void)
@@ -346,12 +348,18 @@ boolean CUSBAudioDevice::StartInRequest (unsigned slot)
     // of CAPTURED audio (an AIR 192|4-class device, not exercised by the lower-
     // bandwidth US-2x2/UCA222 IN paths). Batching N microframes/URB drops the
     // completion rate to 8000/N/s (easily sustained) while the xHCI still receives
-    // one packet per microframe on the wire -- no microframe missing. Per Circle's
-    // CUSBRequest API (usbrequest.h), GetResultLength() after completion is a
-    // SINGLE aggregate byte count for the whole URB -- there is no per-packet
-    // actual-length accessor -- so InCompletion parses nSamples from that aggregate
-    // starting at the front of the buffer, the same pattern the single-packet path
-    // already used, just applied to the larger batched buffer.
+    // one packet per microframe on the wire -- no microframe missing.
+    //
+    // InCompletion does NOT use pURB->GetResultLength() to size the parse -- the
+    // vendored Circle DWHCI driver's GetResultLength() is broken for multi-packet
+    // iso URBs (dwhcixferstagedata.cpp GetResultLen clamps the correctly-
+    // accumulated m_nTotalBytesTransfered down to m_nTransferSize, which by
+    // stage-complete only holds the LAST packet's declared size, not the running
+    // sum -- silently truncating the reported length to ~1/nPkts of the real
+    // total). The buffer itself IS fully and correctly written (m_pBufferPointer
+    // advances per-packet during the real transfer); only the reported LENGTH is
+    // wrong. Fix: record what was SUBMITTED (m_nInSubmitBytes[slot]) here, and
+    // InCompletion parses that many bytes instead of trusting GetResultLength().
     if (m_bUAC2)
     {
         // pktSize is the FULL per-microframe budget (usMaxPacket, from the
@@ -373,16 +381,21 @@ boolean CUSBAudioDevice::StartInRequest (unsigned slot)
         assert (m_pInURB[slot] != 0);
         for (unsigned k = 0; k < nPkts; k++) m_pInURB[slot]->AddIsoPacket (pktSize);
         m_pInURB[slot]->SetCompletionRoutine (InStub, 0, this);
+        m_nInSubmitBytes[slot] = (unsigned) pktSize * nPkts;
         boolean ok = GetHost ()->SubmitAsyncRequest (m_pInURB[slot]);
         if (!ok) g_audioInSubmitFail++;
         return ok;
     }
 
-    // UAC1 (UCA222) legacy single-packet path, unchanged.
+    // UAC1 (UCA222) legacy single-packet path, unchanged. GetResultLength() is
+    // reliable here (single AddIsoPacket -> the multi-packet clamp bug above
+    // never engages), but m_nInSubmitBytes is still recorded for uniform
+    // handling in InCompletion.
     m_pInURB[slot] = new CUSBRequest (m_pEndpointIn, inBuf, usMaxPacket);
     assert (m_pInURB[slot] != 0);
     m_pInURB[slot]->AddIsoPacket (usMaxPacket);
     m_pInURB[slot]->SetCompletionRoutine (InStub, 0, this);
+    m_nInSubmitBytes[slot] = usMaxPacket;
     boolean ok = GetHost ()->SubmitAsyncRequest (m_pInURB[slot]);
     if (!ok) g_audioInSubmitFail++;
     return ok;
@@ -574,15 +587,28 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
 
     unsigned frameBytes = m_uSubslot * m_uChannels;   // UAC1: 2*2 = 4
     if (frameBytes == 0) frameBytes = 4;
-    if (pURB->GetStatus () && pURB->GetResultLength () >= frameBytes && m_pInHandler != 0)
+    if (pURB->GetStatus () && m_nInSubmitBytes[slot] >= frameBytes && m_pInHandler != 0)
     {
         // cap sized for the batched UAC2 buffer (USB_AUDIO_INBUF_BYTES worth of
         // minimum-1-byte-subslot mono frames); the legacy UAC1 single-packet path
-        // never approaches this bound. Per usbrequest.h, GetResultLength() is a
-        // single aggregate byte count for the whole URB -- no per-packet actual
-        // length is available -- so nSamples is derived from that aggregate and
-        // the frames are parsed contiguously from the front of the buffer, same
-        // as the pre-batching single-packet path.
+        // never approaches this bound.
+        //
+        // nSamples is derived from m_nInSubmitBytes[slot] (what StartInRequest
+        // submitted), NOT pURB->GetResultLength(). The vendored Circle DWHCI
+        // driver's GetResultLength() is broken for multi-packet iso URBs: it
+        // clamps the correctly-accumulated total to the LAST packet's declared
+        // size (dwhcixferstagedata.cpp GetResultLen vs m_nTransferSize), so on
+        // the UAC2 batched path it silently reported ~1/nPkts of the real byte
+        // count -- InCompletion read a truncated sample count from a buffer that
+        // WAS fully and correctly written, starving the IN ring every completion
+        // and forcing constant resync/repeat-sample fallback: continuous
+        // distortion/buzz, not clean silence. Tradeoff: this can't detect a
+        // genuinely short/zero-length packet mid-batch (assumes full-size
+        // packets), same as the OUT side already does for its own multi-packet
+        // buffer -- accepted, since the alternative (GetResultLength()) is
+        // simply wrong, not just imprecise. UAC1 (single packet) is unaffected:
+        // its m_nInSubmitBytes equals usMaxPacket, giving the same result
+        // GetResultLength() would have (that single-packet case isn't buggy).
         //
         // left_buf/right_buf are STATIC, not stack-allocated: this handler runs
         // in the USB completion-handler/ISR context (Core 0 hard-RT dispatch),
@@ -601,7 +627,7 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         static s16 s_right_buf[2][cap];
         s16 *left_buf  = s_left_buf[slot];
         s16 *right_buf = s_right_buf[slot];
-        unsigned nSamples = pURB->GetResultLength () / frameBytes;
+        unsigned nSamples = m_nInSubmitBytes[slot] / frameBytes;
         if (nSamples > cap) nSamples = cap;
         const u8 *pb = (const u8 *) m_InBuf + slot * USB_AUDIO_INBUF_BYTES;
         for (unsigned i = 0; i < nSamples; i++)

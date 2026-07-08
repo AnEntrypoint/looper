@@ -60,6 +60,15 @@ private:
     CUSBRequest *m_pOutURB[2];   // double-buffered: 2 OUT URBs always in flight (no iso re-arm gap)
     CUSBRequest *m_pFbURB;
 
+    // Bytes submitted per IN slot (pktSize*nPkts from StartInRequest). InCompletion
+    // uses THIS, not pURB->GetResultLength(), to size the parse: the vendored
+    // Circle DWHCI driver's GetResultLength() clamps to the LAST iso packet's
+    // declared size on a multi-packet URB (dwhcixferstagedata.cpp GetResultLen
+    // compares the accumulated total against a per-packet m_nTransferSize that
+    // never holds the running sum) -- reliable only for single-packet (UAC1)
+    // URBs. See looper-method mutable multipacket-urb-resultlength-semantics.
+    unsigned m_nInSubmitBytes[2];
+
     // UAC2 async OUT pacing. m_fbRate = frames-per-(micro)frame in Q16.16, from the
     // feedback endpoint (default = nominal 48000 / service rate); m_fbAccum carries
     // the fractional remainder so the long-run OUT rate matches the device exactly.
