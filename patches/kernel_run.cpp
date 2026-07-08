@@ -398,25 +398,28 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				// live in libusb (always linked), so no USE_USB_AUDIO guard.
 				extern volatile unsigned g_audioInBound, g_audioOutBound, g_audioUAC2,
 				                         g_audioChannels, g_audioSubslot, g_audioRate,
-				                         g_audioInDeliv, g_audioInPeak,
+				                         g_audioInDeliv, g_audioInPeak, g_audioInSubmitFail,
 				                         g_audioOutDeliv, g_audioOutPeak, g_audioOutSubmitFail;
 				// Glitch diagnosis: per-side underrun/resync counters (the 1Hz Tascam
 				// glitch should show as one side incrementing ~once/sec). These globals
 				// already live in libusb (input_usb/output_usb), so no lib rebuild.
 				extern volatile unsigned g_inUnderruns, g_inResyncs, g_outUnderruns, g_otgResyncs;
 				extern volatile unsigned g_audioFbRate, g_audioFbCount, g_audioOutMaxGapUs;
+				extern volatile unsigned g_audioInMaxGapUs;
 				extern volatile unsigned g_outRingResync;
 				extern volatile unsigned g_outWrites;
 				extern unsigned AudioOutputUSB_outAvail (void);
+				extern unsigned AudioInputUSB_inAvail (void);
 				CString s;
-				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u rate=%u inDeliv=%u inPeak=%u outDeliv=%u outPeak=%u outFail=%u inUR=%u inRS=%u outUR=%u otgRS=%u outRingRS=%u outWr=%u outAvail=%u fbRate=%u fbCnt=%u outMaxGapUs=%u",
+				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u rate=%u inDeliv=%u inPeak=%u inFail=%u outDeliv=%u outPeak=%u outFail=%u inUR=%u inRS=%u outUR=%u otgRS=%u outRingRS=%u outWr=%u outAvail=%u inAvail=%u fbRate=%u fbCnt=%u outMaxGapUs=%u inMaxGapUs=%u",
 					g_audioInBound, g_audioOutBound, g_audioUAC2, g_audioChannels,
-					g_audioSubslot*8, g_audioRate, g_audioInDeliv, g_audioInPeak,
+					g_audioSubslot*8, g_audioRate, g_audioInDeliv, g_audioInPeak, g_audioInSubmitFail,
 					g_audioOutDeliv, g_audioOutPeak, g_audioOutSubmitFail,
 					g_inUnderruns, g_inResyncs, g_outUnderruns, g_otgResyncs, g_outRingResync,
-					g_outWrites, AudioOutputUSB_outAvail(),
-					g_audioFbRate, g_audioFbCount, g_audioOutMaxGapUs);
+					g_outWrites, AudioOutputUSB_outAvail(), AudioInputUSB_inAvail(),
+					g_audioFbRate, g_audioFbCount, g_audioOutMaxGapUs, g_audioInMaxGapUs);
 				g_audioOutMaxGapUs = 0;   // reset so each probe shows the max since last read
+				g_audioInMaxGapUs  = 0;   // reset so each probe shows the max since last read
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='U' && buf[1]=='W' && buf[2]=='A' && buf[3]=='V')

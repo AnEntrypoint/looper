@@ -58,7 +58,6 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_pEndpointFb  (0),
     m_pInHandler   (0),
     m_pOutHandler  (0),
-    m_pInURB       (0),
     m_pFbURB       (0),
     m_fbRate       (6u << 16),   // nominal 48000/8000 (high-speed) until feedback
     m_fbAccum      (0),
@@ -69,6 +68,8 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_uSubslot     (2),
     m_uChannels    (2)
 {
+    m_pInURB[0]  = 0;
+    m_pInURB[1]  = 0;
     m_pOutURB[0] = 0;
     m_pOutURB[1] = 0;
 }
@@ -78,6 +79,8 @@ CUSBAudioDevice::~CUSBAudioDevice (void)
     delete m_pEndpointIn;
     delete m_pEndpointOut;
     delete m_pEndpointFb;
+    delete m_pInURB[0];
+    delete m_pInURB[1];
     delete m_pOutURB[0];
     delete m_pOutURB[1];
     if (s_pThis == this) { s_pThis = 0; g_audioInBound = 0; }
@@ -186,7 +189,17 @@ boolean CUSBAudioDevice::Configure (void)
         m_pEndpointIn ? "yes" : "no", m_pEndpointOut ? "yes" : "no");
 
     if (m_pEndpointIn)
-        StartInRequest ();
+    {
+        // Double-buffer (2 IN URBs in flight) is a UAC2-ONLY measure, mirroring
+        // the OUT double-buffer below: a high-bandwidth UAC2 IN device (e.g. the
+        // AIR 192|4) can miss microframes during the per-URB re-arm gap between
+        // InCompletion's delete+StartInRequest and the next URB actually being
+        // queued. The full-speed UCA222 (UAC1, 1ms re-arm window) never falls
+        // behind, so it stays single-buffered (unchanged behaviour/latency).
+        StartInRequest (0);
+        if (m_bUAC2)
+            StartInRequest (1);
+    }
     if (m_pEndpointOut)
     {
         // Double-buffer (2 OUT URBs in flight) is a UAC2-ONLY measure: the
@@ -311,19 +324,68 @@ void CUSBAudioDevice::RegisterOutHandler (TAudioOutHandler *pHandler)
     m_pOutHandler = pHandler;
 }
 
-boolean CUSBAudioDevice::StartInRequest (void)
+boolean CUSBAudioDevice::StartInRequest (unsigned slot)
 {
     assert (m_pEndpointIn != 0);
-    assert (m_pInURB == 0);
+    assert (slot < 2);
+    assert (m_pInURB[slot] == 0);
 
-    u16 usPacketSize = (u16) m_pEndpointIn->GetMaxPacketSize ();
-    if (usPacketSize > sizeof m_InBuf) usPacketSize = sizeof m_InBuf;
+    // Double-buffer: each slot owns half of m_InBuf so the two in-flight URBs never
+    // share a buffer (the xHCI may DMA both concurrently).
+    u8 *inBuf = (u8 *) m_InBuf + slot * USB_AUDIO_INBUF_BYTES;
 
-    m_pInURB = new CUSBRequest (m_pEndpointIn, m_InBuf, usPacketSize);
-    assert (m_pInURB != 0);
-    m_pInURB->AddIsoPacket (usPacketSize);
-    m_pInURB->SetCompletionRoutine (InStub, 0, this);
-    return GetHost ()->SubmitAsyncRequest (m_pInURB);
+    u16 usMaxPacket = (u16) m_pEndpointIn->GetMaxPacketSize ();
+    if (usMaxPacket > USB_AUDIO_INBUF_BYTES) usMaxPacket = USB_AUDIO_INBUF_BYTES;
+
+    extern volatile unsigned g_audioInSubmitFail;
+
+    // UAC2 IN: carry MULTIPLE iso packets (microframes) in ONE URB, mirroring the
+    // OUT-side fix (StartOutRequest) for the identical root cause: a single-packet
+    // URB's completion rate falls slightly short of the true microframe rate under
+    // per-URB re-arm overhead on a high-speed device, silently dropping microframes
+    // of CAPTURED audio (an AIR 192|4-class device, not exercised by the lower-
+    // bandwidth US-2x2/UCA222 IN paths). Batching N microframes/URB drops the
+    // completion rate to 8000/N/s (easily sustained) while the xHCI still receives
+    // one packet per microframe on the wire -- no microframe missing. Per Circle's
+    // CUSBRequest API (usbrequest.h), GetResultLength() after completion is a
+    // SINGLE aggregate byte count for the whole URB -- there is no per-packet
+    // actual-length accessor -- so InCompletion parses nSamples from that aggregate
+    // starting at the front of the buffer, the same pattern the single-packet path
+    // already used, just applied to the larger batched buffer.
+    if (m_bUAC2)
+    {
+        // pktSize is the FULL per-microframe budget (usMaxPacket, from the
+        // endpoint's actual declared max-packet-size). Unlike OUT (host-paced,
+        // free to send fewer bytes/packet), IN is device-paced -- the packet
+        // must be large enough for whatever the device actually sends this
+        // microframe, so pktSize is never shrunk. If the buffer can't hold N
+        // full packets, nPkts is reduced instead (never below 1); with
+        // USB_AUDIO_INBUF_BYTES=2048 this only engages for an unusually large
+        // declared max-packet-size, still correct just with less batching.
+        const unsigned N = 8;   // microframes per URB (1ms; matches StartOutRequest's N)
+        u16 pktSize = usMaxPacket;
+        if (pktSize == 0) pktSize = 1;
+        unsigned nPkts = USB_AUDIO_INBUF_BYTES / pktSize;
+        if (nPkts > N) nPkts = N;
+        if (nPkts < 1) nPkts = 1;
+
+        m_pInURB[slot] = new CUSBRequest (m_pEndpointIn, inBuf, pktSize * nPkts);
+        assert (m_pInURB[slot] != 0);
+        for (unsigned k = 0; k < nPkts; k++) m_pInURB[slot]->AddIsoPacket (pktSize);
+        m_pInURB[slot]->SetCompletionRoutine (InStub, 0, this);
+        boolean ok = GetHost ()->SubmitAsyncRequest (m_pInURB[slot]);
+        if (!ok) g_audioInSubmitFail++;
+        return ok;
+    }
+
+    // UAC1 (UCA222) legacy single-packet path, unchanged.
+    m_pInURB[slot] = new CUSBRequest (m_pEndpointIn, inBuf, usMaxPacket);
+    assert (m_pInURB[slot] != 0);
+    m_pInURB[slot]->AddIsoPacket (usMaxPacket);
+    m_pInURB[slot]->SetCompletionRoutine (InStub, 0, this);
+    boolean ok = GetHost ()->SubmitAsyncRequest (m_pInURB[slot]);
+    if (!ok) g_audioInSubmitFail++;
+    return ok;
 }
 
 boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
@@ -507,16 +569,24 @@ void CUSBAudioDevice::FbCompletion (CUSBRequest *pURB)
 void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
 {
     assert (pURB != 0);
-    assert (pURB == m_pInURB);
+    unsigned slot = (pURB == m_pInURB[1]) ? 1 : 0;
+    assert (pURB == m_pInURB[slot]);
 
     unsigned frameBytes = m_uSubslot * m_uChannels;   // UAC1: 2*2 = 4
     if (frameBytes == 0) frameBytes = 4;
     if (pURB->GetStatus () && pURB->GetResultLength () >= frameBytes && m_pInHandler != 0)
     {
-        const unsigned cap = USB_AUDIO_BLOCK_BYTES / 4;
+        // cap sized for the batched UAC2 buffer (USB_AUDIO_INBUF_BYTES worth of
+        // minimum-1-byte-subslot mono frames); the legacy UAC1 single-packet path
+        // never approaches this bound. Per usbrequest.h, GetResultLength() is a
+        // single aggregate byte count for the whole URB -- no per-packet actual
+        // length is available -- so nSamples is derived from that aggregate and
+        // the frames are parsed contiguously from the front of the buffer, same
+        // as the pre-batching single-packet path.
+        const unsigned cap = USB_AUDIO_INBUF_BYTES / 4;
         unsigned nSamples = pURB->GetResultLength () / frameBytes;
         if (nSamples > cap) nSamples = cap;
-        const u8 *pb = (const u8 *) m_InBuf;
+        const u8 *pb = (const u8 *) m_InBuf + slot * USB_AUDIO_INBUF_BYTES;
         s16 left_buf[cap], right_buf[cap];
         for (unsigned i = 0; i < nSamples; i++)
         {
@@ -537,9 +607,21 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         if (m_nPeakIn > g_audioInPeak) g_audioInPeak = m_nPeakIn;
     }
 
-    delete m_pInURB;
-    m_pInURB = 0;
-    StartInRequest ();
+    // Glitch diag: track the MAX gap between IN completions, mirroring
+    // OutCompletion's g_audioOutMaxGapUs -- the original diagnostic signal that
+    // exposed the OUT-side microframe-miss bug, now available on IN too.
+    extern volatile unsigned g_audioInMaxGapUs, g_audioInLastTick;
+    u32 nowt = CTimer::GetClockTicks ();
+    if (g_audioInLastTick) { u32 gap = nowt - g_audioInLastTick;
+        if (gap > g_audioInMaxGapUs) g_audioInMaxGapUs = gap; }
+    g_audioInLastTick = nowt;
+
+    // Re-arm THIS slot; when UAC2-double-buffered, the OTHER slot is still in
+    // flight, so the iso pipe never empties (no re-arm gap -> no missing
+    // microframe). UAC1 has only slot 0 armed (slot 1 stays null, per Configure).
+    delete m_pInURB[slot];
+    m_pInURB[slot] = 0;
+    StartInRequest (slot);
 }
 
 void CUSBAudioDevice::OutCompletion (CUSBRequest *pURB)

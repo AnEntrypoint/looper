@@ -8,7 +8,16 @@
 #include <circle/types.h>
 
 #define USB_AUDIO_BLOCK_BYTES   256
-#define USB_AUDIO_OUTBUF_BYTES  512   // holds N=8 microframes/URB for UAC2 multi-packet OUT
+#define USB_AUDIO_OUTBUF_BYTES  512    // holds N=8 microframes/URB for UAC2 multi-packet OUT
+                                        // (OUT self-throttles bytes/packet to fit, host-paced)
+#define USB_AUDIO_INBUF_BYTES   2048   // sized to hold N=8 FULL microframes/URB at the device's
+                                        // actual declared max packet size (up to 256B/microframe --
+                                        // covers e.g. 4ch x 24-bit x ~21 samples/microframe for a
+                                        // high-channel-count device like the AIR 192|4). IN is
+                                        // device-paced: unlike OUT, a packet MUST be large enough
+                                        // for whatever the device actually sends, or the transfer
+                                        // truncates/errors -- so this buffer is sized up rather
+                                        // than the per-packet byte budget shrunk down.
 
 typedef void TAudioInHandler  (const s16 *pLeft, const s16 *pRight, unsigned nSamples);
 typedef void TAudioOutHandler (s16 *pLeft, s16 *pRight, unsigned nSamples);
@@ -28,7 +37,7 @@ public:
     static CUSBAudioDevice *GetOut (void) { return s_pOut; }
 
 private:
-    boolean StartInRequest  (void);
+    boolean StartInRequest  (unsigned slot = 0);
     boolean StartOutRequest (unsigned slot = 0);
     boolean StartFbRequest  (void);
 
@@ -47,7 +56,7 @@ private:
     TAudioInHandler  *m_pInHandler;
     TAudioOutHandler *m_pOutHandler;
 
-    CUSBRequest *m_pInURB;
+    CUSBRequest *m_pInURB[2];    // slot 0 always; slot 1 also in flight when UAC2 (no iso re-arm gap)
     CUSBRequest *m_pOutURB[2];   // double-buffered: 2 OUT URBs always in flight (no iso re-arm gap)
     CUSBRequest *m_pFbURB;
 
@@ -57,7 +66,7 @@ private:
     u32 m_fbRate;
     u32 m_fbAccum;
 
-    DMA_BUFFER (u8, m_InBuf,  USB_AUDIO_BLOCK_BYTES);
+    DMA_BUFFER (u8, m_InBuf,  USB_AUDIO_INBUF_BYTES * 2);    // two slots for double-buffering
     DMA_BUFFER (u8, m_OutBuf, USB_AUDIO_OUTBUF_BYTES * 2);   // two slots for double-buffering
     DMA_BUFFER (u8, m_FbBuf,  8);
 
