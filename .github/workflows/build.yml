@@ -2,7 +2,7 @@ name: Build rPi Bare Metal Looper
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
