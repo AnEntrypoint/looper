@@ -34,9 +34,9 @@ belongs in a memory; add the memory and link it here instead.
 - App-internal patches (`patches/kernel.cpp`, `kernel_run.cpp`, `multicore.cpp`,
   `coreDispatch.*`, `coreBusy.*`, `paramSnapshot.*`, `main.cpp`) are copied next
   to the Makefile and named in `OBJS`; lib patches (`output_usb.cpp`,
-  `input_usb.cpp` → `libaudio.a`; `usbaudiodevice.cpp` → `libusb.a`) are NOT app
-  OBJS. Full caveats (symlinks, miniuart guards, UAC1/UAC2): `recall`
-  **looper-build-caveats**, **looper-otg-and-tests**.
+  `input_usb.cpp` → `libaudio.a`; `usbaudiodevice.cpp`, `usbdevicefactory.cpp` →
+  `libusb.a`) are NOT app OBJS. Full caveats (symlinks, miniuart guards,
+  UAC1/UAC2): `recall` **looper-build-caveats**, **looper-otg-and-tests**.
 
 ## DEPLOY / NETBOOT / SD (ops)
 
