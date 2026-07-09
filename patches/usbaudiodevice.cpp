@@ -587,28 +587,48 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
 
     unsigned frameBytes = m_uSubslot * m_uChannels;   // UAC1: 2*2 = 4
     if (frameBytes == 0) frameBytes = 4;
-    if (pURB->GetStatus () && m_nInSubmitBytes[slot] >= frameBytes && m_pInHandler != 0)
+    // nSamples source is gated on m_bUAC2, NOT uniform. For a single-packet URB
+    // (UAC1/UCA222), pURB->GetResultLength() is CORRECT and VARIABLE -- a real
+    // full-speed synchronous isochronous endpoint commonly alternates packet
+    // sizes frame-to-frame (e.g. N-1 packets of size S, 1 of size S-frameBytes)
+    // to average a non-integer samples/frame rate over time; GetResultLength()
+    // reports the TRUE per-frame byte count each completion (verified via
+    // dwhcixferstagedata.cpp: for GetNumIsoPackets()==1, m_nTransferSize is set
+    // once from GetIsoPacketSize(0) and never reassigned mid-stage, so the
+    // multi-packet clamp bug below never engages -- GetResultLength() is exact).
+    // Using a CONSTANT m_nInSubmitBytes[slot]=usMaxPacket here instead (an
+    // earlier attempt at this fix) was itself a regression: it read a fixed
+    // usMaxPacket-sized chunk every completion regardless of what the device
+    // actually sent that frame, pulling in stale/uninitialized buffer tail on
+    // every short frame -- continuous distortion/buzz on UAC1 (UCA222), the
+    // device this project's whole USB-audio history proves worked perfectly
+    // with plain GetResultLength() before this session touched the file.
+    //
+    // For UAC2 (multi-packet, m_bUAC2==TRUE), GetResultLength() IS broken (see
+    // below) so m_nInSubmitBytes[slot] (what StartInRequest submitted) is used
+    // instead -- accepting that tradeoff only where GetResultLength() is
+    // confirmed unusable, not universally.
+    unsigned nSourceBytes = m_bUAC2 ? m_nInSubmitBytes[slot]
+                                     : (pURB->GetStatus () ? pURB->GetResultLength () : 0);
+    if (pURB->GetStatus () && nSourceBytes >= frameBytes && m_pInHandler != 0)
     {
         // cap sized for the batched UAC2 buffer (USB_AUDIO_INBUF_BYTES worth of
         // minimum-1-byte-subslot mono frames); the legacy UAC1 single-packet path
         // never approaches this bound.
         //
-        // nSamples is derived from m_nInSubmitBytes[slot] (what StartInRequest
-        // submitted), NOT pURB->GetResultLength(). The vendored Circle DWHCI
-        // driver's GetResultLength() is broken for multi-packet iso URBs: it
-        // clamps the correctly-accumulated total to the LAST packet's declared
-        // size (dwhcixferstagedata.cpp GetResultLen vs m_nTransferSize), so on
-        // the UAC2 batched path it silently reported ~1/nPkts of the real byte
-        // count -- InCompletion read a truncated sample count from a buffer that
-        // WAS fully and correctly written, starving the IN ring every completion
-        // and forcing constant resync/repeat-sample fallback: continuous
-        // distortion/buzz, not clean silence. Tradeoff: this can't detect a
-        // genuinely short/zero-length packet mid-batch (assumes full-size
-        // packets), same as the OUT side already does for its own multi-packet
-        // buffer -- accepted, since the alternative (GetResultLength()) is
-        // simply wrong, not just imprecise. UAC1 (single packet) is unaffected:
-        // its m_nInSubmitBytes equals usMaxPacket, giving the same result
-        // GetResultLength() would have (that single-packet case isn't buggy).
+        // UAC2 multi-packet: the vendored Circle DWHCI driver's GetResultLength()
+        // is broken for multi-packet iso URBs -- it clamps the correctly-
+        // accumulated total to the LAST packet's declared size (dwhcixferstagedata.cpp
+        // GetResultLen vs m_nTransferSize, reassigned per-packet and never holding
+        // the running sum), so on the UAC2 batched path it silently reported
+        // ~1/nPkts of the real byte count. The buffer itself WAS fully and
+        // correctly written (m_pBufferPointer advances per-packet during the
+        // real transfer) -- only the reported LENGTH was wrong. Fix: use
+        // m_nInSubmitBytes[slot] (what StartInRequest submitted) for UAC2 only.
+        // Tradeoff: cannot detect a genuinely short/zero-length packet mid-batch
+        // (assumes full-size packets) -- accepted for UAC2 since GetResultLength()
+        // is simply wrong there, not just imprecise; same assumption OUT already
+        // makes for its own multi-packet buffer. UAC1 never uses this path.
         //
         // left_buf/right_buf are STATIC, not stack-allocated: this handler runs
         // in the USB completion-handler/ISR context (Core 0 hard-RT dispatch),
@@ -627,7 +647,7 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         static s16 s_right_buf[2][cap];
         s16 *left_buf  = s_left_buf[slot];
         s16 *right_buf = s_right_buf[slot];
-        unsigned nSamples = m_nInSubmitBytes[slot] / frameBytes;
+        unsigned nSamples = nSourceBytes / frameBytes;
         if (nSamples > cap) nSamples = cap;
         const u8 *pb = (const u8 *) m_InBuf + slot * USB_AUDIO_INBUF_BYTES;
         for (unsigned i = 0; i < nSamples; i++)
