@@ -351,37 +351,63 @@ boolean CUSBAudioDevice::StartInRequest (unsigned slot)
     // one packet per microframe on the wire -- no microframe missing.
     //
     // InCompletion does NOT use pURB->GetResultLength() to size the parse -- the
-    // vendored Circle DWHCI driver's GetResultLength() is broken for multi-packet
-    // iso URBs (dwhcixferstagedata.cpp GetResultLen clamps the correctly-
-    // accumulated m_nTotalBytesTransfered down to m_nTransferSize, which by
-    // stage-complete only holds the LAST packet's declared size, not the running
-    // sum -- silently truncating the reported length to ~1/nPkts of the real
-    // total). The buffer itself IS fully and correctly written (m_pBufferPointer
-    // advances per-packet during the real transfer); only the reported LENGTH is
-    // wrong. Fix: record what was SUBMITTED (m_nInSubmitBytes[slot]) here, and
-    // InCompletion parses that many bytes instead of trusting GetResultLength().
+    // vendored Circle DWHCI driver's GetResultLength() is UNUSABLE for multi-
+    // packet iso URBs (dwhcixferstagedata.cpp's per-packet TransactionComplete
+    // loop reassigns m_nTransferSize to each packet's OWN declared size as it
+    // advances, never restored to the full-URB total, so GetResultLen() at
+    // stage-complete clamps to roughly ONE packet's worth -- neither a safe
+    // lower nor upper bound on the true accumulated transfer). The buffer IS
+    // fully and correctly written (m_pBufferPointer advances by the real
+    // per-packet byte count during the transfer); only GetResultLength()'s
+    // REPORTED total is wrong. Fix: InCompletion trusts m_nInSubmitBytes[slot]
+    // (recorded here) instead.
+    //
+    // Trusting a claimed byte count blindly is only safe if it's unlikely to
+    // exceed what the device actually delivered -- so pktSize (the DECLARED
+    // per-microframe iso packet size, which bounds what the hardware will
+    // accept from the device -- must stay at usMaxPacket, the endpoint's true
+    // max, or a legitimate full-rate delivery would overrun/error) is kept
+    // separate from nomPktSize (the NOMINAL expected bytes/microframe at the
+    // negotiated rate, used only to size m_nInSubmitBytes -- the count
+    // InCompletion trusts). A real UAC2 IN device's actual per-microframe
+    // delivery fluctuates in a narrow band AROUND its nominal rate (clock
+    // tolerance, not free variation down to zero), so claiming the NOMINAL
+    // total instead of the MAXIMUM total bounds the worst-case over-read (when
+    // a real microframe delivers less than claimed) to a few stale samples
+    // instead of up to a whole packet's worth -- this was the root cause of
+    // buzz/distortion on US-2x2 (nomPktSize==usMaxPacket in the prior attempt
+    // meant every short microframe read a maximally-oversized garbage tail).
     if (m_bUAC2)
     {
-        // pktSize is the FULL per-microframe budget (usMaxPacket, from the
-        // endpoint's actual declared max-packet-size). Unlike OUT (host-paced,
-        // free to send fewer bytes/packet), IN is device-paced -- the packet
-        // must be large enough for whatever the device actually sends this
-        // microframe, so pktSize is never shrunk. If the buffer can't hold N
-        // full packets, nPkts is reduced instead (never below 1); with
-        // USB_AUDIO_INBUF_BYTES=2048 this only engages for an unusually large
-        // declared max-packet-size, still correct just with less batching.
         const unsigned N = 8;   // microframes per URB (1ms; matches StartOutRequest's N)
-        u16 pktSize = usMaxPacket;
+        u16 pktSize = usMaxPacket;   // hardware-declared iso packet size, unchanged
         if (pktSize == 0) pktSize = 1;
         unsigned nPkts = USB_AUDIO_INBUF_BYTES / pktSize;
         if (nPkts > N) nPkts = N;
         if (nPkts < 1) nPkts = 1;
 
+        // Nominal bytes/microframe at the negotiated rate (m_uRate/8000 high-
+        // speed service intervals per second), the same math StartOutRequest's
+        // m_fbRate seed already uses for OUT pacing (usbaudiodevice.cpp
+        // ConfigureUAC2: m_fbRate = (m_uRate<<16)/8000). frameBytes is bytes
+        // per sample-frame (all channels); nominal samples/microframe rounds
+        // to the nearest whole sample, never zero.
+        unsigned frameBytes = m_uSubslot * m_uChannels;
+        if (frameBytes == 0) frameBytes = 4;
+        unsigned nomSamplesPerUframe = (m_uRate + 4000) / 8000;   // round to nearest
+        if (nomSamplesPerUframe == 0) nomSamplesPerUframe = 1;
+        u16 nomPktSize = (u16) (nomSamplesPerUframe * frameBytes);
+        if (nomPktSize > pktSize) nomPktSize = pktSize;   // never claim more than declared
+        if (nomPktSize == 0) nomPktSize = pktSize;
+
         m_pInURB[slot] = new CUSBRequest (m_pEndpointIn, inBuf, pktSize * nPkts);
         assert (m_pInURB[slot] != 0);
         for (unsigned k = 0; k < nPkts; k++) m_pInURB[slot]->AddIsoPacket (pktSize);
         m_pInURB[slot]->SetCompletionRoutine (InStub, 0, this);
-        m_nInSubmitBytes[slot] = (unsigned) pktSize * nPkts;
+        // m_nInSubmitBytes uses the NOMINAL per-packet size (not pktSize, the
+        // declared/allocated maximum) so InCompletion never over-claims by more
+        // than the device's real clock-tolerance jitter around its nominal rate.
+        m_nInSubmitBytes[slot] = (unsigned) nomPktSize * nPkts;
         boolean ok = GetHost ()->SubmitAsyncRequest (m_pInURB[slot]);
         if (!ok) g_audioInSubmitFail++;
         return ok;
@@ -604,10 +630,23 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
     // device this project's whole USB-audio history proves worked perfectly
     // with plain GetResultLength() before this session touched the file.
     //
-    // For UAC2 (multi-packet, m_bUAC2==TRUE), GetResultLength() IS broken (see
-    // below) so m_nInSubmitBytes[slot] (what StartInRequest submitted) is used
-    // instead -- accepting that tradeoff only where GetResultLength() is
-    // confirmed unusable, not universally.
+    // For UAC2 (multi-packet), GetResultLength() is USELESS, not just imprecise:
+    // dwhcixferstagedata.cpp's per-packet TransactionComplete loop (isochronous,
+    // non-split) reassigns m_nTransferSize to EACH packet's individual declared
+    // size as it advances (never restored to the full-URB total), so by stage-
+    // complete GetResultLen()'s min(m_nTotalBytesTransfered, m_nTransferSize)
+    // clamps down to roughly ONE packet's worth -- unrelated to the true
+    // accumulated multi-packet total. It is neither a safe lower nor upper
+    // bound, so it is not used here at all for UAC2; m_nInSubmitBytes[slot]
+    // (what StartInRequest submitted) is the only usable size signal, and
+    // StartInRequest sizes each packet at the NOMINAL expected bytes/microframe
+    // (not the protocol's declared MAXIMUM) precisely so this reliance is safe:
+    // a real device's actual per-microframe delivery fluctuates in a narrow
+    // band around its nominal rate, so claiming the nominal-sized total reads
+    // at most a few stale samples per completion on the rare short microframe,
+    // instead of up to a full over-sized packet's worth (the US-2x2 buzz cause
+    // when pktSize was the protocol max). See pktSize computation in
+    // StartInRequest for the nominal-rate sizing.
     unsigned nSourceBytes = m_bUAC2 ? m_nInSubmitBytes[slot]
                                      : (pURB->GetStatus () ? pURB->GetResultLength () : 0);
     if (pURB->GetStatus () && nSourceBytes >= frameBytes && m_pInHandler != 0)
