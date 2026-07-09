@@ -75,6 +75,17 @@ private:
     u32 m_fbRate;
     u32 m_fbAccum;
 
+    // UAC2 IN nominal-rate accumulator (Q16.16), same pattern as m_fbAccum: a
+    // single truncated per-call samples/microframe estimate is a SYSTEMATIC bias
+    // (e.g. 6 vs true 5.5125 at 44100Hz -- an 8.8% constant over-claim), which
+    // accumulates in the IN ring's avail level fast enough to overwhelm
+    // AudioSystem.cpp's drain hysteresis deadband and reproduce the periodic
+    // ~1s oscillate-and-resync cycle that deadband was built to prevent
+    // (audible as periodic crunch+blips). Carrying the fractional remainder
+    // forward across StartInRequest calls makes the LONG-RUN average exact
+    // (zero steady-state bias), matching m_fbAccum's proven approach.
+    u32 m_inNomAccum;
+
     DMA_BUFFER (u8, m_InBuf,  USB_AUDIO_INBUF_BYTES * 2);    // two slots for double-buffering
     DMA_BUFFER (u8, m_OutBuf, USB_AUDIO_OUTBUF_BYTES * 2);   // two slots for double-buffering
     DMA_BUFFER (u8, m_FbBuf,  8);

@@ -61,6 +61,7 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_pFbURB       (0),
     m_fbRate       (6u << 16),   // nominal 48000/8000 (high-speed) until feedback
     m_fbAccum      (0),
+    m_inNomAccum   (0),
     m_nPeakIn      (0),
     m_nLastMonitorTick (0),
     m_bUAC2        (FALSE),
@@ -386,28 +387,42 @@ boolean CUSBAudioDevice::StartInRequest (unsigned slot)
         if (nPkts > N) nPkts = N;
         if (nPkts < 1) nPkts = 1;
 
-        // Nominal bytes/microframe at the negotiated rate (m_uRate/8000 high-
-        // speed service intervals per second), the same math StartOutRequest's
-        // m_fbRate seed already uses for OUT pacing (usbaudiodevice.cpp
-        // ConfigureUAC2: m_fbRate = (m_uRate<<16)/8000). frameBytes is bytes
-        // per sample-frame (all channels); nominal samples/microframe rounds
-        // to the nearest whole sample, never zero.
+        // Nominal bytes/microframe at the negotiated rate, accumulated in Q16.16
+        // across calls (mirrors m_fbAccum's proven OUT-pacing pattern) so the
+        // LONG-RUN average is exact -- a single per-call truncated estimate
+        // (e.g. 6 vs true 5.5125 samples/microframe at 44100Hz) is a SYSTEMATIC
+        // bias that accumulates in the IN ring fast enough to overwhelm
+        // AudioSystem.cpp's drain hysteresis deadband, reproducing the periodic
+        // ~1s oscillate-and-resync cycle that deadband exists to prevent
+        // (audible as periodic crunch+blips on top of the per-completion buzz).
+        // nomRate is frames-per-microframe in Q16.16, same formula as m_fbRate's
+        // seed (ConfigureUAC2: m_fbRate = (m_uRate<<16)/8000). frameBytes is
+        // bytes per sample-frame (all channels).
         unsigned frameBytes = m_uSubslot * m_uChannels;
         if (frameBytes == 0) frameBytes = 4;
-        unsigned nomSamplesPerUframe = (m_uRate + 4000) / 8000;   // round to nearest
-        if (nomSamplesPerUframe == 0) nomSamplesPerUframe = 1;
-        u16 nomPktSize = (u16) (nomSamplesPerUframe * frameBytes);
-        if (nomPktSize > pktSize) nomPktSize = pktSize;   // never claim more than declared
-        if (nomPktSize == 0) nomPktSize = pktSize;
+        u32 nomRate = (u32) (((u64) m_uRate << 16) / 8000);
+        if (nomRate == 0) nomRate = 1u << 16;
+        unsigned nomSamplesTotal = 0;
+        for (unsigned k = 0; k < nPkts; k++)
+        {
+            m_inNomAccum += nomRate;
+            nomSamplesTotal += m_inNomAccum >> 16;
+            m_inNomAccum &= 0xFFFF;
+        }
+        unsigned nomTotalBytes = nomSamplesTotal * frameBytes;
+        unsigned declaredTotalBytes = (unsigned) pktSize * nPkts;
+        if (nomTotalBytes > declaredTotalBytes) nomTotalBytes = declaredTotalBytes;   // never claim more than declared
+        if (nomTotalBytes == 0) nomTotalBytes = declaredTotalBytes;
 
         m_pInURB[slot] = new CUSBRequest (m_pEndpointIn, inBuf, pktSize * nPkts);
         assert (m_pInURB[slot] != 0);
         for (unsigned k = 0; k < nPkts; k++) m_pInURB[slot]->AddIsoPacket (pktSize);
         m_pInURB[slot]->SetCompletionRoutine (InStub, 0, this);
-        // m_nInSubmitBytes uses the NOMINAL per-packet size (not pktSize, the
-        // declared/allocated maximum) so InCompletion never over-claims by more
-        // than the device's real clock-tolerance jitter around its nominal rate.
-        m_nInSubmitBytes[slot] = (unsigned) nomPktSize * nPkts;
+        // m_nInSubmitBytes uses the NOMINAL total (fractionally accumulated,
+        // exact long-run average) not pktSize*nPkts (the declared/allocated
+        // maximum) so InCompletion never over-claims by more than the device's
+        // real clock-tolerance jitter around its nominal rate.
+        m_nInSubmitBytes[slot] = nomTotalBytes;
         boolean ok = GetHost ()->SubmitAsyncRequest (m_pInURB[slot]);
         if (!ok) g_audioInSubmitFail++;
         return ok;
