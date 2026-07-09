@@ -400,7 +400,23 @@ boolean CUSBAudioDevice::StartInRequest (unsigned slot)
         // bytes per sample-frame (all channels).
         unsigned frameBytes = m_uSubslot * m_uChannels;
         if (frameBytes == 0) frameBytes = 4;
-        u32 nomRate = (u32) (((u64) m_uRate << 16) / 8000);
+        // Bias the claimed rate slightly BELOW the true nominal (8134/8192 =
+        // ~99.29%, ~0.71% low) rather than claiming the exact mean. Nominal is
+        // an AVERAGE --
+        // roughly half of all real microframes legitimately deliver LESS than
+        // it (clock tolerance jitter around the mean, not free variation), and
+        // each such completion with an exact-nominal claim over-reads into
+        // stale buffer tail (audible as buzz + a periodic crunch/blips cycle
+        // when the accumulated stale-reads beat against AudioSystem.cpp's
+        // drain hysteresis). Claiming a soft LOWER bound instead means the
+        // claim clears on the overwhelming majority of real microframes, so
+        // InCompletion structurally stops over-reading; the resulting small
+        // systematic short-claim (well under 1%) is exactly the kind of slow
+        // drift input_usb.cpp's IN_TARGET_LAG/IN_DEADBAND resync (patches/
+        // input_usb.cpp:25-26,175-181) exists to absorb inaudibly -- unlike
+        // the fractional accumulator alone, this trades a below-threshold
+        // rate deficit (handled) for the over-read risk (not handled before).
+        u32 nomRate = (u32) (((u64) m_uRate << 16) * 8134 / 8192 / 8000);
         if (nomRate == 0) nomRate = 1u << 16;
         unsigned nomSamplesTotal = 0;
         for (unsigned k = 0; k < nPkts; k++)
