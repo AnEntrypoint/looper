@@ -36,6 +36,16 @@ volatile unsigned g_diagInResp      = 0;
 #define IN_RATE_GAIN    131072
 #define IN_RATE_MAX_DEV 64
 #define IN_FRAC_ONE     65536
+// A hard resync (rd jumps to a new ring position with no relation to the old
+// one) is a STEP DISCONTINUITY in the sample stream -- inaudible/mild through
+// a flat passthrough, but a resonant filter (HP/LP/resonance CCs engaged)
+// RINGS on a step the way it rings on any impulse, which is exactly the
+// user-reported signature ("buzz is audible on the input, we can hear the
+// filter affecting it") that six prior fixes targeting the rate-bias
+// MAGNITUDE never addressed, because they only ever changed how OFTEN a
+// resync fires, never smoothed the jump itself. Crossfade over
+// IN_RESYNC_XFADE samples so the filter sees a ramp, not a step.
+#define IN_RESYNC_XFADE 16
 
 static s16 s_in_ring_left [IN_RING_SIZE];
 static s16 s_in_ring_right[IN_RING_SIZE];
@@ -44,6 +54,14 @@ static volatile unsigned s_in_ring_rd = 0;
 static unsigned s_in_rd_frac = 0;
 static s16 s_in_last_left  = 0;
 static s16 s_in_last_right = 0;
+
+// Crossfade-across-resync state: when set, the next IN_RESYNC_XFADE output
+// samples blend s_in_xfade_{left,right} (the last sample BEFORE the jump)
+// into the freshly-read post-jump stream, ramping the discontinuity into a
+// short slope instead of a step.
+static unsigned s_in_xfade_remain = 0;
+static s16      s_in_xfade_left   = 0;
+static s16      s_in_xfade_right  = 0;
 
 volatile unsigned g_inUnderruns     = 0;
 volatile unsigned g_inResyncs       = 0;
@@ -166,6 +184,12 @@ void AudioInputUSB::update (void)
         if (avail >= (int)(IN_RING_SIZE * 3 / 4) || avail < (int)AUDIO_BLOCK_SAMPLES)
         {
             audioTelemetryPush (TELEM_IN_RESYNC, (u32)avail);
+            // Capture the last sample BEFORE the jump so the post-jump ramp
+            // below can crossfade from it instead of stepping straight to
+            // the new position's (unrelated) waveform value.
+            s_in_xfade_left   = s_in_last_left;
+            s_in_xfade_right  = s_in_last_right;
+            s_in_xfade_remain = IN_RESYNC_XFADE;
             rd = wr_snap - IN_TARGET_LAG;
             rd_frac = 0;
             g_inResyncs++;
@@ -211,6 +235,18 @@ void AudioInputUSB::update (void)
                 l += s_otg_ring_left [otg_rd & (IN_RING_SIZE - 1)];
                 r += s_otg_ring_right[otg_rd & (IN_RING_SIZE - 1)];
                 otg_rd++;
+            }
+            if (s_in_xfade_remain > 0)
+            {
+                // Linear ramp: weight the pre-jump sample down to 0 and the
+                // post-jump sample up to full over IN_RESYNC_XFADE samples,
+                // so a resonant filter downstream sees a slope, not a step.
+                s32 w = (s32) s_in_xfade_remain;   // IN_RESYNC_XFADE..1
+                s32 wPre  = w;
+                s32 wPost = (s32) IN_RESYNC_XFADE - w + 1;
+                l = (l * wPost + (s32) s_in_xfade_left  * wPre) / (s32) (IN_RESYNC_XFADE + 1);
+                r = (r * wPost + (s32) s_in_xfade_right * wPre) / (s32) (IN_RESYNC_XFADE + 1);
+                s_in_xfade_remain--;
             }
             new_left->data[i]  = l > 32767 ? 32767 : (l < -32768 ? -32768 : (s16)l);
             new_right->data[i] = r > 32767 ? 32767 : (r < -32768 ? -32768 : (s16)r);
