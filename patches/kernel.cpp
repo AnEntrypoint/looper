@@ -23,6 +23,15 @@ extern const unsigned long wlan_clm_size;
 static const char log_name[] = "kernel";
 static const char build_id[] = "BUILD-" __DATE__ "-" __TIME__;
 
+// Exposed so the :4445 BUID verb (kernel_run.cpp) can report the RUNNING
+// kernel's build identity live, without a syslog listener -- six consecutive
+// fix/flash/verify cycles on the UAC2 IN bias math left no way to confirm the
+// flashed fix was actually the kernel that booted (this project's own build
+// system has repeat-offender stale-object classes: CHECK_DEPS=0 skipping
+// header-triggered rebuilds, ar not re-adding a deleted .o). This closes that
+// verification gap for every future fix/flash/verify cycle, not just this one.
+const char *KernelGetBuildId(void) { return build_id; }
+
 static const u8 s_OwnIP[] = { NET_OWN_IP };
 static const u8 s_Mask[]  = { NET_NETMASK };
 static const u8 s_GW[]    = { NET_GATEWAY };

@@ -180,9 +180,19 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 			// impact — only reads/writes plain fields when a query arrives).
 			// Routed via a thin extern in audio.cpp so this file needn't include
 			// the audio engine header.
+			// "BUID" verb: report the RUNNING kernel's build identity (compile
+			// date+time string) so a fix/flash/verify cycle can confirm the
+			// flashed binary actually booted, without a syslog listener. See
+			// KernelGetBuildId() in kernel.cpp for why this exists.
+			if (buf[0] == 'B' && buf[1] == 'U' && buf[2] == 'I' && buf[3] == 'D')
+			{
+				extern const char *KernelGetBuildId(void);
+				const char *bid = KernelGetBuildId();
+				pDebug->SendTo((u8 *)bid, (int)strlen(bid), MSG_DONTWAIT, sender, port);
+			}
 			// "WLAN" verb: report ticker join/AP state + Link sync (verifies the
 			// "must join or host ticker" requirement live, no syslog needed).
-			if (buf[0] == 'W' && buf[1] == 'L' && buf[2] == 'A' && buf[3] == 'N')
+			else if (buf[0] == 'W' && buf[1] == 'L' && buf[2] == 'A' && buf[3] == 'N')
 			{
 #ifdef LOOPER_ENABLE_WLAN
 				extern int  wlanDhcpAttempts(void);
