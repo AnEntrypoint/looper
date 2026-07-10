@@ -746,6 +746,7 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         s16 prevL = s_zcPrevL[slot];
         s16 prevR = s_zcPrevR[slot];
         unsigned zcL = 0, zcR = 0;
+        unsigned long long enL = 0, enR = 0;
         for (unsigned i = 0; i < nSamples; i++)
         {
             const u8 *f = pb + i * frameBytes;
@@ -759,6 +760,8 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
             if (absR > m_nPeakIn) m_nPeakIn = absR;
             if ((L >= 0) != (prevL >= 0)) zcL++;
             if ((R >= 0) != (prevR >= 0)) zcR++;
+            enL += absL;
+            enR += absR;
             prevL = L;
             prevR = R;
         }
@@ -768,8 +771,13 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         // Reliable cross-core witnesses for the UAUD verb (input is flowing).
         extern volatile unsigned g_audioInDeliv, g_audioInPeak;
         extern volatile unsigned g_audioInZcL, g_audioInZcR;
+        extern volatile unsigned long long g_audioInEnergyL, g_audioInEnergyR;
+        extern volatile unsigned g_audioInEnergyN;
         g_audioInDeliv++;
         if (m_nPeakIn > g_audioInPeak) g_audioInPeak = m_nPeakIn;
+        g_audioInEnergyL += enL;
+        g_audioInEnergyR += enR;
+        g_audioInEnergyN += nSamples;
         g_audioInZcL += zcL;
         g_audioInZcR += zcR;
     }

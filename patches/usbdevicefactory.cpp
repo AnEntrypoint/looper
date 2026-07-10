@@ -81,6 +81,23 @@ volatile unsigned g_audioInZcL = 0;        // raw-input zero-crossings, left cha
 volatile unsigned g_audioInZcR = 0;        // raw-input zero-crossings, right channel
 volatile unsigned g_audioInLastTick  = 0;  // last IN completion tick (us)
 
+// Raw-input mean-absolute-amplitude accumulator (:4445 UAUD verb, ienL/ienR
+// fields -- "input energy"). ZCR (above) proved BLIND to a real, user-
+// confirmed buzz occurrence this session: live samples during the audible
+// buzz showed LOWER zero-crossing-rate than idle, not higher -- ZCR only
+// detects HIGH-frequency content well, so a low-frequency artifact (mains
+// hum, a beat tone, broadband noise with more low-end than high-end energy)
+// would pass through nearly invisible to it. This accumulator sums
+// |sample| (mean-absolute-amplitude -- a cheap RMS-like energy proxy that
+// avoids a multiply in the ISR-critical InCompletion path) across every
+// raw-input sample, regardless of frequency, so an elevated noise FLOOR of
+// any spectral shape shows up as elevated average magnitude. Reset-on-read
+// like izcL/izcR; divide by sample count (also exposed) to get true mean
+// amplitude per window.
+volatile unsigned long long g_audioInEnergyL = 0;  // sum(|sample|), left
+volatile unsigned long long g_audioInEnergyR = 0;  // sum(|sample|), right
+volatile unsigned g_audioInEnergyN = 0;            // sample count this window
+
 CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pName)
 {
 	assert (pParent != 0);
