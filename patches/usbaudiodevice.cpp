@@ -738,6 +738,14 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         unsigned nSamples = nSourceBytes / frameBytes;
         if (nSamples > cap) nSamples = cap;
         const u8 *pb = (const u8 *) m_InBuf + slot * USB_AUDIO_INBUF_BYTES;
+        // Zero-crossing accumulators, per-slot so interleaved slot 0/1
+        // completions (UAC2 double-buffering) never race the same static
+        // "previous sample" state -- each slot tracks its own continuation.
+        static s16 s_zcPrevL[2] = {0, 0};
+        static s16 s_zcPrevR[2] = {0, 0};
+        s16 prevL = s_zcPrevL[slot];
+        s16 prevR = s_zcPrevR[slot];
+        unsigned zcL = 0, zcR = 0;
         for (unsigned i = 0; i < nSamples; i++)
         {
             const u8 *f = pb + i * frameBytes;
@@ -749,12 +757,21 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
             u32 absR = R < 0 ? (u32)(-R) : (u32)R;
             if (absL > m_nPeakIn) m_nPeakIn = absL;
             if (absR > m_nPeakIn) m_nPeakIn = absR;
+            if ((L >= 0) != (prevL >= 0)) zcL++;
+            if ((R >= 0) != (prevR >= 0)) zcR++;
+            prevL = L;
+            prevR = R;
         }
+        s_zcPrevL[slot] = prevL;
+        s_zcPrevR[slot] = prevR;
         (*m_pInHandler) (left_buf, right_buf, nSamples);
         // Reliable cross-core witnesses for the UAUD verb (input is flowing).
         extern volatile unsigned g_audioInDeliv, g_audioInPeak;
+        extern volatile unsigned g_audioInZcL, g_audioInZcR;
         g_audioInDeliv++;
         if (m_nPeakIn > g_audioInPeak) g_audioInPeak = m_nPeakIn;
+        g_audioInZcL += zcL;
+        g_audioInZcR += zcR;
     }
 
     // Glitch diag: track the MAX gap between IN completions, mirroring

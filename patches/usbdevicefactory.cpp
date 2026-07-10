@@ -67,6 +67,18 @@ volatile unsigned g_audioFbCount  = 0;     // UAC2 feedback URBs completed
 volatile unsigned g_audioOutMaxGapUs = 0;  // max gap between OUT completions (us, reset on UAUD read)
 volatile unsigned g_audioOutLastTick = 0;  // last OUT completion tick (us)
 volatile unsigned g_audioInMaxGapUs  = 0;  // max gap between IN completions (us, reset on UAUD read)
+
+// Raw-input zero-crossing-rate accumulator (:4445 UAUD verb, izcL/izcR fields).
+// Sampled at the EARLIEST point in the audio pipeline -- inside InCompletion,
+// right after decoding raw USB bytes to s16, before loopMachine or any effect
+// touches the signal. A continuous tonal/buzz artifact (vs clean audio or
+// silence) has a distinctive, elevated zero-crossing rate; comparing this
+// raw-input ZCR against downstream telemetry (e.g. the wet mix) is the
+// cheapest available way to localize whether a reported "buzz on input" noise
+// is genuinely present at the USB wire, or only appears after the DSP chain
+// -- without needing a WAV capture or physical drive retrieval.
+volatile unsigned g_audioInZcL = 0;        // raw-input zero-crossings, left channel
+volatile unsigned g_audioInZcR = 0;        // raw-input zero-crossings, right channel
 volatile unsigned g_audioInLastTick  = 0;  // last IN completion tick (us)
 
 CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pName)
