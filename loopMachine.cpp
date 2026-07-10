@@ -46,6 +46,13 @@ s32 loopMachine::m_output_buffer[ LOOPER_NUM_CHANNELS * AUDIO_BLOCK_SAMPLES ];
 // 1.0 = off (default). Written only by loopMachine::command() on Core 2.
 volatile float g_globalSpeedMul = 1.0f;
 
+// WET-signal telemetry (:4445 UAUD verb) -- see the comment at the
+// cbWriteBlock call site below for why this tap point matters (both of this
+// project's WAV-writing mechanisms capture from HERE, not raw USB input).
+volatile unsigned g_loopWetZcL = 0, g_loopWetZcR = 0;
+volatile unsigned long long g_loopWetEnergyL = 0, g_loopWetEnergyR = 0;
+volatile unsigned g_loopWetEnergyN = 0;
+
 
 
 const char *getLoopCommandName(u16 cmd)
@@ -852,6 +859,46 @@ void loopMachine::update(void)
 	// engine's read-offset when engaged, 0 when transpose is off (bypassed).
 	g_cbExtraLagSamples = (pLivePitchWrapper && pLivePitchWrapper->isEngaged())
 	                    ? (u32)pLivePitchWrapper->latencySamples() : 0;
+
+	// WET-signal telemetry (:4445 UAUD verb, wzcL/wzcR/wenL/wenR/wenN fields) --
+	// SAME zero-crossing-rate + mean-absolute-amplitude metrics already proven
+	// on raw USB input this session, but sampled HERE instead: the exact point
+	// every WAV-writing mechanism in this project (usbWavRecorder.cpp's
+	// continuous ring dump, loopDump.cpp's per-track dump) actually captures
+	// from. All prior raw-input probes (izcL/ienL/RAWD in usbaudiodevice.cpp)
+	// tap BEFORE this point and showed nothing anomalous even during a
+	// confirmed-audible buzz -- if the artifact is introduced anywhere in
+	// live-pitch/microrepeat/filters (all run earlier in this same function,
+	// before this line), it would be invisible to every earlier probe but
+	// visible here, closing the gap with a live A/B instead of more static
+	// reading.
+	{
+		extern volatile unsigned g_loopWetZcL, g_loopWetZcR;
+		extern volatile unsigned long long g_loopWetEnergyL, g_loopWetEnergyR;
+		extern volatile unsigned g_loopWetEnergyN;
+		static s32 s_wetPrevL = 0, s_wetPrevR = 0;
+		unsigned zcL = 0, zcR = 0;
+		unsigned long long enL = 0, enR = 0;
+		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+		{
+			s32 L = m_input_buffer[i];
+			s32 R = m_input_buffer[AUDIO_BLOCK_SAMPLES + i];
+			u32 absL = L < 0 ? (u32)(-L) : (u32)L;
+			u32 absR = R < 0 ? (u32)(-R) : (u32)R;
+			if ((L >= 0) != (s_wetPrevL >= 0)) zcL++;
+			if ((R >= 0) != (s_wetPrevR >= 0)) zcR++;
+			enL += absL;
+			enR += absR;
+			s_wetPrevL = L;
+			s_wetPrevR = R;
+		}
+		g_loopWetZcL += zcL;
+		g_loopWetZcR += zcR;
+		g_loopWetEnergyL += enL;
+		g_loopWetEnergyR += enR;
+		g_loopWetEnergyN += AUDIO_BLOCK_SAMPLES;
+	}
+
 	cbWriteBlock(m_input_buffer);
 
 	u32 outPeak = 0;
