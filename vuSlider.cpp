@@ -99,8 +99,11 @@ void vuSlider::updateFrame()
 	if (m_meter_num < 0)	// slider only
 		return;
 
+	// MONO: LOOPER_NUM_CHANNELS==1 means getMeter(...,1) is never populated by
+	// loopMachine's per-channel loop -- mirror channel 0 so the second VU bar
+	// still shows the (single) signal instead of reading dead.
 	float peak0 = pTheLooper->getMeter(m_meter_num,0);
-	float peak1 = pTheLooper->getMeter(m_meter_num,1);
+	float peak1 = (LOOPER_NUM_CHANNELS > 1) ? pTheLooper->getMeter(m_meter_num,1) : peak0;
 	u8 value0 = (peak0 * ((float)m_num_divs) + 0.8);
 	u8 value1 = (peak1 * ((float)m_num_divs) + 0.8);
 

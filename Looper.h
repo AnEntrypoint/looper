@@ -44,8 +44,12 @@
 // #define LOOPER_NUM_LAYERS     3
     // in common defines.h
 
-#define LOOPER_NUM_CHANNELS   2
-    // the whole thing is stereo
+#define LOOPER_NUM_CHANNELS   1
+    // MONO: both input channels are summed to one at USB-IN decode
+    // (AudioInputUSB::inHandler) and duplicated back to stereo at USB-OUT
+    // (AudioOutputUSB::update -> the ring) since the physical device still
+    // requires a stereo wire. Every internal buffer (loops, sampler,
+    // continuous record buffer, WAV writers) is mono.
 
 #define CROSSFADE_BLOCKS     4
     // The number of buffers (10 == approx 30ms) to continue recording

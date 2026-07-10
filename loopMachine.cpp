@@ -1,4 +1,5 @@
 #include "Looper.h"
+#include <string.h>
 #include <circle/logger.h>
 #include <circle/synchronize.h>
 #include "abletonLink.h"
@@ -720,12 +721,12 @@ void loopMachine::update(void)
 	m_loopOutputGain = 1.0f - foldEnd;
 
 	// Fold the (ramped) loop sum into the effect source before pitch/effects.
+	// MONO: single channel (was two hardcoded L/R offsets).
 	{
 		float fg = foldStart;
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
 		{
-			m_input_buffer[i]                        += (s32)((float)m_output_buffer[i] * fg);
-			m_input_buffer[AUDIO_BLOCK_SAMPLES + i]  += (s32)((float)m_output_buffer[AUDIO_BLOCK_SAMPLES + i] * fg);
+			m_input_buffer[i] += (s32)((float)m_output_buffer[i] * fg);
 			fg += foldSampStep;
 		}
 	}
@@ -757,23 +758,20 @@ void loopMachine::update(void)
 		}
 		if (lp.liveEngaged)
 		{
-			s16 tmp_L[AUDIO_BLOCK_SAMPLES], tmp_R[AUDIO_BLOCK_SAMPLES];
+			// MONO: feed the same mono buffer as both wrapper channel args
+			// (RubberBandWrapper runs two identical parallel engine instances
+			// on identical input -> identical output; take one).
+			s16 tmp_M[AUDIO_BLOCK_SAMPLES];
 			for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-			{
-				tmp_L[i] = (s16)m_input_buffer[i];
-				tmp_R[i] = (s16)m_input_buffer[AUDIO_BLOCK_SAMPLES + i];
-			}
+				tmp_M[i] = (s16)m_input_buffer[i];
 
-			pLivePitchWrapper->feedAudio(tmp_L, tmp_R, AUDIO_BLOCK_SAMPLES);
-			s16 out_L[AUDIO_BLOCK_SAMPLES], out_R[AUDIO_BLOCK_SAMPLES];
-			size_t got = pLivePitchWrapper->retrieveAudio(out_L, out_R, AUDIO_BLOCK_SAMPLES);
+			pLivePitchWrapper->feedAudio(tmp_M, tmp_M, AUDIO_BLOCK_SAMPLES);
+			s16 out_M[AUDIO_BLOCK_SAMPLES], out_scratch[AUDIO_BLOCK_SAMPLES];
+			size_t got = pLivePitchWrapper->retrieveAudio(out_M, out_scratch, AUDIO_BLOCK_SAMPLES);
 			if (got == AUDIO_BLOCK_SAMPLES)
 			{
 				for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-				{
-					m_input_buffer[i] = out_L[i];
-					m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = out_R[i];
-				}
+					m_input_buffer[i] = out_M[i];
 			}
 		}
 	}
@@ -785,18 +783,15 @@ void loopMachine::update(void)
 	// stutter as before.
 	if (pEffectsProcessor)
 	{
-		float fx_L[AUDIO_BLOCK_SAMPLES], fx_R[AUDIO_BLOCK_SAMPLES];
+		// MONO: feed the same mono buffer as both channel args (matches the
+		// live-pitch wrapper convention above).
+		float fx_M[AUDIO_BLOCK_SAMPLES], fx_scratch[AUDIO_BLOCK_SAMPLES];
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-		{
-			fx_L[i] = (float)m_input_buffer[i] / 32768.0f;
-			fx_R[i] = (float)m_input_buffer[AUDIO_BLOCK_SAMPLES + i] / 32768.0f;
-		}
-		pEffectsProcessor->processSends(fx_L, fx_R, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
+			fx_M[i] = (float)m_input_buffer[i] / 32768.0f;
+		memcpy(fx_scratch, fx_M, sizeof(fx_M));
+		pEffectsProcessor->processSends(fx_M, fx_scratch, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-		{
-			m_input_buffer[i] = (s32)(fx_L[i] * 32768.0f);
-			m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = (s32)(fx_R[i] * 32768.0f);
-		}
+			m_input_buffer[i] = (s32)(fx_M[i] * 32768.0f);
 	}
 
 	// MICROREPEAT (beat-repeat/stutter, notes 82-86). When a division is
@@ -822,8 +817,7 @@ void loopMachine::update(void)
 		float remain = (1.0f - foldEnd) * pMicroRepeat->wet();
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
 		{
-			m_input_buffer[i]                       += (s32)((float)m_output_buffer[i] * remain);
-			m_input_buffer[AUDIO_BLOCK_SAMPLES + i] += (s32)((float)m_output_buffer[AUDIO_BLOCK_SAMPLES + i] * remain);
+			m_input_buffer[i] += (s32)((float)m_output_buffer[i] * remain);
 		}
 		pMicroRepeat->process(m_input_buffer, m_masterPhase, m_masterLoopBlocks,
 		                      lp.microRepeatDiv, AUDIO_BLOCK_SAMPLES);
@@ -836,18 +830,14 @@ void loopMachine::update(void)
 	// the filtered result.
 	if (pEffectsProcessor)
 	{
-		float fl[AUDIO_BLOCK_SAMPLES], fr[AUDIO_BLOCK_SAMPLES];
+		// MONO: feed the same mono buffer as both channel args.
+		float fl[AUDIO_BLOCK_SAMPLES], fr_scratch[AUDIO_BLOCK_SAMPLES];
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-		{
 			fl[i] = (float)m_input_buffer[i] / 32768.0f;
-			fr[i] = (float)m_input_buffer[AUDIO_BLOCK_SAMPLES + i] / 32768.0f;
-		}
-		pEffectsProcessor->processFilters(fl, fr, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
+		memcpy(fr_scratch, fl, sizeof(fl));
+		pEffectsProcessor->processFilters(fl, fr_scratch, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-		{
 			m_input_buffer[i] = (s32)(fl[i] * 32768.0f);
-			m_input_buffer[AUDIO_BLOCK_SAMPLES + i] = (s32)(fr[i] * 32768.0f);
-		}
 	}
 
 	// ALWAYS-ON continuous record buffer (continuousBuffer.h): store the WET
@@ -881,16 +871,16 @@ void loopMachine::update(void)
 		unsigned long long enL = 0, enR = 0;
 		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
 		{
-			s32 L = m_input_buffer[i];
-			s32 R = m_input_buffer[AUDIO_BLOCK_SAMPLES + i];
-			u32 absL = L < 0 ? (u32)(-L) : (u32)L;
-			u32 absR = R < 0 ? (u32)(-R) : (u32)R;
-			if ((L >= 0) != (s_wetPrevL >= 0)) zcL++;
-			if ((R >= 0) != (s_wetPrevR >= 0)) zcR++;
-			enL += absL;
-			enR += absR;
-			s_wetPrevL = L;
-			s_wetPrevR = R;
+			// MONO: L and R telemetry fields both read the same mono sample
+			// (dual-field wire format kept for UAUD/RAWD tooling compatibility).
+			s32 M = m_input_buffer[i];
+			u32 absM = M < 0 ? (u32)(-M) : (u32)M;
+			if ((M >= 0) != (s_wetPrevL >= 0)) zcL++;
+			if ((M >= 0) != (s_wetPrevR >= 0)) zcR++;
+			enL += absM;
+			enR += absM;
+			s_wetPrevL = M;
+			s_wetPrevR = M;
 		}
 		g_loopWetZcL += zcL;
 		g_loopWetZcR += zcR;

@@ -21,10 +21,10 @@ protected:
 
 private:
 
-    static audio_block_t *s_block_left;
-    static audio_block_t *s_block_right;
-
-    audio_block_t *m_input_queue[2];
+    // MONO: sized 1 to match AudioOutputUSB's AudioStream(LOOPER_NUM_CHANNELS, ...)
+    // ctor arg in output_usb.cpp. Not LOOPER_NUM_CHANNELS directly -- Looper.h
+    // is not included here and this header must stay AudioStream.h-only.
+    audio_block_t *m_input_queue[1];
 };
 
 #endif

@@ -34,7 +34,7 @@
 //
 // Bare-metal: buffers are heap-allocated once in the ctor; no allocation in the
 // audio path. Storage is s16 (short) to halve the footprint; the audio path is
-// s32 (int) interleaved [L0..L_{N-1}, R0..R_{N-1}] matching m_input_buffer.
+// s32 (int) mono [M0..M_{N-1}] matching m_input_buffer.
 //
 // NOTE on integer types: this toolchain has int32_t == long int but s32 == int,
 // and m_input_buffer is s32* (= int*). Buffer-facing ints are therefore plain
@@ -59,18 +59,14 @@ public:
 
     sampler()
     {
-        m_chromL = new short[CHROM_MAX];
-        m_chromR = new short[CHROM_MAX];
-        memset(m_chromL, 0, sizeof(short) * CHROM_MAX);
-        memset(m_chromR, 0, sizeof(short) * CHROM_MAX);
+        m_chromM = new short[CHROM_MAX];
+        memset(m_chromM, 0, sizeof(short) * CHROM_MAX);
         m_chromLen = 0;
         m_chromLoaded = false;
 
         for (int k = 0; k < NUM_DRUM; k++) {
-            m_drumL[k] = new short[DRUM_MAX];
-            m_drumR[k] = new short[DRUM_MAX];
-            memset(m_drumL[k], 0, sizeof(short) * DRUM_MAX);
-            memset(m_drumR[k], 0, sizeof(short) * DRUM_MAX);
+            m_drumM[k] = new short[DRUM_MAX];
+            memset(m_drumM[k], 0, sizeof(short) * DRUM_MAX);
             m_drumLen[k] = 0;
             m_drumLoaded[k] = false;
         }
@@ -88,8 +84,8 @@ public:
 
     ~sampler()
     {
-        delete[] m_chromL; delete[] m_chromR;
-        for (int k = 0; k < NUM_DRUM; k++) { delete[] m_drumL[k]; delete[] m_drumR[k]; }
+        delete[] m_chromM;
+        for (int k = 0; k < NUM_DRUM; k++) { delete[] m_drumM[k]; }
     }
 
     // ---- Producer side (MIDI ISR / control core) -----------------------------
@@ -121,16 +117,15 @@ public:
 
     // ---- Consumer side (Core 1 audio) ---------------------------------------
     // Append the DRY input block to the armed record buffer (no-op when not
-    // recording). in is [L0..L_{n-1}, R0..R_{n-1}] s32.
+    // recording). in is [M0..M_{n-1}] s32.
     void captureBlock(const int *in, int n)
     {
         if (!m_recActive) return;
-        short *dl, *dr; int maxLen; int *lenp;
-        if (!_recBuffers(dl, dr, maxLen, lenp)) return;
+        short *dm; int maxLen; int *lenp;
+        if (!_recBuffers(dm, maxLen, lenp)) return;
         for (int i = 0; i < n; i++) {
             if (m_recPos >= maxLen) { m_recActive = false; break; }   // overrun clamp
-            dl[m_recPos] = _clip16(in[i]);
-            dr[m_recPos] = _clip16(in[n + i]);
+            dm[m_recPos] = _clip16(in[i]);
             m_recPos++;
         }
         *lenp = m_recPos;
@@ -150,8 +145,7 @@ public:
                 // End-of-sample: begin release so the tail fades click-free.
                 if (vo.pos >= (double)(vo.len - 1)) { vo.target = 0.0f; }
 
-                float sl = _readInterp(vo.L, vo.len, vo.pos);
-                float sr = _readInterp(vo.R, vo.len, vo.pos);
+                float sm = _readInterp(vo.M, vo.len, vo.pos);
 
                 // Per-sample gain ramp toward target. Attack uses the per-voice
                 // (duration-scaled) step so short/fast voices open in time; release
@@ -159,8 +153,7 @@ public:
                 if (vo.gain < vo.target)      { vo.gain += vo.attackStep; if (vo.gain > vo.target) vo.gain = vo.target; }
                 else if (vo.gain > vo.target) { vo.gain -= GAIN_STEP;     if (vo.gain < vo.target) vo.gain = vo.target; }
 
-                inout[i]     += (int)(sl * vo.gain);
-                inout[n + i] += (int)(sr * vo.gain);
+                inout[i] += (int)(sm * vo.gain);
 
                 vo.pos += vo.rate;
                 if (vo.gain <= 0.0f && vo.target == 0.0f) { vo.active = false; break; }
@@ -190,7 +183,7 @@ private:
 
     struct Voice {
         bool   active;
-        const short *L, *R;
+        const short *M;
         int    len;
         double pos;
         double rate;
@@ -217,11 +210,11 @@ private:
         return (float)buf[i0] * (1.0f - frac) + (float)buf[i1] * frac;
     }
 
-    bool _recBuffers(short *&dl, short *&dr, int &maxLen, int *&lenp)
+    bool _recBuffers(short *&dm, int &maxLen, int *&lenp)
     {
-        if (m_recTarget == -1) { dl = m_chromL; dr = m_chromR; maxLen = CHROM_MAX; lenp = &m_chromLen; return true; }
+        if (m_recTarget == -1) { dm = m_chromM; maxLen = CHROM_MAX; lenp = &m_chromLen; return true; }
         if (m_recTarget >= 0 && m_recTarget < NUM_DRUM) {
-            dl = m_drumL[m_recTarget]; dr = m_drumR[m_recTarget];
+            dm = m_drumM[m_recTarget];
             maxLen = DRUM_MAX; lenp = &m_drumLen[m_recTarget]; return true;
         }
         return false;
@@ -233,12 +226,12 @@ private:
         // we are about to overwrite (no read mid-rewrite).
         if (target >= 0 && target < NUM_DRUM) {
             for (int v = 0; v < VOICES; v++)
-                if (m_voice[v].active && m_voice[v].L == m_drumL[target]) m_voice[v].active = false;
+                if (m_voice[v].active && m_voice[v].M == m_drumM[target]) m_voice[v].active = false;
             m_drumLoaded[target] = false;
             m_drumLen[target] = 0;
         } else if (target == -1) {
             for (int v = 0; v < VOICES; v++)
-                if (m_voice[v].active && m_voice[v].L == m_chromL) m_voice[v].active = false;
+                if (m_voice[v].active && m_voice[v].M == m_chromM) m_voice[v].active = false;
             m_chromLoaded = false;
             m_chromLen = 0;
         }
@@ -253,10 +246,10 @@ private:
         // be false if captureBlock hit the overrun clamp before the stop event.
         if (m_recTarget == -2) return;
         m_recActive = false;
-        short *dl, *dr; int maxLen; int *lenp;
-        if (!_recBuffers(dl, dr, maxLen, lenp)) { m_recTarget = -2; return; }
+        short *dm; int maxLen; int *lenp;
+        if (!_recBuffers(dm, maxLen, lenp)) { m_recTarget = -2; return; }
         int len = *lenp;
-        int trimmed = _autoTrim(dl, dr, len);
+        int trimmed = _autoTrim(dm, len);
         *lenp = trimmed;
         if (m_recTarget == -1) m_chromLoaded = (trimmed > 0);
         else if (m_recTarget >= 0 && m_recTarget < NUM_DRUM) m_drumLoaded[m_recTarget] = (trimmed > 0);
@@ -266,15 +259,14 @@ private:
     // Auto-clip leading/trailing silence in place; returns new length. A short
     // fade-in/out is applied at the trimmed edges for click-free one-shots.
     // All-silence -> returns 0 (slot stays unloaded).
-    static int _autoTrim(short *L, short *R, int len)
+    static int _autoTrim(short *M, int len)
     {
         if (len <= 0) return 0;
         // First and last sample whose magnitude clears the silence threshold.
         int start = -1, end = -1;
         for (int i = 0; i < len; i++) {
-            int a = L[i]; if (a < 0) a = -a;
-            int b = R[i]; if (b < 0) b = -b;
-            if ((a > b ? a : b) > TRIM_THRESH) { if (start < 0) start = i; end = i; }
+            int a = M[i]; if (a < 0) a = -a;
+            if (a > TRIM_THRESH) { if (start < 0) start = i; end = i; }
         }
         if (start < 0 || end < start) return 0;     // all silence
         // PRE-ROLL: keep a few samples BEFORE the first threshold crossing so the
@@ -284,26 +276,25 @@ private:
         if (start > PREROLL) start -= PREROLL; else start = 0;
         int newLen = end - start + 1;
         if (start > 0) {
-            memmove(L, L + start, sizeof(short) * newLen);
-            memmove(R, R + start, sizeof(short) * newLen);
+            memmove(M, M + start, sizeof(short) * newLen);
         }
         // Leading edge: only a TINY declick (preserve the attack), not a long
         // fade-in. Trailing edge: a longer fade-out so one-shots end click-free.
         int fin = newLen < LEAD_DECLICK ? newLen : LEAD_DECLICK;
         for (int i = 0; i < fin; i++) {
             float g = (float)i / (float)fin;
-            L[i] = (short)(L[i] * g); R[i] = (short)(R[i] * g);
+            M[i] = (short)(M[i] * g);
         }
         int fout = newLen < EDGE_FADE ? newLen : EDGE_FADE;
         for (int i = 0; i < fout; i++) {
             float g = (float)i / (float)fout;
             int j = newLen - 1 - i;
-            L[j] = (short)(L[j] * g); R[j] = (short)(R[j] * g);
+            M[j] = (short)(M[j] * g);
         }
         return newLen;
     }
 
-    void _spawnVoice(const short *L, const short *R, int len, double rate, bool sustain, int note)
+    void _spawnVoice(const short *M, int len, double rate, bool sustain, int note)
     {
         if (len <= 0) return;
         int slot = -1; unsigned oldest = 0xFFFFFFFF;
@@ -312,7 +303,7 @@ private:
             if (m_voice[v].age < oldest) { oldest = m_voice[v].age; slot = v; }
         }
         Voice &vo = m_voice[slot];
-        vo.active = true; vo.L = L; vo.R = R; vo.len = len;
+        vo.active = true; vo.M = M; vo.len = len;
         vo.pos = 0.0; vo.rate = rate; vo.sustain = sustain; vo.note = note;
         vo.gain = 0.0f; vo.target = 1.0f; vo.age = ++m_ageCtr;
         // Attack ramp scaled to how long the voice will actually play. A fast
@@ -331,7 +322,7 @@ private:
         int k = keyIndex(note);
         if (k >= 0 && m_drumLoaded[k]) {
             // Drum one-shot at original pitch (ignores note-off, plays to end).
-            _spawnVoice(m_drumL[k], m_drumR[k], m_drumLen[k], 1.0, false, -1);
+            _spawnVoice(m_drumM[k], m_drumLen[k], 1.0, false, -1);
             return;
         }
         if (m_chromLoaded) {
@@ -342,7 +333,7 @@ private:
                 if (m_voice[v].active && m_voice[v].sustain && m_voice[v].note == note)
                     m_voice[v].target = 0.0f;
             double rate = pow(2.0, (double)(note - ROOT_NOTE) / 12.0);
-            _spawnVoice(m_chromL, m_chromR, m_chromLen, rate, true, note);
+            _spawnVoice(m_chromM, m_chromLen, rate, true, note);
         }
     }
 
@@ -372,12 +363,12 @@ private:
     }
 
     // Chromatic sample
-    short *m_chromL, *m_chromR;
+    short *m_chromM;
     int    m_chromLen;
     volatile bool m_chromLoaded;
 
     // Per-key drum slots
-    short *m_drumL[NUM_DRUM], *m_drumR[NUM_DRUM];
+    short *m_drumM[NUM_DRUM];
     int    m_drumLen[NUM_DRUM];
     volatile bool m_drumLoaded[NUM_DRUM];
 

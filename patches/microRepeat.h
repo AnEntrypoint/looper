@@ -36,7 +36,7 @@ public:
     // (~80 BPM -> phrase ~8280 blocks -> beat ~518 blocks -> ~33k samples).
     // 48000 (~1s @ 48k) is a safe ceiling with headroom.
     static const int MR_MAX_SLICE = 48000;
-    static const int MR_CHANNELS  = 2;
+    static const int MR_CHANNELS  = 1;
 
     microRepeat() { reset(); }
 
@@ -50,8 +50,8 @@ public:
         m_wet        = 0.0f;
     }
 
-    // One audio block. inout points at the FULL mix for this block, layout
-    // matching loopMachine's m_input_buffer: [L0..L_{N-1}, R0..R_{N-1}].
+    // One audio block. inout points at the FULL mono mix for this block, layout
+    // matching loopMachine's m_input_buffer: [M0..M_{N-1}].
     // div: 0 = off, else 1/2/4/8/16 (the beat divisor). masterLoopBlocks: the
     // phrase length in blocks (16 beats); 0 = no grid yet. Returns nothing; on
     // return inout holds the stage output (repeated slice while latched, live
@@ -104,25 +104,22 @@ public:
         float wet = wetStart;
 
         for (int i = 0; i < N; i++) {
-            int liveL = inout[i];
-            int liveR = inout[N + i];
+            int liveM = inout[i];
 
             // While a slice is being captured (the first slice-length samples
             // after engage), record the live audio into the ring so the loop
             // content == the audio at the moment of the press.
-            int repL = liveL, repR = liveR;
+            int repM = liveM;
             if (m_sliceLen > 0) {
                 if (m_capturing) {
-                    m_ring[0][m_capturePos] = liveL;
-                    m_ring[1][m_capturePos] = liveR;
+                    m_ring[0][m_capturePos] = liveM;
                     m_capturePos++;
                     if (m_capturePos >= m_sliceLen) { m_capturePos = 0; m_capturing = false; }
                     // During capture, the repeated signal IS the live signal
                     // (first pass through the slice) -> seamless into the loop.
-                    repL = liveL; repR = liveR;
+                    repM = liveM;
                 } else {
-                    repL = m_ring[0][m_readPos];
-                    repR = m_ring[1][m_readPos];
+                    repM = m_ring[0][m_readPos];
                 }
                 // Advance the read head, wrapping at the slice boundary (the
                 // grid-aligned loop point).
@@ -131,8 +128,7 @@ public:
             }
 
             // Crossfade live <-> repeated by the wet gain (click-free).
-            inout[i]     = (int)((float)liveL * (1.0f - wet) + (float)repL * wet);
-            inout[N + i] = (int)((float)liveR * (1.0f - wet) + (float)repR * wet);
+            inout[i] = (int)((float)liveM * (1.0f - wet) + (float)repM * wet);
             wet += wetSampStep;
         }
     }

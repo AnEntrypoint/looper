@@ -8,8 +8,7 @@
 #include <circle/timer.h>
 #include <circle/util.h>
 
-audio_block_t *AudioInputUSB::s_block_left  = 0;
-audio_block_t *AudioInputUSB::s_block_right = 0;
+audio_block_t *AudioInputUSB::s_block_mono = 0;
 bool           AudioInputUSB::s_update_responsibility = false;
 volatile u32   AudioInputUSB::s_peakLevel = 0;
 
@@ -47,51 +46,51 @@ volatile unsigned g_diagInResp      = 0;
 // IN_RESYNC_XFADE samples so the filter sees a ramp, not a step.
 #define IN_RESYNC_XFADE 16
 
-static s16 s_in_ring_left [IN_RING_SIZE];
-static s16 s_in_ring_right[IN_RING_SIZE];
+// MONO: single ring, single last-sample/xfade tracker.
+static s16 s_in_ring_mono[IN_RING_SIZE];
 static volatile unsigned s_in_ring_wr = 0;
 static volatile unsigned s_in_ring_rd = 0;
 static unsigned s_in_rd_frac = 0;
-static s16 s_in_last_left  = 0;
-static s16 s_in_last_right = 0;
+static s16 s_in_last_mono  = 0;
 
 // Crossfade-across-resync state: when set, the next IN_RESYNC_XFADE output
-// samples blend s_in_xfade_{left,right} (the last sample BEFORE the jump)
-// into the freshly-read post-jump stream, ramping the discontinuity into a
-// short slope instead of a step.
+// samples blend s_in_xfade_mono (the last sample BEFORE the jump) into the
+// freshly-read post-jump stream, ramping the discontinuity into a short
+// slope instead of a step.
 static unsigned s_in_xfade_remain = 0;
-static s16      s_in_xfade_left   = 0;
-static s16      s_in_xfade_right  = 0;
+static s16      s_in_xfade_mono   = 0;
 
 volatile unsigned g_inUnderruns     = 0;
 volatile unsigned g_inResyncs       = 0;
 volatile int      g_inLastRateStep  = 65536;
 volatile unsigned g_inLastTicks     = 0;
 
-static s16 s_otg_ring_left [IN_RING_SIZE];
-static s16 s_otg_ring_right[IN_RING_SIZE];
+static s16 s_otg_ring_mono[IN_RING_SIZE];
 static volatile unsigned s_otg_ring_wr = 0;
 static volatile unsigned s_otg_ring_rd = 0;
 
 volatile unsigned AudioInputUSB_inRingWr (void) { return s_in_ring_wr; }
 unsigned AudioInputUSB_inAvail (void) { return s_in_ring_wr - s_in_ring_rd; }
 
+// MONO: sum the OTG device's L+R wire pair to mono before injecting into the
+// mono graph ring (same convention as AudioInputUSB::inHandler below).
 void AudioInputUSB_injectOTG (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
 {
     unsigned wr = s_otg_ring_wr;
     for (unsigned i = 0; i < nSamples; i++)
     {
-        s_otg_ring_left [wr & (IN_RING_SIZE - 1)] = pLeft[i];
-        s_otg_ring_right[wr & (IN_RING_SIZE - 1)] = pRight[i];
+        s32 m = ((s32)pLeft[i] + (s32)pRight[i]) / 2;
+        s_otg_ring_mono[wr & (IN_RING_SIZE - 1)] = (s16)m;
         wr++;
     }
     s_otg_ring_wr = wr;
 }
 
-AudioInputUSB::AudioInputUSB (void) : AudioStream (0, 2, 0)
+// MONO: 1 output port, matching LOOPER_NUM_CHANNELS (Looper.h). Not the macro
+// directly -- this lib-side TU does not include Looper.h.
+AudioInputUSB::AudioInputUSB (void) : AudioStream (0, 1, 0)
 {
-    memset (s_in_ring_left,  0, sizeof s_in_ring_left);
-    memset (s_in_ring_right, 0, sizeof s_in_ring_right);
+    memset (s_in_ring_mono, 0, sizeof s_in_ring_mono);
 }
 
 void AudioInputUSB::start (void)
@@ -117,20 +116,36 @@ void AudioInputUSB_bindHandler (CUSBAudioDevice *pDev)
     }
 }
 
+// MONO-tap raw snapshot (:4445 MRAW verb): the mono sum written into the ring
+// here, so a live capture can compare directly against the pre-sum RAWD tap
+// and against AudioOutputUSB's post-effects ring (see output_usb.cpp) to
+// localize a reported artifact to a specific stage of the mono conversion.
+#define MRAW_SNAP_SAMPLES 128
+volatile s16 g_audioMonoSnap[MRAW_SNAP_SAMPLES];
+volatile unsigned g_audioMonoSnapSeq = 0;
+
 void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
 {
+    // MONO: sum L+R to mono here, immediately at USB-IN decode -- every
+    // downstream consumer (ring, graph, loops) sees only the mono signal.
     unsigned wr = s_in_ring_wr;
     unsigned prev_block = wr / AUDIO_BLOCK_SAMPLES;
     u32 peak = 0;
+    s16 monoBlock[64];   // nSamples is <= ~48/microframe-batch, well under 64
+    unsigned monoN = nSamples < 64 ? nSamples : 64;
     for (unsigned i = 0; i < nSamples; i++)
     {
-        s_in_ring_left [wr & (IN_RING_SIZE - 1)] = pLeft[i];
-        s_in_ring_right[wr & (IN_RING_SIZE - 1)] = pRight[i];
-        u32 absL = pLeft[i] < 0 ? (u32)(-pLeft[i]) : (u32)pLeft[i];
-        u32 absR = pRight[i] < 0 ? (u32)(-pRight[i]) : (u32)pRight[i];
-        if (absL > peak) peak = absL;
-        if (absR > peak) peak = absR;
+        s32 m = ((s32)pLeft[i] + (s32)pRight[i]) / 2;
+        s_in_ring_mono[wr & (IN_RING_SIZE - 1)] = (s16)m;
+        if (i < monoN) monoBlock[i] = (s16)m;
+        u32 absM = m < 0 ? (u32)(-m) : (u32)m;
+        if (absM > peak) peak = absM;
         wr++;
+    }
+    {
+        unsigned copyN = monoN < MRAW_SNAP_SAMPLES ? monoN : MRAW_SNAP_SAMPLES;
+        for (unsigned i = 0; i < copyN; i++) g_audioMonoSnap[i] = monoBlock[i];
+        g_audioMonoSnapSeq++;
     }
     DataMemBarrier ();
     s_in_ring_wr = wr;
@@ -161,19 +176,9 @@ void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSa
 
 void AudioInputUSB::update (void)
 {
-    audio_block_t *new_left  = AudioSystem::allocate ();
-    audio_block_t *new_right = 0;
-    if (new_left)
-    {
-        new_right = AudioSystem::allocate ();
-        if (!new_right)
-        {
-            AudioSystem::release (new_left);
-            new_left = 0;
-        }
-    }
+    audio_block_t *new_mono = AudioSystem::allocate ();
 
-    if (new_left && new_right)
+    if (new_mono)
     {
         DataMemBarrier ();
         unsigned wr_snap = s_in_ring_wr;
@@ -187,8 +192,7 @@ void AudioInputUSB::update (void)
             // Capture the last sample BEFORE the jump so the post-jump ramp
             // below can crossfade from it instead of stepping straight to
             // the new position's (unrelated) waveform value.
-            s_in_xfade_left   = s_in_last_left;
-            s_in_xfade_right  = s_in_last_right;
+            s_in_xfade_mono   = s_in_last_mono;
             s_in_xfade_remain = IN_RESYNC_XFADE;
             rd = wr_snap - IN_TARGET_LAG;
             rd_frac = 0;
@@ -208,32 +212,26 @@ void AudioInputUSB::update (void)
         unsigned otg_rd = s_otg_ring_rd;
         for (unsigned i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
         {
-            s32 l, r;
+            s32 m;
             if ((int)(s_in_ring_wr - rd) > 1)
             {
-                s16 l0 = s_in_ring_left [rd       & (IN_RING_SIZE - 1)];
-                s16 r0 = s_in_ring_right[rd       & (IN_RING_SIZE - 1)];
-                s16 l1 = s_in_ring_left [(rd + 1) & (IN_RING_SIZE - 1)];
-                s16 r1 = s_in_ring_right[(rd + 1) & (IN_RING_SIZE - 1)];
-                l = l0 + (((s32)(l1 - l0) * (s32)rd_frac) >> 16);
-                r = r0 + (((s32)(r1 - r0) * (s32)rd_frac) >> 16);
-                s_in_last_left  = (s16)l;
-                s_in_last_right = (s16)r;
+                s16 m0 = s_in_ring_mono[rd       & (IN_RING_SIZE - 1)];
+                s16 m1 = s_in_ring_mono[(rd + 1) & (IN_RING_SIZE - 1)];
+                m = m0 + (((s32)(m1 - m0) * (s32)rd_frac) >> 16);
+                s_in_last_mono = (s16)m;
                 rd_frac += rate_step;
                 rd      += rd_frac >> 16;
                 rd_frac &= 0xFFFF;
             }
             else
             {
-                l = s_in_last_left;
-                r = s_in_last_right;
+                m = s_in_last_mono;
                 g_inUnderruns++;
                 audioTelemetryPush (TELEM_IN_UNDERRUN, (u32)(s_in_ring_wr - rd));
             }
             if (otg_rd != s_otg_ring_wr)
             {
-                l += s_otg_ring_left [otg_rd & (IN_RING_SIZE - 1)];
-                r += s_otg_ring_right[otg_rd & (IN_RING_SIZE - 1)];
+                m += s_otg_ring_mono[otg_rd & (IN_RING_SIZE - 1)];
                 otg_rd++;
             }
             if (s_in_xfade_remain > 0)
@@ -244,20 +242,16 @@ void AudioInputUSB::update (void)
                 s32 w = (s32) s_in_xfade_remain;   // IN_RESYNC_XFADE..1
                 s32 wPre  = w;
                 s32 wPost = (s32) IN_RESYNC_XFADE - w + 1;
-                l = (l * wPost + (s32) s_in_xfade_left  * wPre) / (s32) (IN_RESYNC_XFADE + 1);
-                r = (r * wPost + (s32) s_in_xfade_right * wPre) / (s32) (IN_RESYNC_XFADE + 1);
+                m = (m * wPost + (s32) s_in_xfade_mono * wPre) / (s32) (IN_RESYNC_XFADE + 1);
                 s_in_xfade_remain--;
             }
-            new_left->data[i]  = l > 32767 ? 32767 : (l < -32768 ? -32768 : (s16)l);
-            new_right->data[i] = r > 32767 ? 32767 : (r < -32768 ? -32768 : (s16)r);
+            new_mono->data[i] = m > 32767 ? 32767 : (m < -32768 ? -32768 : (s16)m);
         }
         s_in_ring_rd  = rd;
         s_in_rd_frac  = rd_frac;
         s_otg_ring_rd = otg_rd;
     }
 
-    transmit (new_left,  0);
-    transmit (new_right, 1);
-    if (new_left)  AudioSystem::release (new_left);
-    if (new_right) AudioSystem::release (new_right);
+    transmit (new_mono, 0);
+    if (new_mono) AudioSystem::release (new_mono);
 }

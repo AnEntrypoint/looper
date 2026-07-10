@@ -515,6 +515,34 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				s.Append(tail);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
+			else if (buf[0]=='M' && buf[1]=='R' && buf[2]=='A' && buf[3]=='W')
+			{
+				// MONO-conversion diagnostic: dumps the post-sum USB-IN mono
+				// waveform (input_usb.cpp::inHandler) and the post-effects
+				// USB-OUT mono waveform (output_usb.cpp::update) side by side,
+				// so a live capture can localize a reported artifact to the
+				// USB-IN sum, the effects chain, or the USB-OUT duplication.
+				extern volatile s16 g_audioMonoSnap[];
+				extern volatile unsigned g_audioMonoSnapSeq;
+				extern volatile s16 g_audioMonoOutSnap[];
+				extern volatile unsigned g_audioMonoOutSnapSeq;
+				unsigned seqIn0 = g_audioMonoSnapSeq;
+				unsigned seqOut0 = g_audioMonoOutSnapSeq;
+				CString s; CString h;
+				s.Format("mraw seqIn=%u seqOut=%u IN=", seqIn0, seqOut0);
+				for (unsigned i = 0; i < 128; i++)
+				{
+					h.Format("%04x", (u16) g_audioMonoSnap[i]);
+					s.Append(h);
+				}
+				s.Append(" OUT=");
+				for (unsigned i = 0; i < 64; i++)
+				{
+					h.Format("%04x", (u16) g_audioMonoOutSnap[i]);
+					s.Append(h);
+				}
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
 			else if (buf[0]=='U' && buf[1]=='W' && buf[2]=='A' && buf[3]=='V')
 			{
 				// Continuous ring-WAV dump to a USB drive. mounted=1 => a drive is

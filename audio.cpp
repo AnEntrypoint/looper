@@ -142,10 +142,10 @@ void setup()
 	pTheGamepad = new gamepadInput();   // USB gamepad control surface (Core-2 driven)
 	// Note: pLivePitchWrapper and pEffectsProcessor are NOT AudioStreams; they're fed directly in loopMachine::update()
 	// Audio path: input → loopMachine (which internally feeds pLivePitchWrapper and pEffectsProcessor) → output
+	// MONO: single connection per stage; LOOPER_NUM_CHANNELS=1 sizes every
+	// AudioStream's port count, so only port 0 exists on any of these nodes.
 	new AudioConnection(input,      0,  *pTheLooper,    0);
-	new AudioConnection(input,      1,  *pTheLooper,    1);
 	new AudioConnection(*pTheLooper,	0,  output,			0);
-	new AudioConnection(*pTheLooper,	1,  output,			1);
 
 	debug_blink(1);
 	AudioSystem::initialize(200);

@@ -5,8 +5,6 @@
 #include <circle/synchronize.h>
 #include <circle/util.h>
 
-audio_block_t *AudioOutputUSB::s_block_left  = 0;
-audio_block_t *AudioOutputUSB::s_block_right = 0;
 
 #define OUT_RING_SIZE     4096   // bigger ring: absorb bursty engine-vs-USB rate excursions
 #define OUT_RING_MASK     (OUT_RING_SIZE - 1)
@@ -126,7 +124,9 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 #endif
 }
 
-AudioOutputUSB::AudioOutputUSB (void) : AudioStream (2, 0, m_input_queue)
+// MONO: 1 input port, matching LOOPER_NUM_CHANNELS (Looper.h). Not the macro
+// directly -- this lib-side TU does not include Looper.h.
+AudioOutputUSB::AudioOutputUSB (void) : AudioStream (1, 0, m_input_queue)
 {
     memset (s_ring_left,  0, sizeof s_ring_left);
     memset (s_ring_right, 0, sizeof s_ring_right);
@@ -214,25 +214,37 @@ void AudioOutputUSB::outHandler (s16 *pLeft, s16 *pRight, unsigned nSamples)
     s_ring_rd = rd;
 }
 
+// MONO-tap raw snapshot (:4445 MRAW verb): the post-effects mono block right
+// before it is duplicated into the OUT ring, so a live capture can compare
+// this against input_usb.cpp's post-sum snapshot to localize a reported
+// artifact to the effects chain vs the USB IN/OUT boundary.
+#define MRAW_OUT_SNAP_SAMPLES 64
+volatile s16 g_audioMonoOutSnap[MRAW_OUT_SNAP_SAMPLES];
+volatile unsigned g_audioMonoOutSnapSeq = 0;
+
 void AudioOutputUSB::update (void)
 {
     extern volatile unsigned g_outUpdEntered, g_outNumConn;
     g_outUpdEntered++;                 // proves doUpdate's walk reached this node
     g_outNumConn = m_numConnections;   // gate value (doUpdate skips if 0)
-    audio_block_t *new_left  = receiveReadOnly (0);
-    audio_block_t *new_right = receiveReadOnly (1);
+    // MONO graph input, duplicated to both physical wire channels (the USB
+    // device still expects stereo). Single input port 0 now that
+    // AudioOutputUSB is constructed with LOOPER_NUM_CHANNELS input ports.
+    audio_block_t *new_mono = receiveReadOnly (0);
 
     unsigned wr = s_ring_wr;
     for (unsigned i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
     {
-        s_ring_left [wr & (OUT_RING_SIZE - 1)] = new_left  ? new_left->data[i]  : 0;
-        s_ring_right[wr & (OUT_RING_SIZE - 1)] = new_right ? new_right->data[i] : 0;
+        s16 m = new_mono ? new_mono->data[i] : 0;
+        s_ring_left [wr & (OUT_RING_SIZE - 1)] = m;
+        s_ring_right[wr & (OUT_RING_SIZE - 1)] = m;
+        if (i < MRAW_OUT_SNAP_SAMPLES) g_audioMonoOutSnap[i] = m;
         wr++;
     }
+    g_audioMonoOutSnapSeq++;
     DataMemBarrier ();
     s_ring_wr = wr;
     g_outWrites++;   // diag: proves update() (graph tick) reaches the output node
 
-    if (new_left)  AudioSystem::release (new_left);
-    if (new_right) AudioSystem::release (new_right);
+    if (new_mono) AudioSystem::release (new_mono);
 }
