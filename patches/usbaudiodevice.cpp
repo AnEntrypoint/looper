@@ -655,6 +655,8 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
     assert (pURB != 0);
     unsigned slot = (pURB == m_pInURB[1]) ? 1 : 0;
     assert (pURB == m_pInURB[slot]);
+    extern volatile unsigned g_audioInSlot0Count, g_audioInSlot1Count;
+    if (slot == 0) g_audioInSlot0Count++; else g_audioInSlot1Count++;
 
     unsigned frameBytes = m_uSubslot * m_uChannels;   // UAC1: 2*2 = 4
     if (frameBytes == 0) frameBytes = 4;

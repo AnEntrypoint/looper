@@ -116,6 +116,16 @@ volatile s16 g_audioInSnapL[RAWD_SNAP_SAMPLES];
 volatile s16 g_audioInSnapR[RAWD_SNAP_SAMPLES];
 volatile unsigned g_audioInSnapSeq = 0;   // bumped each time the snapshot is refreshed
 
+// Per-slot completion counters (:4445 UAUD verb, slot0/slot1 fields). The real
+// buzz.wav recording shows a periodic artifact at EXACTLY 500Hz -- half of the
+// UAC2 IN N=8 microframe batching's 1000 completions/sec (8000/8). If only ONE
+// of the two double-buffered slots (0 or 1) is producing bad data, that would
+// show as a 500Hz-periodic artifact even though total completions run at
+// 1000/sec. These counters let a live probe confirm slot 0 and slot 1 are
+// completing at the same rate (ruling out an asymmetry) or catch a skew.
+volatile unsigned g_audioInSlot0Count = 0;
+volatile unsigned g_audioInSlot1Count = 0;
+
 CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pName)
 {
 	assert (pParent != 0);

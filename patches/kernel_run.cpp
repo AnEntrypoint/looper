@@ -425,6 +425,7 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				extern volatile unsigned g_audioInZcL, g_audioInZcR;
 				extern volatile unsigned long long g_audioInEnergyL, g_audioInEnergyR;
 				extern volatile unsigned g_audioInEnergyN;
+				extern volatile unsigned g_audioInSlot0Count, g_audioInSlot1Count;
 				extern unsigned AudioOutputUSB_outAvail (void);
 				extern unsigned AudioInputUSB_inAvail (void);
 				// Mean-absolute-amplitude this window (ienL/ienR): ZCR proved blind to a
@@ -438,14 +439,15 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				unsigned ienL = enN ? (unsigned)(g_audioInEnergyL / enN) : 0;
 				unsigned ienR = enN ? (unsigned)(g_audioInEnergyR / enN) : 0;
 				CString s;
-				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u rate=%u inDeliv=%u inPeak=%u inFail=%u outDeliv=%u outPeak=%u outFail=%u inUR=%u inRS=%u outUR=%u otgRS=%u outRingRS=%u outWr=%u outAvail=%u inAvail=%u fbRate=%u fbCnt=%u outMaxGapUs=%u inMaxGapUs=%u izcL=%u izcR=%u ienL=%u ienR=%u ienN=%u",
+				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u rate=%u inDeliv=%u inPeak=%u inFail=%u outDeliv=%u outPeak=%u outFail=%u inUR=%u inRS=%u outUR=%u otgRS=%u outRingRS=%u outWr=%u outAvail=%u inAvail=%u fbRate=%u fbCnt=%u outMaxGapUs=%u inMaxGapUs=%u izcL=%u izcR=%u ienL=%u ienR=%u ienN=%u slot0=%u slot1=%u",
 					g_audioInBound, g_audioOutBound, g_audioUAC2, g_audioChannels,
 					g_audioSubslot*8, g_audioRate, g_audioInDeliv, g_audioInPeak, g_audioInSubmitFail,
 					g_audioOutDeliv, g_audioOutPeak, g_audioOutSubmitFail,
 					g_inUnderruns, g_inResyncs, g_outUnderruns, g_otgResyncs, g_outRingResync,
 					g_outWrites, AudioOutputUSB_outAvail(), AudioInputUSB_inAvail(),
 					g_audioFbRate, g_audioFbCount, g_audioOutMaxGapUs, g_audioInMaxGapUs,
-					g_audioInZcL, g_audioInZcR, ienL, ienR, enN);
+					g_audioInZcL, g_audioInZcR, ienL, ienR, enN,
+					g_audioInSlot0Count, g_audioInSlot1Count);
 				g_audioOutMaxGapUs = 0;   // reset so each probe shows the max since last read
 				g_audioInMaxGapUs  = 0;   // reset so each probe shows the max since last read
 				g_audioInZcL = 0;         // reset so each probe shows the ZCR since last read
@@ -453,6 +455,8 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				g_audioInEnergyL = 0;     // reset so each probe shows the energy since last read
 				g_audioInEnergyR = 0;
 				g_audioInEnergyN = 0;
+				g_audioInSlot0Count = 0;  // reset so each probe shows the slot split since last read
+				g_audioInSlot1Count = 0;
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='R' && buf[1]=='A' && buf[2]=='W' && buf[3]=='D')
