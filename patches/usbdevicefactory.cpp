@@ -98,6 +98,24 @@ volatile unsigned long long g_audioInEnergyL = 0;  // sum(|sample|), left
 volatile unsigned long long g_audioInEnergyR = 0;  // sum(|sample|), right
 volatile unsigned g_audioInEnergyN = 0;            // sample count this window
 
+// Raw-input sample SNAPSHOT (:4445 RAWD verb). ZCR and RMS-energy telemetry
+// (above) both proved BLIND to a real, always-on, user-confirmed buzz+
+// distortion on this hardware -- every live sample this session showed flat,
+// unremarkable scalar statistics, even one taken while the user explicitly
+// confirmed the artifact was present at that exact moment. Scalar summary
+// metrics cannot catch every failure shape (a narrow spectral feature,
+// intermodulation product, or bit-level corruption can leave gross
+// statistics untouched). This buffer holds real WAVEFORM data instead --
+// continuously overwritten by InCompletion at the SAME raw-input tap point
+// (right after USB decode, before loopMachine/effects) so a RAWD request
+// always returns a genuinely recent snapshot, no separate trigger/arm step
+// needed. RAWD_SNAP_SAMPLES sized so the hex dump (4 hex chars/sample x2
+// channels) fits comfortably under a single UDP datagram's practical MTU.
+#define RAWD_SNAP_SAMPLES 128
+volatile s16 g_audioInSnapL[RAWD_SNAP_SAMPLES];
+volatile s16 g_audioInSnapR[RAWD_SNAP_SAMPLES];
+volatile unsigned g_audioInSnapSeq = 0;   // bumped each time the snapshot is refreshed
+
 CUSBFunction *CUSBDeviceFactory::GetDevice (CUSBFunction *pParent, CString *pName)
 {
 	assert (pParent != 0);

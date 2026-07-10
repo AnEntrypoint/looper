@@ -13,6 +13,10 @@
 extern u8 g_uac2Desc[];
 extern volatile unsigned g_uac2DescLen;
 
+// Must match usbdevicefactory.cpp's RAWD_SNAP_SAMPLES exactly (the array
+// size the g_audioInSnapL/R extern globals were allocated with).
+#define RAWD_SNAP_SAMPLES 128
+
 // Convert one little-endian sample of subslot bytes to s16 (take the top 16
 // bits, matching the engine's s16 pipeline). 24-bit -> bytes [1..2], 16 -> [0..1].
 static inline s16 uac2ToS16 (const u8 *p, unsigned subslot)
@@ -767,6 +771,22 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         }
         s_zcPrevL[slot] = prevL;
         s_zcPrevR[slot] = prevR;
+        // Raw-input snapshot for the :4445 RAWD verb -- copy the TAIL of this
+        // completion's samples (the most recent ones) into the snapshot
+        // buffer, continuously overwritten so a RAWD read always sees a
+        // genuinely recent window without any separate arm/trigger step.
+        extern volatile s16 g_audioInSnapL[], g_audioInSnapR[];
+        extern volatile unsigned g_audioInSnapSeq;
+        {
+            unsigned copyN = nSamples < RAWD_SNAP_SAMPLES ? nSamples : RAWD_SNAP_SAMPLES;
+            unsigned srcStart = nSamples - copyN;
+            for (unsigned i = 0; i < copyN; i++)
+            {
+                g_audioInSnapL[i] = left_buf[srcStart + i];
+                g_audioInSnapR[i] = right_buf[srcStart + i];
+            }
+            g_audioInSnapSeq++;
+        }
         (*m_pInHandler) (left_buf, right_buf, nSamples);
         // Reliable cross-core witnesses for the UAUD verb (input is flowing).
         extern volatile unsigned g_audioInDeliv, g_audioInPeak;

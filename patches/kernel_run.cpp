@@ -13,6 +13,10 @@ extern "C" void loopClipTelemetry(int, int*, unsigned*, unsigned*, unsigned*, un
 extern "C" void loopMonitorTelemetry(int*, int*);
 extern "C" unsigned p9ErrorCount(void);   // libwlan.a (patches/p9error.cpp)
 extern "C" int wlanStatusCode(void);   // kernel.cpp: 0 off/fail, 1 joined, 2 AP
+
+// Must match usbdevicefactory.cpp's RAWD_SNAP_SAMPLES exactly (the array
+// size the g_audioInSnapL/R extern globals were allocated with).
+#define RAWD_SNAP_SAMPLES 128
 extern void usbMidiProcess(bool bPlugAndPlayUpdated);
 extern void gamepadProcess(bool bPlugAndPlayUpdated);
 extern void gamepadProcessTick(void);
@@ -449,6 +453,45 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				g_audioInEnergyL = 0;     // reset so each probe shows the energy since last read
 				g_audioInEnergyR = 0;
 				g_audioInEnergyN = 0;
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='R' && buf[1]=='A' && buf[2]=='W' && buf[3]=='D')
+			{
+				// Real raw-input WAVEFORM capture -- not statistics. izcL/izcR
+				// (zero-crossing-rate) and ienL/ienR (mean-absolute-amplitude,
+				// UAUD verb above) both proved BLIND to a real, always-on,
+				// user-confirmed buzz+distortion on this hardware: every scalar
+				// sample this session showed flat, unremarkable values, even one
+				// taken while the user confirmed the artifact was present at that
+				// exact moment. A narrow spectral feature, intermodulation
+				// product, or bit-level corruption can leave gross statistics
+				// completely untouched -- this verb dumps the last
+				// RAWD_SNAP_SAMPLES raw stereo samples (continuously overwritten
+				// at the SAME tap point as izcL/ienL, in InCompletion, before
+				// loopMachine/effects) as hex so the actual waveform can be
+				// inspected directly (min/max/shape, or reconstructed to audio),
+				// with no separate arm/trigger step needed since it's always
+				// fresh. seq= lets the caller confirm two reads didn't race a
+				// snapshot update mid-copy (compare seq before/after decoding).
+				extern volatile s16 g_audioInSnapL[], g_audioInSnapR[];
+				extern volatile unsigned g_audioInSnapSeq;
+				unsigned seq0 = g_audioInSnapSeq;
+				CString s; CString h;
+				s.Format("rawd seq=%u n=%u L=", seq0, RAWD_SNAP_SAMPLES);
+				for (unsigned i = 0; i < RAWD_SNAP_SAMPLES; i++)
+				{
+					h.Format("%04x", (u16) g_audioInSnapL[i]);
+					s.Append(h);
+				}
+				s.Append(" R=");
+				for (unsigned i = 0; i < RAWD_SNAP_SAMPLES; i++)
+				{
+					h.Format("%04x", (u16) g_audioInSnapR[i]);
+					s.Append(h);
+				}
+				unsigned seq1 = g_audioInSnapSeq;
+				CString tail; tail.Format(" seqEnd=%u", seq1);
+				s.Append(tail);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='U' && buf[1]=='W' && buf[2]=='A' && buf[3]=='V')
