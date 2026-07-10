@@ -79,6 +79,13 @@ CUSBAudioDevice::CUSBAudioDevice (CUSBFunction *pFunction)
     m_pOutURB[1] = 0;
     m_nInSubmitBytes[0] = 0;
     m_nInSubmitBytes[1] = 0;
+    m_nInPktSize[0] = 0;
+    m_nInPktSize[1] = 0;
+    m_nInPktsSubmitted[0] = 0;
+    m_nInPktsSubmitted[1] = 0;
+    for (unsigned s = 0; s < 2; s++)
+        for (unsigned k = 0; k < 8; k++)
+            m_nInSamplesPerPkt[s][k] = 0;
 }
 
 CUSBAudioDevice::~CUSBAudioDevice (void)
@@ -433,12 +440,25 @@ boolean CUSBAudioDevice::StartInRequest (unsigned slot)
         u32 nomRate = (u32) (((u64) m_uRate << 16) * 65500 / 65536 / 8000);
         if (nomRate == 0) nomRate = 1u << 16;
         unsigned nomSamplesTotal = 0;
+        // ROOT-CAUSE FIX: record each microframe's nominal sample count
+        // SEPARATELY (m_nInSamplesPerPkt), not just the running sum -- these
+        // are the per-slot byte offsets InCompletion needs to read each
+        // microframe's real data from its own k*pktSize position instead of
+        // assuming all claimed bytes are contiguous (see usbaudiodevice.h for
+        // the full explanation of the bug this closes).
+        unsigned maxSamplesPerPkt = pktSize / frameBytes;
         for (unsigned k = 0; k < nPkts; k++)
         {
             m_inNomAccum += nomRate;
-            nomSamplesTotal += m_inNomAccum >> 16;
+            unsigned samplesThisPkt = m_inNomAccum >> 16;
             m_inNomAccum &= 0xFFFF;
+            if (samplesThisPkt > maxSamplesPerPkt) samplesThisPkt = maxSamplesPerPkt;   // never exceed one slot's real capacity
+            m_nInSamplesPerPkt[slot][k] = samplesThisPkt;
+            nomSamplesTotal += samplesThisPkt;
         }
+        for (unsigned k = nPkts; k < 8; k++) m_nInSamplesPerPkt[slot][k] = 0;   // unused slots this URB
+        m_nInPktSize[slot] = pktSize;
+        m_nInPktsSubmitted[slot] = nPkts;
         unsigned nomTotalBytes = nomSamplesTotal * frameBytes;
         unsigned declaredTotalBytes = (unsigned) pktSize * nPkts;
         if (nomTotalBytes > declaredTotalBytes) nomTotalBytes = declaredTotalBytes;   // never claim more than declared
@@ -753,24 +773,76 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         s16 prevR = s_zcPrevR[slot];
         unsigned zcL = 0, zcR = 0;
         unsigned long long enL = 0, enR = 0;
-        for (unsigned i = 0; i < nSamples; i++)
+        unsigned nWritten = 0;   // actual samples placed into left_buf/right_buf this completion
+        if (m_bUAC2)
         {
-            const u8 *f = pb + i * frameBytes;
-            s16 L = uac2ToS16 (f, m_uSubslot);
-            s16 R = (m_uChannels > 1) ? uac2ToS16 (f + m_uSubslot, m_uSubslot) : L;
-            left_buf[i]  = L;
-            right_buf[i] = R;
-            u32 absL = L < 0 ? (u32)(-L) : (u32)L;
-            u32 absR = R < 0 ? (u32)(-R) : (u32)R;
-            if (absL > m_nPeakIn) m_nPeakIn = absL;
-            if (absR > m_nPeakIn) m_nPeakIn = absR;
-            if ((L >= 0) != (prevL >= 0)) zcL++;
-            if ((R >= 0) != (prevR >= 0)) zcR++;
-            enL += absL;
-            enR += absR;
-            prevL = L;
-            prevR = R;
+            // ROOT-CAUSE FIX: read each microframe from its OWN pktSize-aligned
+            // offset (k*m_nInPktSize[slot]), not contiguously. The URB's real
+            // per-packet data does NOT sit back-to-back in m_InBuf -- each of
+            // the m_nInPktsSubmitted[slot] microframes occupies a FIXED
+            // pktSize-byte slot (from AddIsoPacket(pktSize) x N in
+            // StartInRequest), and a real microframe commonly delivers FEWER
+            // bytes than pktSize (the protocol maximum), leaving stale/unused
+            // padding at the end of that slot. The old flat contiguous read
+            // (pb + i*frameBytes for i in [0,nSamples)) silently walked past
+            // real data into that padding starting at microframe 2, reading
+            // garbage -- confirmed live via RAWD captures showing a consistent
+            // spike at index 7-8 (exactly where ~6 real samples of microframe 0
+            // end and its pktSize slot's padding begins). Fix: walk per-packet,
+            // reading only m_nInSamplesPerPkt[slot][k] real samples from each
+            // microframe's own k*pktSize offset.
+            unsigned pktSize = m_nInPktSize[slot];
+            for (unsigned k = 0; k < m_nInPktsSubmitted[slot] && nWritten < cap; k++)
+            {
+                unsigned samplesThisPkt = m_nInSamplesPerPkt[slot][k];
+                const u8 *pktBase = pb + (unsigned long)k * pktSize;
+                for (unsigned j = 0; j < samplesThisPkt && nWritten < cap; j++)
+                {
+                    const u8 *f = pktBase + j * frameBytes;
+                    s16 L = uac2ToS16 (f, m_uSubslot);
+                    s16 R = (m_uChannels > 1) ? uac2ToS16 (f + m_uSubslot, m_uSubslot) : L;
+                    left_buf[nWritten]  = L;
+                    right_buf[nWritten] = R;
+                    u32 absL = L < 0 ? (u32)(-L) : (u32)L;
+                    u32 absR = R < 0 ? (u32)(-R) : (u32)R;
+                    if (absL > m_nPeakIn) m_nPeakIn = absL;
+                    if (absR > m_nPeakIn) m_nPeakIn = absR;
+                    if ((L >= 0) != (prevL >= 0)) zcL++;
+                    if ((R >= 0) != (prevR >= 0)) zcR++;
+                    enL += absL;
+                    enR += absR;
+                    prevL = L;
+                    prevR = R;
+                    nWritten++;
+                }
+            }
         }
+        else
+        {
+            // UAC1 (UCA222) single-packet path: nSamples worth of data IS
+            // contiguous (only one AddIsoPacket per URB, no multi-slot layout
+            // to respect), so the flat read is correct here, unchanged.
+            for (unsigned i = 0; i < nSamples; i++)
+            {
+                const u8 *f = pb + i * frameBytes;
+                s16 L = uac2ToS16 (f, m_uSubslot);
+                s16 R = (m_uChannels > 1) ? uac2ToS16 (f + m_uSubslot, m_uSubslot) : L;
+                left_buf[i]  = L;
+                right_buf[i] = R;
+                u32 absL = L < 0 ? (u32)(-L) : (u32)L;
+                u32 absR = R < 0 ? (u32)(-R) : (u32)R;
+                if (absL > m_nPeakIn) m_nPeakIn = absL;
+                if (absR > m_nPeakIn) m_nPeakIn = absR;
+                if ((L >= 0) != (prevL >= 0)) zcL++;
+                if ((R >= 0) != (prevR >= 0)) zcR++;
+                enL += absL;
+                enR += absR;
+                prevL = L;
+                prevR = R;
+            }
+            nWritten = nSamples;
+        }
+        nSamples = nWritten;
         s_zcPrevL[slot] = prevL;
         s_zcPrevR[slot] = prevR;
         // Raw-input snapshot for the :4445 RAWD verb -- copy the TAIL of this

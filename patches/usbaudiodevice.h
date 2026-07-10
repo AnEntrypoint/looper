@@ -69,6 +69,29 @@ private:
     // URBs. See looper-method mutable multipacket-urb-resultlength-semantics.
     unsigned m_nInSubmitBytes[2];
 
+    // ROOT-CAUSE FIX (live-hardware-confirmed, RAWD captures + buzz.wav
+    // analysis): m_nInSubmitBytes[slot] alone told InCompletion HOW MANY bytes
+    // to trust in aggregate, but not WHERE they actually live in m_InBuf.
+    // StartInRequest's AddIsoPacket(pktSize) is called m_nInPktsSubmitted[slot]
+    // times with the SAME fixed pktSize -- the URB's actual per-microframe data
+    // lands at FIXED pktSize-aligned offsets (k*pktSize), one per microframe,
+    // regardless of how many bytes that microframe's real delivery was. A real
+    // microframe commonly delivers FEWER bytes than pktSize (pktSize is the
+    // protocol MAXIMUM; nominal rate is far below it) -- InCompletion's old
+    // decode loop read m_InBuf CONTIGUOUSLY (pb + i*frameBytes) as if all
+    // claimed samples were back-to-back with zero gaps, so from microframe 2
+    // onward it silently walked past real data into the unused/stale tail of
+    // each pktSize slot. m_nInPktSize[slot]/m_nInPktsSubmitted[slot] let
+    // InCompletion re-derive each microframe's byte offset (k*pktSize)
+    // correctly; m_nInSamplesPerPkt[slot][8] records exactly how many nominal
+    // samples StartInRequest claimed for EACH microframe (not just the sum),
+    // so InCompletion can read precisely that many samples from each slot's
+    // start, skip to the next microframe's true offset, and never spill across
+    // a microframe boundary into padding.
+    u16      m_nInPktSize[2];
+    unsigned m_nInPktsSubmitted[2];
+    unsigned m_nInSamplesPerPkt[2][8];
+
     // UAC2 async OUT pacing. m_fbRate = frames-per-(micro)frame in Q16.16, from the
     // feedback endpoint (default = nominal 48000 / service rate); m_fbAccum carries
     // the fractional remainder so the long-run OUT rate matches the device exactly.
