@@ -400,23 +400,33 @@ boolean CUSBAudioDevice::StartInRequest (unsigned slot)
         // bytes per sample-frame (all channels).
         unsigned frameBytes = m_uSubslot * m_uChannels;
         if (frameBytes == 0) frameBytes = 4;
-        // Bias the claimed rate slightly BELOW the true nominal (8134/8192 =
-        // ~99.29%, ~0.71% low) rather than claiming the exact mean. Nominal is
-        // an AVERAGE --
-        // roughly half of all real microframes legitimately deliver LESS than
-        // it (clock tolerance jitter around the mean, not free variation), and
-        // each such completion with an exact-nominal claim over-reads into
-        // stale buffer tail (audible as buzz + a periodic crunch/blips cycle
-        // when the accumulated stale-reads beat against AudioSystem.cpp's
-        // drain hysteresis). Claiming a soft LOWER bound instead means the
-        // claim clears on the overwhelming majority of real microframes, so
-        // InCompletion structurally stops over-reading; the resulting small
-        // systematic short-claim (well under 1%) is exactly the kind of slow
-        // drift input_usb.cpp's IN_TARGET_LAG/IN_DEADBAND resync (patches/
-        // input_usb.cpp:25-26,175-181) exists to absorb inaudibly -- unlike
-        // the fractional accumulator alone, this trades a below-threshold
-        // rate deficit (handled) for the over-read risk (not handled before).
-        u32 nomRate = (u32) (((u64) m_uRate << 16) * 8134 / 8192 / 8000);
+        // Bias the claimed rate slightly BELOW the true nominal rather than
+        // claiming the exact mean, so a real microframe delivering LESS than
+        // the mean (clock-tolerance jitter, not free variation) doesn't cause
+        // InCompletion to over-read into stale buffer tail. But the bias must
+        // stay SMALLER than input_usb.cpp's drift corrector can absorb, or the
+        // "fix" just becomes a new, permanent, guaranteed rate deficit instead
+        // of an occasional one -- which is what 8134/8192 (~0.71% low) did.
+        // input_usb.cpp's corrector (IN_TARGET_LAG=96, IN_DEADBAND=48,
+        // IN_RATE_MAX_DEV=64/IN_RATE_GAIN=131072) can only speed up the read
+        // rate by at most 64*65536/131072 = 0.049% once outside the deadband,
+        // and only has IN_TARGET_LAG-AUDIO_BLOCK_SAMPLES=32 samples of slack
+        // before a hard resync. A continuous 0.71% deficit (~14x the
+        // corrector's max absorb rate) drains that 32-sample slack in ~0.1s of
+        // real time, forcing a resync roughly every cycle -- reproducing the
+        // very periodic crunch+blips pattern this bias was meant to eliminate,
+        // now driven by a controlled deficit instead of overshoot (both
+        // audible, both cyclical). Fix: shrink the bias to 65500/65536
+        // (~0.055%), safely under the corrector's 0.049%-per-step absorb
+        // ceiling AND under typical USB clock tolerance (~0.25%), so it still
+        // clears the overwhelming majority of real microframes (avoiding the
+        // over-read) while the residual deficit is small enough for the
+        // existing drift correction to track continuously instead of
+        // resyncing. Any genuinely short microframe past this narrower margin
+        // still falls back to input_usb.cpp's per-sample underrun handling
+        // (repeat-last-sample, already inaudible for isolated single-sample
+        // events -- see input_usb.cpp:205-207).
+        u32 nomRate = (u32) (((u64) m_uRate << 16) * 65500 / 65536 / 8000);
         if (nomRate == 0) nomRate = 1u << 16;
         unsigned nomSamplesTotal = 0;
         for (unsigned k = 0; k < nPkts; k++)
