@@ -659,10 +659,8 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
     // full-speed synchronous isochronous endpoint commonly alternates packet
     // sizes frame-to-frame (e.g. N-1 packets of size S, 1 of size S-frameBytes)
     // to average a non-integer samples/frame rate over time; GetResultLength()
-    // reports the TRUE per-frame byte count each completion (verified via
-    // dwhcixferstagedata.cpp: for GetNumIsoPackets()==1, m_nTransferSize is set
-    // once from GetIsoPacketSize(0) and never reassigned mid-stage, so the
-    // multi-packet clamp bug below never engages -- GetResultLength() is exact).
+    // reports the TRUE per-frame byte count each completion (single AddIsoPacket
+    // per URB -- there is no multi-packet ambiguity to get wrong here).
     // Using a CONSTANT m_nInSubmitBytes[slot]=usMaxPacket here instead (an
     // earlier attempt at this fix) was itself a regression: it read a fixed
     // usMaxPacket-sized chunk every completion regardless of what the device
@@ -671,23 +669,33 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
     // device this project's whole USB-audio history proves worked perfectly
     // with plain GetResultLength() before this session touched the file.
     //
-    // For UAC2 (multi-packet), GetResultLength() is USELESS, not just imprecise:
-    // dwhcixferstagedata.cpp's per-packet TransactionComplete loop (isochronous,
-    // non-split) reassigns m_nTransferSize to EACH packet's individual declared
-    // size as it advances (never restored to the full-URB total), so by stage-
-    // complete GetResultLen()'s min(m_nTotalBytesTransfered, m_nTransferSize)
-    // clamps down to roughly ONE packet's worth -- unrelated to the true
-    // accumulated multi-packet total. It is neither a safe lower nor upper
-    // bound, so it is not used here at all for UAC2; m_nInSubmitBytes[slot]
-    // (what StartInRequest submitted) is the only usable size signal, and
-    // StartInRequest sizes each packet at the NOMINAL expected bytes/microframe
-    // (not the protocol's declared MAXIMUM) precisely so this reliance is safe:
+    // For UAC2 (multi-packet), GetResultLength() is NOT TRUSTED, on this
+    // hardware's ACTUAL host controller path -- Raspberry Pi 4 uses XHCI
+    // (USB 3.0 controller), not DWHCI (USB 2.0, older Pi models only);
+    // confirmed via arm-none-eabi-nm on the built kernel7l.elf showing
+    // CDWHCITransferStageData symbols entirely absent from the link. An
+    // earlier version of this comment cited dwhcixferstagedata.cpp's
+    // per-packet TransactionComplete/GetResultLen mechanics as the cause --
+    // that analysis was of a driver file this build never compiles; it does
+    // not apply here. The REAL mechanism on XHCI (lib/usb/xhciendpoint.cpp
+    // CXHCIEndpoint::TransferEvent/EnqueueTRB): each iso packet in a batched
+    // URB is its own independent TD (no chain bit set), with IOC (interrupt-
+    // on-completion) set ONLY on the LAST packet's TRB -- so exactly one
+    // transfer event fires per URB, reporting the XHCI hardware's residual
+    // length for ONLY that final TRB. SetResultLen(nBufLen - lastResidual)
+    // therefore silently assumes every packet BEFORE the last delivered its
+    // full declared size, with no way to detect an early short packet --
+    // an OVER-report risk (claims more than was actually received), the
+    // opposite failure shape from a truncation bug. m_nInSubmitBytes[slot]
+    // (what StartInRequest submitted, sized at the NOMINAL expected bytes/
+    // microframe rather than the protocol's declared MAXIMUM) sidesteps this
+    // blind spot entirely by never reading GetResultLength() for UAC2 at all:
     // a real device's actual per-microframe delivery fluctuates in a narrow
     // band around its nominal rate, so claiming the nominal-sized total reads
     // at most a few stale samples per completion on the rare short microframe,
-    // instead of up to a full over-sized packet's worth (the US-2x2 buzz cause
-    // when pktSize was the protocol max). See pktSize computation in
-    // StartInRequest for the nominal-rate sizing.
+    // instead of trusting a hardware result field that cannot see a short
+    // packet anywhere but the very last one in the batch. See pktSize
+    // computation in StartInRequest for the nominal-rate sizing.
     unsigned nSourceBytes = m_bUAC2 ? m_nInSubmitBytes[slot]
                                      : (pURB->GetStatus () ? pURB->GetResultLength () : 0);
     if (pURB->GetStatus () && nSourceBytes >= frameBytes && m_pInHandler != 0)
@@ -696,19 +704,19 @@ void CUSBAudioDevice::InCompletion (CUSBRequest *pURB)
         // minimum-1-byte-subslot mono frames); the legacy UAC1 single-packet path
         // never approaches this bound.
         //
-        // UAC2 multi-packet: the vendored Circle DWHCI driver's GetResultLength()
-        // is broken for multi-packet iso URBs -- it clamps the correctly-
-        // accumulated total to the LAST packet's declared size (dwhcixferstagedata.cpp
-        // GetResultLen vs m_nTransferSize, reassigned per-packet and never holding
-        // the running sum), so on the UAC2 batched path it silently reported
-        // ~1/nPkts of the real byte count. The buffer itself WAS fully and
-        // correctly written (m_pBufferPointer advances per-packet during the
-        // real transfer) -- only the reported LENGTH was wrong. Fix: use
-        // m_nInSubmitBytes[slot] (what StartInRequest submitted) for UAC2 only.
+        // UAC2 multi-packet: on this hardware's actual XHCI path, GetResultLength()
+        // reflects only the LAST packet's hardware residual in the batch (see
+        // InCompletion's top comment) -- it cannot see a short packet anywhere
+        // else in the batch, so trusting it risks OVER-claiming into stale
+        // buffer tail on any non-last short microframe, with no way to detect
+        // the fault. Fix: use m_nInSubmitBytes[slot] (what StartInRequest
+        // submitted, sized at the nominal expected rate) for UAC2 only, so the
+        // claim is bounded by what we asked for, not by a hardware field that
+        // is blind to all but the very last packet's actual delivery.
         // Tradeoff: cannot detect a genuinely short/zero-length packet mid-batch
         // (assumes full-size packets) -- accepted for UAC2 since GetResultLength()
-        // is simply wrong there, not just imprecise; same assumption OUT already
-        // makes for its own multi-packet buffer. UAC1 never uses this path.
+        // cannot reliably detect it either; same assumption OUT already makes
+        // for its own multi-packet buffer. UAC1 never uses this path.
         //
         // left_buf/right_buf are STATIC, not stack-allocated: this handler runs
         // in the USB completion-handler/ISR context (Core 0 hard-RT dispatch),
