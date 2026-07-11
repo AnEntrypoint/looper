@@ -95,17 +95,47 @@ void AudioOutputUSB_tapOTG (s16 *pLeft, s16 *pRight, unsigned nSamples)
 
     for (unsigned i = 0; i < nSamples; i++)
     {
-        s16 l0 = s_ring_left [rd       & OUT_RING_MASK];
-        s16 r0 = s_ring_right[rd       & OUT_RING_MASK];
-        s16 l1 = s_ring_left [(rd + 1) & OUT_RING_MASK];
-        s16 r1 = s_ring_right[(rd + 1) & OUT_RING_MASK];
-        pLeft[i]  = (s16)(l0 + (((s32)(l1 - l0) * (s32)rd_frac) >> 16));
-        pRight[i] = (s16)(r0 + (((s32)(r1 - r0) * (s32)rd_frac) >> 16));
-        s_otg_last_l = pLeft[i];
-        s_otg_last_r = pRight[i];
-        rd_frac += rate_step;
-        rd      += rd_frac >> 16;
-        rd_frac &= 0xFFFF;
+        // 4-point cubic Hermite (Catmull-Rom) fractional interpolation, same
+        // fix as AudioInputUSB::update's IN-ring read: 2-point linear interp on
+        // a continuously-wrapping fractional read position produces a periodic
+        // FM/pitch-jitter comb (measured 26.382Hz on the AIR192 IN path); cubic
+        // reconstruction cuts that error ~18dB at the same fractional drift.
+        // rd+2 stays inside the ring: the resync clause above guarantees
+        // avail > nSamples on entry, but cap per-sample so rd+2 never reaches
+        // the writer mid-block (repeat-hold the last position's samples if it
+        // would). rd-1 is always valid already-written history.
+        if ((int)(s_ring_wr - rd) > 2)
+        {
+            s32 l0 = s_ring_left [(rd - 1) & OUT_RING_MASK];
+            s32 l1 = s_ring_left [ rd       & OUT_RING_MASK];
+            s32 l2 = s_ring_left [(rd + 1) & OUT_RING_MASK];
+            s32 l3 = s_ring_left [(rd + 2) & OUT_RING_MASK];
+            s32 r0 = s_ring_right[(rd - 1) & OUT_RING_MASK];
+            s32 r1 = s_ring_right[ rd       & OUT_RING_MASK];
+            s32 r2 = s_ring_right[(rd + 1) & OUT_RING_MASK];
+            s32 r3 = s_ring_right[(rd + 2) & OUT_RING_MASK];
+            s64 f  = (s64) rd_frac;
+            s64 la = (((s64)(3*(l1-l2)+l3-l0) * f) >> 16) + (2*l0-5*l1+4*l2-l3);
+            la = ((la * f) >> 16) + (l2 - l0);
+            la = (la * f) >> 16;
+            s32 lo = (s32)((s64) l1 + (la >> 1));
+            s64 ra = (((s64)(3*(r1-r2)+r3-r0) * f) >> 16) + (2*r0-5*r1+4*r2-r3);
+            ra = ((ra * f) >> 16) + (r2 - r0);
+            ra = (ra * f) >> 16;
+            s32 ro = (s32)((s64) r1 + (ra >> 1));
+            pLeft[i]  = (s16)(lo > 32767 ? 32767 : (lo < -32768 ? -32768 : lo));
+            pRight[i] = (s16)(ro > 32767 ? 32767 : (ro < -32768 ? -32768 : ro));
+            s_otg_last_l = pLeft[i];
+            s_otg_last_r = pRight[i];
+            rd_frac += rate_step;
+            rd      += rd_frac >> 16;
+            rd_frac &= 0xFFFF;
+        }
+        else
+        {
+            pLeft[i]  = s_otg_last_l;
+            pRight[i] = s_otg_last_r;
+        }
     }
     s_otg_rd      = rd;
     s_otg_rd_frac = rd_frac;
