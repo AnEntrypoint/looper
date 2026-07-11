@@ -18,11 +18,43 @@ extern volatile unsigned g_uac2DescLen;
 #define RAWD_SNAP_SAMPLES 128
 
 // Convert one little-endian sample of subslot bytes to s16 (take the top 16
-// bits, matching the engine's s16 pipeline). 24-bit -> bytes [1..2], 16 -> [0..1].
+// bits, ROUNDED using the discarded low bits, matching the engine's s16
+// pipeline). 24-bit -> bytes [1..2], 16 -> [0..1].
+//
+// Candidate contributor to the AIR192-specific residual "light continuous
+// crackle" (memory mono-snore-glitch-uac2-specific): this device negotiates
+// bits=32 (confirmed live via :4445 UAUD), while the UCA222 (16-bit) and
+// US-2x2 (typically 24-bit) don't -- the ONE hardware parameter unique to
+// the AIR192 among all three devices tested this session, matching the
+// device-selective symptom exactly. The prior implementation TRUNCATED
+// (hard byte-select, no rounding) -- for a 32-bit source that discards a
+// full 16 low bits with zero rounding, a textbook source of a constant,
+// low-level quantization noise floor (audible as exactly "light continuous
+// crackle/static"), and the effect scales directly with how many bits are
+// discarded: worst on 32-bit, mild on 24-bit, absent on 16-bit-native --
+// again matching the observed device-selective severity. Fix: round to
+// nearest instead of truncating, using the discarded low byte(s) as the
+// rounding decision. Standard, correct bit-depth-reduction practice;
+// removes the systematic truncation bias without adding any resampling or
+// rate manipulation (matches the user's native-rate directive -- this is a
+// per-sample bit-depth conversion, not a sample-rate change).
 static inline s16 uac2ToS16 (const u8 *p, unsigned subslot)
 {
-    if (subslot >= 4) return (s16) ((p[3] << 8) | p[2]);
-    if (subslot == 3) return (s16) ((p[2] << 8) | p[1]);
+    if (subslot >= 4)
+    {
+        // 32-bit: keep bytes [2..3] as the s16 value, round using byte 1
+        // (the highest of the two discarded low bytes) as the rounding bit.
+        s32 v16 = (s16) ((p[3] << 8) | p[2]);
+        if (p[1] & 0x80) { if (v16 < 32767) v16++; }
+        return (s16) v16;
+    }
+    if (subslot == 3)
+    {
+        // 24-bit: keep bytes [1..2], round using byte 0 (the discarded low byte).
+        s32 v16 = (s16) ((p[2] << 8) | p[1]);
+        if (p[0] & 0x80) { if (v16 < 32767) v16++; }
+        return (s16) v16;
+    }
     if (subslot == 2) return (s16) ((p[1] << 8) | p[0]);
     return (s16) (p[0] << 8);
 }
