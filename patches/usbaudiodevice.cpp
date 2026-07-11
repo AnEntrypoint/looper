@@ -495,7 +495,39 @@ boolean CUSBAudioDevice::StartInRequest (unsigned slot)
         // still falls back to input_usb.cpp's per-sample underrun handling
         // (repeat-last-sample, already inaudible for isolated single-sample
         // events -- see input_usb.cpp:205-207).
-        u32 nomRate = (u32) (((u64) m_uRate << 16) * 65500 / 65536 / 8000);
+        // NATIVE-RATE DEPOSIT (user directive: run at the device's native hz,
+        // don't resample continuously). ROOT CAUSE of the AIR192-only comb
+        // (witnessed numerically, session 2026-07-11): the old biased nominal
+        // `m_uRate<<16 * 65500/65536 / 8000` deposits 47973.63 samples/sec while
+        // the AIR192's TRUE rate (live fbRate=393256) is 48004.88/sec -- a
+        // 31.25 samp/sec deposit deficit = 1 sample slip / ~1536 samples = the
+        // measured 26.382Hz/1819-sample FM comb. The IN reader's fractional
+        // rate_step then has to smear that continuous 31/sec deficit, and that
+        // smearing IS the comb. UCA222 (UAC1) never hit this: it deposits via
+        // GetResultLength() = the device's TRUE delivered count, no bias.
+        //
+        // Fix: deposit at the device's OWN reported rate (m_fbRate, the explicit
+        // feedback endpoint's frames-per-microframe in Q16.16 -- the same
+        // crystal drives the AIR192's ADC and DAC, so the OUT feedback rate is
+        // the IN delivery rate). deposit == device => the reader's rate_step
+        // collapses to exactly IN_FRAC_ONE (unity), no fractional read ever
+        // runs, and the passthrough is bit-exact at native rate: comb gone at
+        // the source, not smeared better. The 65500/65536 bias existed only to
+        // avoid over-reading stale buffer tail -- obsolete since the
+        // microframe-offset decode fix (m_nInSamplesPerPkt reads each microframe
+        // from its own k*pktSize offset with the true per-packet count), which
+        // already prevents that over-read. Depositing the device's real (higher)
+        // rate reads real delivered samples, never stale tail.
+        //
+        // Fallback: a UAC2 device without a feedback EP leaves m_fbRate at its
+        // nominal seed (m_uRate<<16 / 8000) -- that's unbiased nominal, still
+        // 6.4x less drift than the old bias (4.9 vs 31 samp/sec) and correct for
+        // a device whose rate equals nominal. clamp defends a garbage fbRate.
+        u32 nomRate = m_fbRate;
+        u32 nomLo = (u32) (((u64) m_uRate << 16) * 65000 / 65536 / 8000);   // -0.8%
+        u32 nomHi = (u32) (((u64) m_uRate << 16) * 66000 / 65536 / 8000);   // +0.7%
+        if (nomRate < nomLo || nomRate > nomHi)                            // fbRate not yet valid / garbage
+            nomRate = (u32) (((u64) m_uRate << 16) / 8000);                // unbiased nominal
         if (nomRate == 0) nomRate = 1u << 16;
         unsigned nomSamplesTotal = 0;
         // ROOT-CAUSE FIX: record each microframe's nominal sample count
