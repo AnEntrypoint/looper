@@ -601,23 +601,25 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
         static u32 s_availAccumN = 0;                           // samples in the running sum
         static u32 s_urbsSinceCorrect = 0;
         int avail = (int) AudioOutputUSB_outAvail ();
-        // 4 corrections/sec (was 1/sec) with a per-tick magnitude cap: still
-        // slow enough to structurally prevent the original fast (~1.6s-period)
-        // limit cycle, but a smaller quantum per tick means each individual
-        // correction disturbs the ring less -- attempt 3 (1/sec, magnitude-
-        // scaled, uncapped) fixed the starvation failure mode from attempt 2
-        // but left a smaller residual ~1.35s-periodic glitch, live-confirmed
-        // via Focusrite-loopback WAV analysis (238 severe cycle-deviations,
-        // ~18 steady-state events clustering at 1.325-1.377s, ~0.7ms each --
-        // no starvation, no 1.608s/5.85s recurrence, but not clean). The
-        // per-tick magnitude cap (rather than another >>N gain cut, which
-        // regressed to starvation last time at too-weak a setting) bounds
-        // the size of any single correction's disturbance directly, while
-        // the higher tick rate means small real drift is still corrected
-        // promptly in aggregate.
-        const unsigned URBS_PER_CORRECTION = 250;               // ~4 corrections/sec at the 1000 URB/s cadence
+        // REVERTED to the 1/sec, magnitude-scaled, UNCAPPED corrector (this was
+        // "fix attempt 3" in the tuning history below). Attempt 4 (4/sec tick +
+        // a per-tick magnitude cap of 96) was tried and made things WORSE, not
+        // better: live Focusrite-loopback WAV validation found the glitch count
+        // ROSE 33% (24 bursts/25s vs attempt 3's 18/25s) with a NEW rising-then-
+        // plateauing burst-rate signature (0.49Hz -> 1.5Hz over ~13s) -- the cap
+        // was too tight to keep pace once real drift compounded past what a
+        // single capped tick could correct, so corrections had to fire
+        // increasingly often near the end of the window. Capping magnitude was
+        // the wrong lever; attempt 3's uncapped-but-1/sec design remains the
+        // best-measured configuration to date (no starvation, no fast/periodic
+        // limit-cycle, smallest residual of any attempt: ~18 glitch events/25s,
+        // clustering loosely near 1.3-1.4s but not tightly periodic). Keeping
+        // this as the current baseline; the residual ~0.7/sec glitch rate is
+        // recorded in memory mono-snore-glitch-uac2-specific as the next
+        // mutable to chase (candidate: correlate live avail/step-corrector
+        // state against exact burst timestamps in a fresh matched capture).
+        const unsigned URBS_PER_CORRECTION = 1000;              // ~1 correction/sec at the 1000 URB/s cadence
         const int AVAIL_DEADBAND = 96;                          // ignore a mean excursion inside +/-96 of target
-        const int MAX_STEP_PER_TICK = 96;                       // cap any single correction's Q16.16 magnitude
         if (avail > 0)
         {
             s_availAccum  += avail;
@@ -633,10 +635,7 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
                 int banded = 0;
                 if (dev > AVAIL_DEADBAND)       banded = dev - AVAIL_DEADBAND;
                 else if (dev < -AVAIL_DEADBAND) banded = dev + AVAIL_DEADBAND;
-                int step = banded >> 4;
-                if (step >  MAX_STEP_PER_TICK) step =  MAX_STEP_PER_TICK;
-                if (step < -MAX_STEP_PER_TICK) step = -MAX_STEP_PER_TICK;
-                s_outBias += step;
+                s_outBias += banded >> 4;
             }
             else
             {
