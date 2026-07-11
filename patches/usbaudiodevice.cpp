@@ -556,34 +556,71 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
         u8 *pb = outBuf;
         unsigned pkt[N];
         unsigned total = 0;
-        // ARCHITECTURAL FIX (user directive: never resample/rate-correct on
-        // top of a device's own clock -- always run at each interface's
-        // native rate and trust its own timing). Four tuning iterations of a
-        // Pi-side OUT ring-level correction loop (s_outBias: reactive ->
-        // damped -> averaged step-corrector -> smoothed ramp) were live-
-        // validated via Focusrite-loopback WAV analysis after every single
-        // change (memory mono-snore-glitch-uac2-specific has the full
-        // history). Result: the loop's fast/reactive shape caused a real,
-        // severe ~1.6s-periodic glitch (fixed by slowing it down), but TWO
-        // separate attempts to fix the smaller residual pitch-jitter it left
-        // behind (smoothing the bias's application, then smoothing the
-        // device's own raw feedback value before use) each measured ZERO
-        // effect on that jitter -- proving the correction loop itself was
-        // never the jitter's source, just additional unnecessary complexity
-        // sitting on top of the device's own async explicit feedback
-        // (m_fbRate, already the mechanism a compliant UAC2 host is SUPPOSED
-        // to rely on per the class spec: "the device is just a sensor, host
-        // is the controller" language notwithstanding, the intended control
-        // authority is the feedback VALUE itself, not a secondary buffer-
-        // level loop layered on top of it). Removed entirely: effRate is now
-        // exactly m_fbRate (already exponentially smoothed in FbCompletion),
-        // nothing else. Simpler, matches the user's "never resample, use
-        // native rate" directive, and every live test showed the extra loop
-        // added risk (starvation, oscillation) without ever fixing the one
-        // problem it was kept around for.
+        // MINIMAL NECESSARY CORRECTION (restored after a full-removal
+        // experiment proved it's structurally required, not optional --
+        // see memory mono-snore-glitch-uac2-specific for the complete
+        // history). User directive: never resample/rate-correct on top of
+        // a device's own clock where avoidable. Removing this loop entirely
+        // was tried first and live-measured to cause FAST, real ring
+        // starvation (outUR climbing ~330/sec, avail sitting at 37-96
+        // against a 256 target) -- confirmed structural, not a tuning
+        // artifact: output_usb.cpp's outHandler comment already documents
+        // that the READ side has NO trim logic for UAC2 ("this reader just
+        // reads passively there [relying on] the feedback PI in
+        // StartOutRequest [holding] the ring near avail=256") -- so with
+        // NEITHER side correcting, the ring has no mechanism holding it
+        // anywhere near target and drains under the device's real (if
+        // small) feedback-vs-DAC-clock mismatch. Some write-side correction
+        // is therefore necessary, not a design choice to second-guess
+        // further. What IS now settled by direct live measurement across
+        // FOUR prior tuning iterations: the correction's SHAPE matters
+        // (fast/reactive caused a severe ~1.6s glitch; this once-per-second
+        // magnitude-scaled step-corrector fixed both that AND the
+        // starvation) but its FINE-TUNING does not touch the separate
+        // pitch-jitter residual (two independent smoothing attempts on top
+        // of this exact shape each measured zero effect) -- so this is
+        // deliberately the SIMPLEST version that was live-proven to work,
+        // with no additional smoothing layered on since none of it helped.
+        extern unsigned AudioOutputUSB_outAvail (void);
+        static int s_outBias = 0;                               // Q16.16 bias added to m_fbRate
+        static s32 s_availAccum = 0;                            // running sum since last correction
+        static u32 s_availAccumN = 0;                           // samples in the running sum
+        static u32 s_urbsSinceCorrect = 0;
+        int avail = (int) AudioOutputUSB_outAvail ();
+        const unsigned URBS_PER_CORRECTION = 1000;              // ~1 correction/sec at the 1000 URB/s cadence
+        const int AVAIL_DEADBAND = 96;                          // ignore a mean excursion inside +/-96 of target
+        if (avail > 0)
+        {
+            s_availAccum  += avail;
+            s_availAccumN += 1;
+        }
+        s_urbsSinceCorrect++;
+        if (s_urbsSinceCorrect >= URBS_PER_CORRECTION)
+        {
+            if (s_availAccumN > 0)
+            {
+                int meanAvail = (int) (s_availAccum / (s32) s_availAccumN);
+                int dev = meanAvail - 256;
+                int banded = 0;
+                if (dev > AVAIL_DEADBAND)       banded = dev - AVAIL_DEADBAND;
+                else if (dev < -AVAIL_DEADBAND) banded = dev + AVAIL_DEADBAND;
+                s_outBias += banded >> 4;
+            }
+            else
+            {
+                s_outBias = 0;                                  // ring was empty all window -> hold nominal
+            }
+            s_availAccum = 0;
+            s_availAccumN = 0;
+            s_urbsSinceCorrect = 0;
+        }
+        int biasLim = (int) (m_fbRate / 50);                    // clamp to ~2%
+        if (s_outBias >  biasLim) s_outBias =  biasLim;
+        if (s_outBias < -biasLim) s_outBias = -biasLim;
+        u32 effRate = (u32) ((int) m_fbRate + s_outBias);
         for (unsigned k = 0; k < N; k++)
         {
-            m_fbAccum += m_fbRate;
+            m_fbAccum += effRate;
             unsigned ns = m_fbAccum >> 16;
             m_fbAccum &= 0xFFFF;
             if (ns > maxPerPkt) ns = maxPerPkt;
