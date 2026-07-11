@@ -69,6 +69,13 @@ volatile unsigned g_audioOutBiasClampHits = 0;
 volatile int g_audioOutAvailLast = 0;
 volatile int g_audioOutBiasLast  = 0;
 
+// Live min/max of the device's own reported feedback rate -- see
+// FbCompletion. Reset via the UAUD verb's read-and-clear pattern (matching
+// every other windowed telemetry field in this file) so each probe shows
+// the range since the last read, not since boot.
+volatile unsigned g_audioFbRateMin = 0;
+volatile unsigned g_audioFbRateMax = 0;
+
 // Live audio-IN status for the :4445 UAUD verb. These are EXTERNAL volatile
 // globals, written on the USB-enumeration/ISR cores and read on the Core-2
 // control plane. The class statics (s_pThis etc.) read stale across cores from
@@ -811,6 +818,19 @@ void CUSBAudioDevice::FbCompletion (CUSBRequest *pURB)
     extern volatile unsigned g_audioFbRate, g_audioFbCount;
     g_audioFbRate = m_fbRate;
     g_audioFbCount++;
+    // Live min/max tracking of the DEVICE's OWN reported feedback value
+    // (m_fbRate), independent of anything the Pi computes downstream
+    // (s_outBias etc) -- isolates whether the AIR192 itself reports a
+    // noisy/jittery rate sample-to-sample (device-side jitter, matching
+    // the device-selective symptom -- UCA222/US-2x2 don't show this bug)
+    // vs the jitter being introduced somewhere in the Pi's own processing.
+    // A smoothed-ramp fix to s_outBias's APPLICATION had zero effect on
+    // the measured pitch-jitter sideband (memory
+    // mono-snore-glitch-uac2-specific), which already rules out that
+    // specific mechanism -- this checks the next candidate upstream.
+    extern volatile unsigned g_audioFbRateMin, g_audioFbRateMax;
+    if (g_audioFbRateMin == 0 || m_fbRate < g_audioFbRateMin) g_audioFbRateMin = m_fbRate;
+    if (m_fbRate > g_audioFbRateMax) g_audioFbRateMax = m_fbRate;
     delete m_pFbURB;
     m_pFbURB = 0;
     StartFbRequest ();
