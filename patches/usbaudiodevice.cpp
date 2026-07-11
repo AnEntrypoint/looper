@@ -57,6 +57,10 @@ unsigned CUSBAudioDevice_GetInPktsSubmitted0 (void)
     return p ? p->GetInPktsSubmitted0 () : 0;
 }
 
+// Count of genuinely zero-length OUT microframes (StartOutRequest's ns==0
+// case) -- see the comment at that call site for what this is measuring.
+volatile unsigned g_audioOutZeroPkts = 0;
+
 // Live audio-IN status for the :4445 UAUD verb. These are EXTERNAL volatile
 // globals, written on the USB-enumeration/ISR cores and read on the Core-2
 // control plane. The class statics (s_pThis etc.) read stale across cores from
@@ -593,6 +597,19 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
             else
             {
                 memset (pb, 0, bytes);
+                // Telemetry: count genuinely zero-length microframes (ns==0)
+                // separately from real data. This is EXPECTED/correct async-
+                // isochronous behavior (the Q16.16 fractional accumulator
+                // legitimately produces ns==0 on some microframes when the
+                // device's own reported feedback rate isn't an exact integer
+                // multiple of the microframe rate) -- exposed on :4445 UAUD
+                // to confirm whether the AIR192's round-trip micro-glitches
+                // (sample-level analysis, ~4-6/sec, <1ms each, ~6-38-sample
+                // near-zero splices) correlate with this rate, or whether
+                // they have some other cause the zero-length-packet mechanism
+                // doesn't explain.
+                extern volatile unsigned g_audioOutZeroPkts;
+                if (ns == 0) g_audioOutZeroPkts++;
             }
             pkt[k] = bytes;
             pb    += bytes;
