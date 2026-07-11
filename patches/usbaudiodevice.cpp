@@ -601,8 +601,23 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
         static u32 s_availAccumN = 0;                           // samples in the running sum
         static u32 s_urbsSinceCorrect = 0;
         int avail = (int) AudioOutputUSB_outAvail ();
-        const unsigned URBS_PER_CORRECTION = 1000;              // ~1 correction/sec at the 1000 URB/s cadence
+        // 4 corrections/sec (was 1/sec) with a per-tick magnitude cap: still
+        // slow enough to structurally prevent the original fast (~1.6s-period)
+        // limit cycle, but a smaller quantum per tick means each individual
+        // correction disturbs the ring less -- attempt 3 (1/sec, magnitude-
+        // scaled, uncapped) fixed the starvation failure mode from attempt 2
+        // but left a smaller residual ~1.35s-periodic glitch, live-confirmed
+        // via Focusrite-loopback WAV analysis (238 severe cycle-deviations,
+        // ~18 steady-state events clustering at 1.325-1.377s, ~0.7ms each --
+        // no starvation, no 1.608s/5.85s recurrence, but not clean). The
+        // per-tick magnitude cap (rather than another >>N gain cut, which
+        // regressed to starvation last time at too-weak a setting) bounds
+        // the size of any single correction's disturbance directly, while
+        // the higher tick rate means small real drift is still corrected
+        // promptly in aggregate.
+        const unsigned URBS_PER_CORRECTION = 250;               // ~4 corrections/sec at the 1000 URB/s cadence
         const int AVAIL_DEADBAND = 96;                          // ignore a mean excursion inside +/-96 of target
+        const int MAX_STEP_PER_TICK = 96;                       // cap any single correction's Q16.16 magnitude
         if (avail > 0)
         {
             s_availAccum  += avail;
@@ -618,19 +633,10 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
                 int banded = 0;
                 if (dev > AVAIL_DEADBAND)       banded = dev - AVAIL_DEADBAND;
                 else if (dev < -AVAIL_DEADBAND) banded = dev + AVAIL_DEADBAND;
-                // Step MAGNITUDE scales with the sustained (1-second-averaged)
-                // deviation, not a fixed tiny nudge -- a fixed +/-64/sec step
-                // (first attempt) was too weak: live telemetry showed avail
-                // draining 432->65 over ~10s with real outUR growth (genuine
-                // ring starvation), because ramping to the full ~2% clamp
-                // would have taken up to 50 seconds against real per-device
-                // drift. Still only ONE update per ~1-second window (the part
-                // that actually prevents the fast limit-cycle), but sized to
-                // the ACTUAL measured drift each window so a real mismatch is
-                // corrected in a few seconds, not a minute. >>4 keeps this
-                // gentler than the original reactive >>3 (which updated 1000x
-                // more often) while remaining strong enough to hold the ring.
-                s_outBias += banded >> 4;
+                int step = banded >> 4;
+                if (step >  MAX_STEP_PER_TICK) step =  MAX_STEP_PER_TICK;
+                if (step < -MAX_STEP_PER_TICK) step = -MAX_STEP_PER_TICK;
+                s_outBias += step;
             }
             else
             {
