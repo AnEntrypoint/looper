@@ -36,6 +36,14 @@ public:
     static CUSBAudioDevice *Get (void) { return s_pThis; }
     static CUSBAudioDevice *GetOut (void) { return s_pOut; }
 
+    // Read-only telemetry accessors for the :4445 UAUD verb -- expose the
+    // negotiated IN packet-size/microframe-batching numbers so a live probe
+    // can correlate a device's specific bandwidth against any timing
+    // artifact (e.g. the AIR192-only "snore" burst-cadence investigation,
+    // see memory mono-snore-glitch-uac2-specific).
+    u16      GetInPktSize0 (void)       const { return m_nInPktSize[0]; }
+    unsigned GetInPktsSubmitted0 (void) const { return m_nInPktsSubmitted[0]; }
+
 private:
     boolean StartInRequest  (unsigned slot = 0);
     boolean StartOutRequest (unsigned slot = 0);

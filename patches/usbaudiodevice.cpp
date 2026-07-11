@@ -42,6 +42,21 @@ CUSBAudioDevice *CUSBAudioDevice::s_pThis = 0;
 CUSBAudioDevice *CUSBAudioDevice::s_pOut  = 0;
 unsigned         CUSBAudioDevice::s_nDeviceNumber = 1;
 
+// Free-function wrappers (not the class type) for kernel_run.cpp's :4445
+// UAUD verb -- that TU doesn't include usbaudiodevice.h, matching every
+// other cross-TU telemetry accessor in this codebase. Returns 0 if no IN
+// device is currently bound.
+unsigned short CUSBAudioDevice_GetInPktSize0 (void)
+{
+    CUSBAudioDevice *p = CUSBAudioDevice::Get ();
+    return p ? p->GetInPktSize0 () : 0;
+}
+unsigned CUSBAudioDevice_GetInPktsSubmitted0 (void)
+{
+    CUSBAudioDevice *p = CUSBAudioDevice::Get ();
+    return p ? p->GetInPktsSubmitted0 () : 0;
+}
+
 // Live audio-IN status for the :4445 UAUD verb. These are EXTERNAL volatile
 // globals, written on the USB-enumeration/ISR cores and read on the Core-2
 // control plane. The class statics (s_pThis etc.) read stale across cores from
