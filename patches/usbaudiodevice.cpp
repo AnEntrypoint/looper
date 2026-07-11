@@ -61,14 +61,6 @@ unsigned CUSBAudioDevice_GetInPktsSubmitted0 (void)
 // case) -- see the comment at that call site for what this is measuring.
 volatile unsigned g_audioOutZeroPkts = 0;
 
-// Count of s_outBias integral clamp-hit events -- see StartOutRequest.
-volatile unsigned g_audioOutBiasClampHits = 0;
-
-// Live snapshot of the OUT ring-level control loop's own state (avail,
-// s_outBias) -- see StartOutRequest.
-volatile int g_audioOutAvailLast = 0;
-volatile int g_audioOutBiasLast  = 0;
-
 // Live min/max of the device's own reported feedback rate -- see
 // FbCompletion. Reset via the UAUD verb's read-and-clear pattern (matching
 // every other windowed telemetry field in this file) so each probe shows
@@ -564,139 +556,34 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
         u8 *pb = outBuf;
         unsigned pkt[N];
         unsigned total = 0;
-        // Final residual: the device's feedback value is ~static and ~0.02% off its
-        // true DAC rate, so feedback-pacing alone slowly drifted the DAC FIFO -> one
-        // dropout every ~20s. The engine writes the OUT ring at the device's IN clock,
-        // which EQUALS its DAC clock (one device clock), so a feedback-vs-DAC mismatch
-        // shows up as the OUT-ring level drifting -- observable. A correction biases
-        // the send rate so the ring (hence the DAC FIFO) holds long-run, converging
-        // the send rate to the true DAC rate without ever measuring it directly.
-        //
-        // ROOT-CAUSE FIX (AIR192 ~1.6s-periodic round-trip glitch, live-measured via
-        // Focusrite-loopback WAV analysis -- see memory mono-snore-glitch-uac2-
-        // specific): the ORIGINAL design was a REACTIVE per-URB proportional
-        // controller (gain >>3, no deadband, updated every URB = 1000/sec) driven
-        // directly off the ring's instantaneous fill level. That instantaneous level
-        // is itself noisy/cyclic (the ring is written once per DSP block and drained
-        // once per URB, two independent periodic processes beating against each
-        // other), so a fast controller reacting to every sample of it doesn't
-        // converge -- it rides the ring's own natural beat as a limit-cycle
-        // oscillator. Two damping attempts (gain>>6/deadband 64, then gain>>8/
-        // deadband 192) each measurably slowed the oscillation's frequency
-        // (1.608s -> 5.85s period, live-confirmed) but never eliminated it --
-        // classic underdamped-2nd-order-loop symptom: shrinking gain alone pushes
-        // the natural frequency down without ever reaching critical damping, so
-        // incremental gain cuts chase an ever-slower relapse instead of resolving
-        // it. This matches USB Audio Class 2's own spec guidance almost exactly:
-        // feedback-driven correction should be slow (~1/sec) and should NOT be a
-        // reactive buffer-level proportional/integral loop -- that shape is a
-        // documented anti-pattern for exactly this reason.
-        //
-        // Correct fix: stop reacting to the instantaneous ring level entirely.
-        // Average `avail` over many URBs (a true low-pass, not a per-sample
-        // proportional gain) and only nudge the bias, by the smallest possible
-        // step, at a capped rate of roughly once per second -- matching the
-        // spec's own stated cadence and the actual physics of the drift being
-        // corrected (a ~0.02%, ~20-second-scale mismatch has NO business being
-        // corrected by a controller that updates 1000x/sec). This is a slow
-        // step-corrector, not a continuous-time control loop, so it structurally
-        // cannot form a fast limit cycle regardless of the ring's own natural
-        // beat frequency.
-        extern unsigned AudioOutputUSB_outAvail (void);
-        static int s_outBias    = 0;                            // Q16.16 CURRENT bias, applied every URB
-        static int s_outBiasTgt = 0;                            // Q16.16 TARGET bias, updated once/sec
-        static s32 s_availAccum = 0;                            // running sum since last correction
-        static u32 s_availAccumN = 0;                           // samples in the running sum
-        static u32 s_urbsSinceCorrect = 0;
-        int avail = (int) AudioOutputUSB_outAvail ();
-        // "Fix attempt 3" (1/sec magnitude-scaled uncapped corrector) fixed the
-        // starvation (attempt 2) and fast-limit-cycle (original/attempt 1)
-        // failure modes, leaving a small residual (~0.7-0.94 severe-glitch-
-        // events/sec, live-confirmed via two independent recording chains).
-        // Root-caused via THD+N analysis of a fresh capture (memory
-        // mono-snore-glitch-uac2-specific): the residual is dominated not by
-        // broadband noise but by a small pitch-JITTER sideband (instantaneous
-        // frequency wandering a few cents) -- consistent with s_outBias being
-        // updated as an INSTANT STEP once per second (the target computed
-        // below WAS applied directly to the live rate every URB immediately
-        // after computing it), which is itself a small but real discontinuity
-        // in the effective send rate at each correction tick.
-        //
-        // Fix: separate the TARGET (still updated only once/sec, preserving
-        // everything that fixed the fast-limit-cycle and starvation failure
-        // modes) from the LIVE bias actually applied every URB, and ramp the
-        // live value toward the target gradually over the following second
-        // (linear step of target-delta/1000 per URB) instead of jumping
-        // instantly. This should not reintroduce either prior failure mode --
-        // the CORRECTION DECISION still only happens once/sec -- it just
-        // smooths how that decision's effect reaches the actual send rate.
-        const unsigned URBS_PER_CORRECTION = 1000;              // ~1 correction/sec at the 1000 URB/s cadence
-        const int AVAIL_DEADBAND = 96;                          // ignore a mean excursion inside +/-96 of target
-        if (avail > 0)
-        {
-            s_availAccum  += avail;
-            s_availAccumN += 1;
-        }
-        s_urbsSinceCorrect++;
-        if (s_urbsSinceCorrect >= URBS_PER_CORRECTION)
-        {
-            if (s_availAccumN > 0)
-            {
-                int meanAvail = (int) (s_availAccum / (s32) s_availAccumN);
-                int dev = meanAvail - 256;
-                int banded = 0;
-                if (dev > AVAIL_DEADBAND)       banded = dev - AVAIL_DEADBAND;
-                else if (dev < -AVAIL_DEADBAND) banded = dev + AVAIL_DEADBAND;
-                s_outBiasTgt += banded >> 4;
-            }
-            else
-            {
-                s_outBiasTgt = 0;                                // ring was empty all window -> hold nominal
-            }
-            s_availAccum = 0;
-            s_availAccumN = 0;
-            s_urbsSinceCorrect = 0;
-        }
-        // Ramp the LIVE bias toward the target by a fixed fraction of the
-        // remaining gap every URB (~1/8 per URB -> converges within ~a few ms,
-        // far faster than the once-per-second decision cadence, but never an
-        // instant jump). >>3 chosen so a typical single-tick target change
-        // (which live telemetry showed is itself small, since the deadband
-        // already filters routine excursions) ramps smoothly within a small
-        // fraction of the 1-second correction period.
-        int biasLim = (int) (m_fbRate / 50);                   // clamp to ~2%
-        // Clamp the TARGET too, not just the ramped live value -- otherwise
-        // s_outBiasTgt could wander arbitrarily far past the clamp while
-        // s_outBias sits pinned at the limit, storing an unbounded "debt"
-        // that would produce a slow, oddly-timed snap-back once avail moved
-        // back the other way (the exact windup shape this whole redesign
-        // exists to avoid).
-        if (s_outBiasTgt >  biasLim) s_outBiasTgt =  biasLim;
-        if (s_outBiasTgt < -biasLim) s_outBiasTgt = -biasLim;
-        s_outBias += (s_outBiasTgt - s_outBias) >> 3;
-        // Telemetry: count clamp-hit events (s_outBias saturating at the
-        // limit) -- a candidate cause of the AIR192's ~1.6s-periodic round-
-        // trip glitch bursts (live-measured via WAV analysis; see memory
-        // mono-snore-glitch-uac2-specific). A slow integral hitting a hard
-        // clamp is a classic source of a periodic windup/snap-back cycle;
-        // exposed on :4445 UAUD to correlate clamp-hit timing against the
-        // measured 1.608s glitch period.
-        extern volatile unsigned g_audioOutBiasClampHits;
-        if (s_outBias > biasLim || s_outBias < -biasLim) g_audioOutBiasClampHits++;
-        if (s_outBias >  biasLim) s_outBias =  biasLim;
-        if (s_outBias < -biasLim) s_outBias = -biasLim;
-        u32 effRate = (u32) ((int) m_fbRate + s_outBias);
-        // Live snapshot of the control loop's own state (not just clamp-hit
-        // count) -- a limit-cycle oscillation can be periodic WITHOUT ever
-        // touching the hard clamp, so watching avail/s_outBias directly over
-        // time is the next diagnostic step if clamp-hits stay at 0 while the
-        // 1.608s glitch persists.
-        extern volatile int g_audioOutAvailLast, g_audioOutBiasLast;
-        g_audioOutAvailLast = avail;
-        g_audioOutBiasLast  = s_outBias;
+        // ARCHITECTURAL FIX (user directive: never resample/rate-correct on
+        // top of a device's own clock -- always run at each interface's
+        // native rate and trust its own timing). Four tuning iterations of a
+        // Pi-side OUT ring-level correction loop (s_outBias: reactive ->
+        // damped -> averaged step-corrector -> smoothed ramp) were live-
+        // validated via Focusrite-loopback WAV analysis after every single
+        // change (memory mono-snore-glitch-uac2-specific has the full
+        // history). Result: the loop's fast/reactive shape caused a real,
+        // severe ~1.6s-periodic glitch (fixed by slowing it down), but TWO
+        // separate attempts to fix the smaller residual pitch-jitter it left
+        // behind (smoothing the bias's application, then smoothing the
+        // device's own raw feedback value before use) each measured ZERO
+        // effect on that jitter -- proving the correction loop itself was
+        // never the jitter's source, just additional unnecessary complexity
+        // sitting on top of the device's own async explicit feedback
+        // (m_fbRate, already the mechanism a compliant UAC2 host is SUPPOSED
+        // to rely on per the class spec: "the device is just a sensor, host
+        // is the controller" language notwithstanding, the intended control
+        // authority is the feedback VALUE itself, not a secondary buffer-
+        // level loop layered on top of it). Removed entirely: effRate is now
+        // exactly m_fbRate (already exponentially smoothed in FbCompletion),
+        // nothing else. Simpler, matches the user's "never resample, use
+        // native rate" directive, and every live test showed the extra loop
+        // added risk (starvation, oscillation) without ever fixing the one
+        // problem it was kept around for.
         for (unsigned k = 0; k < N; k++)
         {
-            m_fbAccum += effRate;
+            m_fbAccum += m_fbRate;
             unsigned ns = m_fbAccum >> 16;
             m_fbAccum &= 0xFFFF;
             if (ns > maxPerPkt) ns = maxPerPkt;
