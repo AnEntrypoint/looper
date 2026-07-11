@@ -565,16 +565,45 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
         // the ring level biases the send rate so the ring (hence the DAC FIFO) holds,
         // converging the long-run send rate to the true DAC rate. Double-buffering keeps
         // the ring stable enough that this integral converges without windup.
+        //
+        // ROOT-CAUSE FIX (AIR192 ~1.608s-periodic round-trip glitch, live-measured
+        // via Focusrite-loopback WAV analysis -- see memory
+        // mono-snore-glitch-uac2-specific): the original >>3 (divide-by-8) gain,
+        // with NO deadband, was tuned against the Tascam US-2x2's bandwidth/timing
+        // and is a genuine limit-cycle oscillator on the AIR192 -- live telemetry
+        // (g_audioOutAvailLast/g_audioOutBiasLast, densely polled) showed avail
+        // swinging ~60-460 around the target 256 and s_outBias swinging roughly
+        // -6000..+5500 (well inside the +/-~7865 clamp, so the clamp-hit counter
+        // stayed at 0 while the oscillation ran freely) with an observed period
+        // matching the audible glitch's 1.608s almost exactly -- an UNDER-DAMPED
+        // control loop, not a converging one, despite the "converges without
+        // windup" comment (accurate for the Tascam this was tuned for, wrong for
+        // the AIR192's different feedback/timing characteristics). This is exactly
+        // the failure mode USB Audio Class 2's own spec guidance warns against:
+        // feedback should drive only slow, minor corrections (~1/sec), and a
+        // buffer-level proportional/integral controller like this one is a
+        // documented deviation from spec intent that produces exactly this kind
+        // of oscillation. Fix: shrink the gain 8x (>>6 instead of >>3) and add a
+        // deadband (matching this file's own OTG_DEADBAND/IN_DEADBAND pattern)
+        // so small ring excursions are ignored entirely and only genuine sustained
+        // drift accumulates -- converts the loop from a fast/reactive oscillator
+        // into the slow, low-authority corrector the comment always intended.
         extern unsigned AudioOutputUSB_outAvail (void);
         static int s_outBias = 0;                              // Q16.16 added to feedback rate
         int avail = (int) AudioOutputUSB_outAvail ();
+        const int AVAIL_DEADBAND = 64;                          // ignore excursions inside +/-64 of target
         // Only integrate when the OUT ring has data. At boot the DSP has not
-        // ticked yet so avail=0; integrating at (0-256)>>3=-32/URB winds
-        // s_outBias to -biasLim in ~245 URBs (~245ms) reducing effRate ~2%
-        // and causing DAC underruns before the first sample arrives.
-        // Hold s_outBias=0 while the ring is empty so effRate stays nominal.
+        // ticked yet so avail=0; integrating winds s_outBias toward -biasLim and
+        // causes DAC underruns before the first sample arrives. Hold s_outBias=0
+        // while the ring is empty so effRate stays nominal.
         if (avail > 0)
-            s_outBias += (avail - 256) >> 3;                   // gentle integral toward avail=256
+        {
+            int dev = avail - 256;
+            int banded = 0;
+            if (dev > AVAIL_DEADBAND)       banded = dev - AVAIL_DEADBAND;
+            else if (dev < -AVAIL_DEADBAND) banded = dev + AVAIL_DEADBAND;
+            s_outBias += banded >> 6;                           // 8x gentler than the original >>3
+        }
         else
             s_outBias = 0;
         int biasLim = (int) (m_fbRate / 50);                   // clamp to ~2%
