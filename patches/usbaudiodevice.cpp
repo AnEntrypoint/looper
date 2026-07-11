@@ -618,13 +618,19 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
                 int banded = 0;
                 if (dev > AVAIL_DEADBAND)       banded = dev - AVAIL_DEADBAND;
                 else if (dev < -AVAIL_DEADBAND) banded = dev + AVAIL_DEADBAND;
-                // Single smallest-unit nudge per correction, sign-only -- the
-                // correction accumulates at MOST ~1000 (Q16.16 units)/sec,
-                // several orders of magnitude gentler than the original
-                // reactive loop, matching the ~20s-scale drift it exists to
-                // correct.
-                if (banded > 0)      s_outBias += 64;
-                else if (banded < 0) s_outBias -= 64;
+                // Step MAGNITUDE scales with the sustained (1-second-averaged)
+                // deviation, not a fixed tiny nudge -- a fixed +/-64/sec step
+                // (first attempt) was too weak: live telemetry showed avail
+                // draining 432->65 over ~10s with real outUR growth (genuine
+                // ring starvation), because ramping to the full ~2% clamp
+                // would have taken up to 50 seconds against real per-device
+                // drift. Still only ONE update per ~1-second window (the part
+                // that actually prevents the fast limit-cycle), but sized to
+                // the ACTUAL measured drift each window so a real mismatch is
+                // corrected in a few seconds, not a minute. >>4 keeps this
+                // gentler than the original reactive >>3 (which updated 1000x
+                // more often) while remaining strong enough to hold the ring.
+                s_outBias += banded >> 4;
             }
             else
             {
