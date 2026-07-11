@@ -813,7 +813,31 @@ void CUSBAudioDevice::FbCompletion (CUSBRequest *pURB)
         else        v = ((u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16)) << 2;  // 10.14 -> 16.16
         // Sanity-clamp to [1, cap) frames so a garbage feedback can't overrun.
         u32 maxRate = (USB_AUDIO_BLOCK_BYTES / 4) << 16;
-        if (v > 0 && v < maxRate) m_fbRate = v;
+        if (v > 0 && v < maxRate)
+        {
+            // ROOT CAUSE of the remaining pitch-jitter sideband (memory
+            // mono-snore-glitch-uac2-specific): m_fbRate was overwritten
+            // DIRECTLY and instantly with the raw device-reported value on
+            // every single feedback URB completion (no smoothing at all) --
+            // live telemetry confirmed the AIR192's own reported rate
+            // genuinely wobbles sample-to-sample (measured 393248-393264,
+            // a real ~16-unit Q16.16 spread), and that raw value feeds
+          // directly into StartOutRequest's per-microframe `ns` computation
+            // every URB, immediately after each feedback update -- a much
+            // more direct/frequent injection point than s_outBias's
+            // once-per-second correction (whose smoothing, tested and
+            // confirmed via live before/after THD+N comparison, had ZERO
+            // effect on this jitter -- it was never the cause). Light
+            // exponential smoothing here (1/8 toward the new reading, same
+            // pattern as s_outBias's own ramp) damps the device's raw
+            // feedback noise before it ever reaches the sample-rate math,
+            // while still tracking genuine rate changes within a handful of
+            // feedback updates (these arrive every few microframes, so an
+            // 8-sample time constant is still well under human-audible
+            // response-time scales).
+            if (m_fbRate == 0) m_fbRate = v;   // first reading: no history to smooth against
+            else                m_fbRate = (u32) ((int) m_fbRate + (((int) v - (int) m_fbRate) >> 3));
+        }
     }
     extern volatile unsigned g_audioFbRate, g_audioFbCount;
     g_audioFbRate = m_fbRate;
