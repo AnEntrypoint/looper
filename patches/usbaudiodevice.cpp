@@ -64,6 +64,11 @@ volatile unsigned g_audioOutZeroPkts = 0;
 // Count of s_outBias integral clamp-hit events -- see StartOutRequest.
 volatile unsigned g_audioOutBiasClampHits = 0;
 
+// Live snapshot of the OUT ring-level control loop's own state (avail,
+// s_outBias) -- see StartOutRequest.
+volatile int g_audioOutAvailLast = 0;
+volatile int g_audioOutBiasLast  = 0;
+
 // Live audio-IN status for the :4445 UAUD verb. These are EXTERNAL volatile
 // globals, written on the USB-enumeration/ISR cores and read on the Core-2
 // control plane. The class statics (s_pThis etc.) read stale across cores from
@@ -585,6 +590,14 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
         if (s_outBias >  biasLim) s_outBias =  biasLim;
         if (s_outBias < -biasLim) s_outBias = -biasLim;
         u32 effRate = (u32) ((int) m_fbRate + s_outBias);
+        // Live snapshot of the control loop's own state (not just clamp-hit
+        // count) -- a limit-cycle oscillation can be periodic WITHOUT ever
+        // touching the hard clamp, so watching avail/s_outBias directly over
+        // time is the next diagnostic step if clamp-hits stay at 0 while the
+        // 1.608s glitch persists.
+        extern volatile int g_audioOutAvailLast, g_audioOutBiasLast;
+        g_audioOutAvailLast = avail;
+        g_audioOutBiasLast  = s_outBias;
         for (unsigned k = 0; k < N; k++)
         {
             m_fbAccum += effRate;

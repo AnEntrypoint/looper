@@ -461,10 +461,11 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				extern unsigned CUSBAudioDevice_GetInPktsSubmitted0 (void);
 				extern volatile unsigned g_audioOutZeroPkts;
 				extern volatile unsigned g_audioOutBiasClampHits;
+				extern volatile int g_audioOutAvailLast, g_audioOutBiasLast;
 				unsigned short inPktSize = CUSBAudioDevice_GetInPktSize0 ();
 				unsigned inPktsSubmitted = CUSBAudioDevice_GetInPktsSubmitted0 ();
 				CString s;
-				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u rate=%u inDeliv=%u inPeak=%u inFail=%u outDeliv=%u outPeak=%u outFail=%u inUR=%u inRS=%u outUR=%u otgRS=%u outRingRS=%u outWr=%u outAvail=%u inAvail=%u fbRate=%u fbCnt=%u outMaxGapUs=%u inMaxGapUs=%u izcL=%u izcR=%u ienL=%u ienR=%u ienN=%u slot0=%u slot1=%u wzcL=%u wzcR=%u wenL=%u wenR=%u wenN=%u inPktSize=%u inPkts=%u outZeroPkts=%u outBiasClamp=%u",
+				s.Format("audioIn=%u audioOut=%u uac2=%u ch=%u bits=%u rate=%u inDeliv=%u inPeak=%u inFail=%u outDeliv=%u outPeak=%u outFail=%u inUR=%u inRS=%u outUR=%u otgRS=%u outRingRS=%u outWr=%u outAvail=%u inAvail=%u fbRate=%u fbCnt=%u outMaxGapUs=%u inMaxGapUs=%u izcL=%u izcR=%u ienL=%u ienR=%u ienN=%u slot0=%u slot1=%u wzcL=%u wzcR=%u wenL=%u wenR=%u wenN=%u inPktSize=%u inPkts=%u outZeroPkts=%u outBiasClamp=%u outAvailLast=%d outBiasLast=%d",
 					g_audioInBound, g_audioOutBound, g_audioUAC2, g_audioChannels,
 					g_audioSubslot*8, g_audioRate, g_audioInDeliv, g_audioInPeak, g_audioInSubmitFail,
 					g_audioOutDeliv, g_audioOutPeak, g_audioOutSubmitFail,
@@ -474,7 +475,8 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					g_audioInZcL, g_audioInZcR, ienL, ienR, enN,
 					g_audioInSlot0Count, g_audioInSlot1Count,
 					g_loopWetZcL, g_loopWetZcR, wenL, wenR, wenN,
-					(unsigned) inPktSize, inPktsSubmitted, g_audioOutZeroPkts, g_audioOutBiasClampHits);
+					(unsigned) inPktSize, inPktsSubmitted, g_audioOutZeroPkts, g_audioOutBiasClampHits,
+					g_audioOutAvailLast, g_audioOutBiasLast);
 				g_audioOutMaxGapUs = 0;   // reset so each probe shows the max since last read
 				g_audioInMaxGapUs  = 0;   // reset so each probe shows the max since last read
 				g_audioInZcL = 0;         // reset so each probe shows the ZCR since last read
