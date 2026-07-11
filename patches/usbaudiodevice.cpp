@@ -596,28 +596,33 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
         // cannot form a fast limit cycle regardless of the ring's own natural
         // beat frequency.
         extern unsigned AudioOutputUSB_outAvail (void);
-        static int s_outBias = 0;                              // Q16.16 added to feedback rate
+        static int s_outBias    = 0;                            // Q16.16 CURRENT bias, applied every URB
+        static int s_outBiasTgt = 0;                            // Q16.16 TARGET bias, updated once/sec
         static s32 s_availAccum = 0;                            // running sum since last correction
         static u32 s_availAccumN = 0;                           // samples in the running sum
         static u32 s_urbsSinceCorrect = 0;
         int avail = (int) AudioOutputUSB_outAvail ();
-        // REVERTED to the 1/sec, magnitude-scaled, UNCAPPED corrector (this was
-        // "fix attempt 3" in the tuning history below). Attempt 4 (4/sec tick +
-        // a per-tick magnitude cap of 96) was tried and made things WORSE, not
-        // better: live Focusrite-loopback WAV validation found the glitch count
-        // ROSE 33% (24 bursts/25s vs attempt 3's 18/25s) with a NEW rising-then-
-        // plateauing burst-rate signature (0.49Hz -> 1.5Hz over ~13s) -- the cap
-        // was too tight to keep pace once real drift compounded past what a
-        // single capped tick could correct, so corrections had to fire
-        // increasingly often near the end of the window. Capping magnitude was
-        // the wrong lever; attempt 3's uncapped-but-1/sec design remains the
-        // best-measured configuration to date (no starvation, no fast/periodic
-        // limit-cycle, smallest residual of any attempt: ~18 glitch events/25s,
-        // clustering loosely near 1.3-1.4s but not tightly periodic). Keeping
-        // this as the current baseline; the residual ~0.7/sec glitch rate is
-        // recorded in memory mono-snore-glitch-uac2-specific as the next
-        // mutable to chase (candidate: correlate live avail/step-corrector
-        // state against exact burst timestamps in a fresh matched capture).
+        // "Fix attempt 3" (1/sec magnitude-scaled uncapped corrector) fixed the
+        // starvation (attempt 2) and fast-limit-cycle (original/attempt 1)
+        // failure modes, leaving a small residual (~0.7-0.94 severe-glitch-
+        // events/sec, live-confirmed via two independent recording chains).
+        // Root-caused via THD+N analysis of a fresh capture (memory
+        // mono-snore-glitch-uac2-specific): the residual is dominated not by
+        // broadband noise but by a small pitch-JITTER sideband (instantaneous
+        // frequency wandering a few cents) -- consistent with s_outBias being
+        // updated as an INSTANT STEP once per second (the target computed
+        // below WAS applied directly to the live rate every URB immediately
+        // after computing it), which is itself a small but real discontinuity
+        // in the effective send rate at each correction tick.
+        //
+        // Fix: separate the TARGET (still updated only once/sec, preserving
+        // everything that fixed the fast-limit-cycle and starvation failure
+        // modes) from the LIVE bias actually applied every URB, and ramp the
+        // live value toward the target gradually over the following second
+        // (linear step of target-delta/1000 per URB) instead of jumping
+        // instantly. This should not reintroduce either prior failure mode --
+        // the CORRECTION DECISION still only happens once/sec -- it just
+        // smooths how that decision's effect reaches the actual send rate.
         const unsigned URBS_PER_CORRECTION = 1000;              // ~1 correction/sec at the 1000 URB/s cadence
         const int AVAIL_DEADBAND = 96;                          // ignore a mean excursion inside +/-96 of target
         if (avail > 0)
@@ -635,17 +640,33 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
                 int banded = 0;
                 if (dev > AVAIL_DEADBAND)       banded = dev - AVAIL_DEADBAND;
                 else if (dev < -AVAIL_DEADBAND) banded = dev + AVAIL_DEADBAND;
-                s_outBias += banded >> 4;
+                s_outBiasTgt += banded >> 4;
             }
             else
             {
-                s_outBias = 0;                                  // ring was empty all window -> hold nominal
+                s_outBiasTgt = 0;                                // ring was empty all window -> hold nominal
             }
             s_availAccum = 0;
             s_availAccumN = 0;
             s_urbsSinceCorrect = 0;
         }
+        // Ramp the LIVE bias toward the target by a fixed fraction of the
+        // remaining gap every URB (~1/8 per URB -> converges within ~a few ms,
+        // far faster than the once-per-second decision cadence, but never an
+        // instant jump). >>3 chosen so a typical single-tick target change
+        // (which live telemetry showed is itself small, since the deadband
+        // already filters routine excursions) ramps smoothly within a small
+        // fraction of the 1-second correction period.
         int biasLim = (int) (m_fbRate / 50);                   // clamp to ~2%
+        // Clamp the TARGET too, not just the ramped live value -- otherwise
+        // s_outBiasTgt could wander arbitrarily far past the clamp while
+        // s_outBias sits pinned at the limit, storing an unbounded "debt"
+        // that would produce a slow, oddly-timed snap-back once avail moved
+        // back the other way (the exact windup shape this whole redesign
+        // exists to avoid).
+        if (s_outBiasTgt >  biasLim) s_outBiasTgt =  biasLim;
+        if (s_outBiasTgt < -biasLim) s_outBiasTgt = -biasLim;
+        s_outBias += (s_outBiasTgt - s_outBias) >> 3;
         // Telemetry: count clamp-hit events (s_outBias saturating at the
         // limit) -- a candidate cause of the AIR192's ~1.6s-periodic round-
         // trip glitch bursts (live-measured via WAV analysis; see memory
