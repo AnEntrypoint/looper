@@ -120,9 +120,88 @@ void AudioInputUSB_bindHandler (CUSBAudioDevice *pDev)
 // here, so a live capture can compare directly against the pre-sum RAWD tap
 // and against AudioOutputUSB's post-effects ring (see output_usb.cpp) to
 // localize a reported artifact to a specific stage of the mono conversion.
+//
+// TRUE ROLLING WINDOW, not a per-completion snapshot: a single USB-IN
+// completion only delivers ~48 samples (one microframe batch), well under
+// the 128-sample display window RAWD-style verbs use -- an earlier version
+// of this snapshot overwrote only the first ~48 slots per call, leaving the
+// remaining ~80 slots permanently zero and producing a misleading "signal
+// truncates to hard zero" artifact that was actually just an unwritten
+// buffer tail, not a real audio dropout. Fix: g_audioMonoSnap is a proper
+// ring, appended to (not overwritten) every completion, so a 128-sample
+// read always reflects ~2-3 real completions' worth of continuous audio.
 #define MRAW_SNAP_SAMPLES 128
 volatile s16 g_audioMonoSnap[MRAW_SNAP_SAMPLES];
 volatile unsigned g_audioMonoSnapSeq = 0;
+static unsigned s_monoSnapWr = 0;
+
+// Chronological-order accessor for the MRAW verb: the ring above is a plain
+// overwrite buffer (index = absolute write count % MRAW_SNAP_SAMPLES), so a
+// caller reading g_audioMonoSnap[0..127] in raw array order sees samples in
+// WRAPPED order, not time order. This returns the current absolute write
+// count so the reader can start from (wr % MRAW_SNAP_SAMPLES) -- the oldest
+// still-valid slot -- and walk forward, wrapping, to reconstruct real
+// chronological order.
+unsigned AudioInputUSB_monoSnapWritePos (void) { return s_monoSnapWr; }
+
+// LONG TRIGGERED CAPTURE (:4445 MLONG arm + MDUMP read, see kernel_run.cpp):
+// MRAW's 128-sample window is only ~2.7ms at 48kHz -- far too short to catch
+// one full cycle of the reported ~2433-sample (~50ms) periodic "snore", and
+// polling MRAW repeatedly leaves large unobserved gaps between UDP round-
+// trips (confirmed live: successive polls landed only ~2-4ms apart with each
+// window covering just 128 samples, so the vast majority of real time between
+// captures was never actually recorded). This is a much bigger ring (8192
+// mono samples = ~170ms at 48kHz, comfortably spanning several full ~50ms
+// glitch periods with margin) that free-runs continuously; MLONG arms/resets
+// it and MDUMP reads back a chunk once enough real time has elapsed,
+// eliminating the polling-gap blind spot entirely.
+#define MLONG_CAPTURE_SAMPLES 8192   // must stay a multiple of MDUMP's 256-sample chunk size (kernel_run.cpp)
+static s16 s_monoLongCapture[MLONG_CAPTURE_SAMPLES];
+static volatile unsigned s_monoLongWr = 0;
+static volatile bool s_monoLongArmed = false;
+
+void AudioInputUSB_armLongCapture (void)
+{
+    s_monoLongWr = 0;
+    s_monoLongArmed = true;
+}
+
+unsigned AudioInputUSB_longCaptureWritePos (void) { return s_monoLongWr; }
+bool AudioInputUSB_longCaptureArmed (void) { return s_monoLongArmed; }
+
+// GLITCH-EVENT LOG (:4445 MEVT verb): a live 170ms window caught NOTHING,
+// and the user confirmed the "snore" is not continuously periodic but comes
+// in seconds-scale bursts (glitchy stretch, clean stretch, repeat) -- an
+// 8192-sample raw capture cannot span multiple seconds cheaply over UDP
+// (would be hundreds of KB), so instead of capturing raw samples this scans
+// EVERY mono sample in real time for the same discontinuity signature (a
+// jump much bigger than the local running-average step size) and logs just
+// the timestamp (CTimer ticks) + sample value + step size of each detected
+// event into a small ring. Cheap enough to run continuously and poll
+// sparsely until a real burst is caught, unlike a raw-sample capture.
+// Flat parallel arrays, not a struct -- kernel_run.cpp (the :4445 MEVT
+// reader) is a separate app-side translation unit from this lib-side file;
+// four primitive-typed accessor functions avoid a cross-TU struct-type
+// mismatch (a struct declared identically-but-separately in two TUs is a
+// DIFFERENT type to the compiler, which fails extern linkage) with no
+// shared header needed, matching this codebase's existing convention for
+// every other cross-TU telemetry accessor (e.g. AudioInputUSB_inRingWr).
+#define MEVT_LOG_SIZE 64
+static u32      s_monoGlitchTick[MEVT_LOG_SIZE];
+static unsigned s_monoGlitchAbsSample[MEVT_LOG_SIZE];
+static s16      s_monoGlitchValue[MEVT_LOG_SIZE];
+static s16      s_monoGlitchPrevValue[MEVT_LOG_SIZE];
+static volatile unsigned s_monoGlitchLogWr = 0;
+static s16 s_monoGlitchPrev = 0;
+static s32 s_monoGlitchAvgStep = 64;   // running estimate of "normal" step size, Q0 (plain int, slow IIR)
+static unsigned s_monoGlitchAbsSampleCtr = 0;
+
+unsigned AudioInputUSB_glitchLogWritePos (void) { return s_monoGlitchLogWr; }
+const u32      *AudioInputUSB_glitchLogTicks  (void) { return s_monoGlitchTick; }
+const unsigned *AudioInputUSB_glitchLogSample (void) { return s_monoGlitchAbsSample; }
+const s16      *AudioInputUSB_glitchLogValue  (void) { return s_monoGlitchValue; }
+const s16      *AudioInputUSB_glitchLogPrev   (void) { return s_monoGlitchPrevValue; }
+const s16 *AudioInputUSB_longCaptureBuffer (void) { return s_monoLongCapture; }
 
 void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSamples)
 {
@@ -131,22 +210,87 @@ void AudioInputUSB::inHandler (const s16 *pLeft, const s16 *pRight, unsigned nSa
     unsigned wr = s_in_ring_wr;
     unsigned prev_block = wr / AUDIO_BLOCK_SAMPLES;
     u32 peak = 0;
-    s16 monoBlock[64];   // nSamples is <= ~48/microframe-batch, well under 64
-    unsigned monoN = nSamples < 64 ? nSamples : 64;
+    unsigned snapWr = s_monoSnapWr;
     for (unsigned i = 0; i < nSamples; i++)
     {
         s32 m = ((s32)pLeft[i] + (s32)pRight[i]) / 2;
         s_in_ring_mono[wr & (IN_RING_SIZE - 1)] = (s16)m;
-        if (i < monoN) monoBlock[i] = (s16)m;
+        g_audioMonoSnap[snapWr % MRAW_SNAP_SAMPLES] = (s16)m;
+        snapWr++;
         u32 absM = m < 0 ? (u32)(-m) : (u32)m;
         if (absM > peak) peak = absM;
         wr++;
     }
+    s_monoSnapWr = snapWr;
+    g_audioMonoSnapSeq++;
+
+    // Long triggered capture: while armed, append every mono sample into the
+    // big free-running buffer until it's full, then auto-disarm (stays put
+    // for MDUMP to read back -- not a ring, so a single arm/fill/read cycle
+    // never gets overwritten mid-read).
+    if (s_monoLongArmed)
     {
-        unsigned copyN = monoN < MRAW_SNAP_SAMPLES ? monoN : MRAW_SNAP_SAMPLES;
-        for (unsigned i = 0; i < copyN; i++) g_audioMonoSnap[i] = monoBlock[i];
-        g_audioMonoSnapSeq++;
+        unsigned lwr = s_monoLongWr;
+        for (unsigned i = 0; i < nSamples && lwr < MLONG_CAPTURE_SAMPLES; i++)
+        {
+            s32 m = ((s32)pLeft[i] + (s32)pRight[i]) / 2;
+            s_monoLongCapture[lwr++] = (s16)m;
+        }
+        s_monoLongWr = lwr;
+        if (lwr >= MLONG_CAPTURE_SAMPLES) s_monoLongArmed = false;
     }
+
+    // ALWAYS-ON glitch-event scanner: the user confirmed the "snore" is a
+    // seconds-scale on/off burst pattern, not continuously periodic -- a raw
+    // capture long enough to span that (multiple seconds) is impractical
+    // over UDP, so instead this runs continuously and cheaply, logging only
+    // the moment a real discontinuity happens. Detection: track a slow-IIR
+    // running estimate of the "normal" per-sample step size; a step several
+    // times that estimate is flagged as a glitch event (tick + absolute
+    // sample index + value + prev value logged to a small ring, MEVT_LOG_SIZE
+    // deep). Runs on the SAME mono stream as everything else (post L+R sum),
+    // so a hit here proves the artifact is present at (or before) USB-IN
+    // decode; a miss here while the user still hears it would point squarely
+    // at the effects chain / USB-OUT stage instead.
+    {
+        unsigned absCtr = s_monoGlitchAbsSampleCtr;
+        s16 prev = s_monoGlitchPrev;
+        s32 avgStep = s_monoGlitchAvgStep;
+        unsigned logWr = s_monoGlitchLogWr;
+        for (unsigned i = 0; i < nSamples; i++)
+        {
+            s32 m = ((s32)pLeft[i] + (s32)pRight[i]) / 2;
+            s16 cur = (s16)m;
+            s32 step = cur - prev;
+            s32 absStep = step < 0 ? -step : step;
+            // Flag: a step at least 6x the running-normal estimate AND at
+            // least 800 counts absolute (floors out false positives at
+            // near-silence, where even a tiny avgStep makes the 6x ratio
+            // trivially exceeded by ordinary noise).
+            if (absStep > 800 && absStep > avgStep * 6)
+            {
+                unsigned slot = logWr % MEVT_LOG_SIZE;
+                s_monoGlitchTick[slot]       = CTimer::GetClockTicks ();
+                s_monoGlitchAbsSample[slot]  = absCtr;
+                s_monoGlitchValue[slot]      = cur;
+                s_monoGlitchPrevValue[slot]  = prev;
+                logWr++;
+            }
+            // Slow IIR toward the current step (>>6 = ~1.6% per sample --
+            // adapts to genuine amplitude changes over ~100+ samples, far
+            // slower than a single glitch event, so one outlier step doesn't
+            // itself corrupt the "normal" baseline it's compared against).
+            avgStep += (absStep - avgStep) >> 6;
+            if (avgStep < 8) avgStep = 8;   // floor so near-silence doesn't zero the threshold
+            prev = cur;
+            absCtr++;
+        }
+        s_monoGlitchAbsSampleCtr = absCtr;
+        s_monoGlitchPrev = prev;
+        s_monoGlitchAvgStep = avgStep;
+        s_monoGlitchLogWr = logWr;
+    }
+
     DataMemBarrier ();
     s_in_ring_wr = wr;
     if (peak > s_peakLevel) s_peakLevel = peak;

@@ -522,17 +522,24 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				// USB-OUT mono waveform (output_usb.cpp::update) side by side,
 				// so a live capture can localize a reported artifact to the
 				// USB-IN sum, the effects chain, or the USB-OUT duplication.
+				// IN is a true rolling ring (multiple completions deep, see
+				// input_usb.cpp) -- read starting from the oldest still-valid
+				// slot so the hex dump comes out in real chronological order,
+				// not wrapped array order.
 				extern volatile s16 g_audioMonoSnap[];
 				extern volatile unsigned g_audioMonoSnapSeq;
+				extern unsigned AudioInputUSB_monoSnapWritePos (void);
 				extern volatile s16 g_audioMonoOutSnap[];
 				extern volatile unsigned g_audioMonoOutSnapSeq;
 				unsigned seqIn0 = g_audioMonoSnapSeq;
 				unsigned seqOut0 = g_audioMonoOutSnapSeq;
+				unsigned inWr = AudioInputUSB_monoSnapWritePos ();
 				CString s; CString h;
 				s.Format("mraw seqIn=%u seqOut=%u IN=", seqIn0, seqOut0);
 				for (unsigned i = 0; i < 128; i++)
 				{
-					h.Format("%04x", (u16) g_audioMonoSnap[i]);
+					unsigned idx = (inWr + i) % 128;   // oldest-first chronological order
+					h.Format("%04x", (u16) g_audioMonoSnap[idx]);
 					s.Append(h);
 				}
 				s.Append(" OUT=");
@@ -540,6 +547,96 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				{
 					h.Format("%04x", (u16) g_audioMonoOutSnap[i]);
 					s.Append(h);
+				}
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='M' && buf[1]=='E' && buf[2]=='V' && buf[3]=='T')
+			{
+				// Read back the glitch-event log: a continuously-running
+				// detector (input_usb.cpp inHandler) flags a discontinuity in
+				// the post-mono-sum USB-IN stream and logs tick + absolute
+				// sample index + value/prevValue -- cheap enough to poll
+				// sparsely (unlike a raw capture) while waiting for one of the
+				// user-confirmed seconds-scale glitch bursts to actually
+				// happen. Dumps up to MEVT_LOG_SIZE=64 most recent events.
+				// Flat parallel-array accessors (not a struct) -- avoids a
+				// cross-TU struct-type mismatch since this app-side file and
+				// input_usb.cpp (lib-side) don't share a header here; matches
+				// this codebase's existing convention for cross-TU telemetry.
+				extern unsigned AudioInputUSB_glitchLogWritePos (void);
+				extern const u32      *AudioInputUSB_glitchLogTicks  (void);
+				extern const unsigned *AudioInputUSB_glitchLogSample (void);
+				extern const s16      *AudioInputUSB_glitchLogValue  (void);
+				extern const s16      *AudioInputUSB_glitchLogPrev   (void);
+				unsigned wr = AudioInputUSB_glitchLogWritePos ();
+				const u32      *ticks = AudioInputUSB_glitchLogTicks ();
+				const unsigned *samps = AudioInputUSB_glitchLogSample ();
+				const s16      *vals  = AudioInputUSB_glitchLogValue ();
+				const s16      *prevs = AudioInputUSB_glitchLogPrev ();
+				const unsigned LOG_SIZE = 64;
+				unsigned count = wr < LOG_SIZE ? wr : LOG_SIZE;
+				unsigned start = wr < LOG_SIZE ? 0 : (wr - LOG_SIZE);
+				CString s; CString h;
+				s.Format("mevt wr=%u count=%u E=", wr, count);
+				for (unsigned i = start; i < wr; i++)
+				{
+					unsigned slot = i % LOG_SIZE;
+					h.Format("[t%u s%u v%04x p%04x]", ticks[slot], samps[slot], (u16) vals[slot], (u16) prevs[slot]);
+					s.Append(h);
+				}
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='M' && buf[1]=='L' && buf[2]=='O' && buf[3]=='N' && buf[4]=='G')
+			{
+				// Arm the long triggered capture (8192 mono samples, ~170ms @
+				// 48kHz -- spans several full periods of the reported ~50ms
+				// snore, unlike MRAW's 128-sample/~2.7ms window). One-shot:
+				// free-runs from here until full, then auto-disarms so MDUMP
+				// reads a stable, non-overwritten buffer. Re-arm with another
+				// MLONG before the next capture.
+				extern void AudioInputUSB_armLongCapture (void);
+				AudioInputUSB_armLongCapture ();
+				CString s; s.Format("mlong armed");
+				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
+			}
+			else if (buf[0]=='M' && buf[1]=='D' && buf[2]=='U' && buf[3]=='M' && buf[4]=='P')
+			{
+				// Read back a 256-sample chunk of the long capture. Request
+				// body: "MDUMP<chunk>" where <chunk> is an ASCII decimal chunk
+				// index (0..31 for 8192/256); malformed/missing chunk digits
+				// default to chunk 0. Each chunk is ~1KB hex text -- a first
+				// attempt at 512 samples/~2KB per chunk silently failed (every
+				// MDUMP request timed out with no reply, while DIAG/MRAW on the
+				// same UDP receive loop kept working normally), consistent with
+				// exceeding this network path's safe UDP payload size; 256
+				// samples matches RAWD's proven-working ~1KB response size.
+				extern unsigned AudioInputUSB_longCaptureWritePos (void);
+				extern bool AudioInputUSB_longCaptureArmed (void);
+				extern const s16 *AudioInputUSB_longCaptureBuffer (void);
+				const unsigned CHUNK_SAMPLES = 256;
+				const unsigned TOTAL_SAMPLES = 8192;
+				unsigned chunk = 0;
+				if (n > 5)
+				{
+					chunk = 0;
+					for (int k = 5; k < n && buf[k] >= '0' && buf[k] <= '9'; k++)
+						chunk = chunk * 10 + (unsigned)(buf[k] - '0');
+				}
+				unsigned start = chunk * CHUNK_SAMPLES;
+				unsigned wr = AudioInputUSB_longCaptureWritePos ();
+				bool armed = AudioInputUSB_longCaptureArmed ();
+				const s16 *cap = AudioInputUSB_longCaptureBuffer ();
+				CString s; CString h;
+				s.Format("mdump chunk=%u wr=%u armed=%u D=", chunk, wr, armed ? 1u : 0u);
+				if (start < TOTAL_SAMPLES)
+				{
+					unsigned end = start + CHUNK_SAMPLES;
+					if (end > TOTAL_SAMPLES) end = TOTAL_SAMPLES;
+					for (unsigned i = start; i < end; i++)
+					{
+						h.Format("%04x", (u16) cap[i]);
+						s.Append(h);
+					}
 				}
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
