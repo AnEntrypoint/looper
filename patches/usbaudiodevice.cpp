@@ -561,51 +561,79 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
         // true DAC rate, so feedback-pacing alone slowly drifted the DAC FIFO -> one
         // dropout every ~20s. The engine writes the OUT ring at the device's IN clock,
         // which EQUALS its DAC clock (one device clock), so a feedback-vs-DAC mismatch
-        // shows up as the OUT-ring level drifting -- observable. A gentle integral on
-        // the ring level biases the send rate so the ring (hence the DAC FIFO) holds,
-        // converging the long-run send rate to the true DAC rate. Double-buffering keeps
-        // the ring stable enough that this integral converges without windup.
+        // shows up as the OUT-ring level drifting -- observable. A correction biases
+        // the send rate so the ring (hence the DAC FIFO) holds long-run, converging
+        // the send rate to the true DAC rate without ever measuring it directly.
         //
-        // ROOT-CAUSE FIX (AIR192 ~1.608s-periodic round-trip glitch, live-measured
-        // via Focusrite-loopback WAV analysis -- see memory
-        // mono-snore-glitch-uac2-specific): the original >>3 (divide-by-8) gain,
-        // with NO deadband, was tuned against the Tascam US-2x2's bandwidth/timing
-        // and is a genuine limit-cycle oscillator on the AIR192 -- live telemetry
-        // (g_audioOutAvailLast/g_audioOutBiasLast, densely polled) showed avail
-        // swinging ~60-460 around the target 256 and s_outBias swinging roughly
-        // -6000..+5500 (well inside the +/-~7865 clamp, so the clamp-hit counter
-        // stayed at 0 while the oscillation ran freely) with an observed period
-        // matching the audible glitch's 1.608s almost exactly -- an UNDER-DAMPED
-        // control loop, not a converging one, despite the "converges without
-        // windup" comment (accurate for the Tascam this was tuned for, wrong for
-        // the AIR192's different feedback/timing characteristics). This is exactly
-        // the failure mode USB Audio Class 2's own spec guidance warns against:
-        // feedback should drive only slow, minor corrections (~1/sec), and a
-        // buffer-level proportional/integral controller like this one is a
-        // documented deviation from spec intent that produces exactly this kind
-        // of oscillation. Fix: shrink the gain 8x (>>6 instead of >>3) and add a
-        // deadband (matching this file's own OTG_DEADBAND/IN_DEADBAND pattern)
-        // so small ring excursions are ignored entirely and only genuine sustained
-        // drift accumulates -- converts the loop from a fast/reactive oscillator
-        // into the slow, low-authority corrector the comment always intended.
+        // ROOT-CAUSE FIX (AIR192 ~1.6s-periodic round-trip glitch, live-measured via
+        // Focusrite-loopback WAV analysis -- see memory mono-snore-glitch-uac2-
+        // specific): the ORIGINAL design was a REACTIVE per-URB proportional
+        // controller (gain >>3, no deadband, updated every URB = 1000/sec) driven
+        // directly off the ring's instantaneous fill level. That instantaneous level
+        // is itself noisy/cyclic (the ring is written once per DSP block and drained
+        // once per URB, two independent periodic processes beating against each
+        // other), so a fast controller reacting to every sample of it doesn't
+        // converge -- it rides the ring's own natural beat as a limit-cycle
+        // oscillator. Two damping attempts (gain>>6/deadband 64, then gain>>8/
+        // deadband 192) each measurably slowed the oscillation's frequency
+        // (1.608s -> 5.85s period, live-confirmed) but never eliminated it --
+        // classic underdamped-2nd-order-loop symptom: shrinking gain alone pushes
+        // the natural frequency down without ever reaching critical damping, so
+        // incremental gain cuts chase an ever-slower relapse instead of resolving
+        // it. This matches USB Audio Class 2's own spec guidance almost exactly:
+        // feedback-driven correction should be slow (~1/sec) and should NOT be a
+        // reactive buffer-level proportional/integral loop -- that shape is a
+        // documented anti-pattern for exactly this reason.
+        //
+        // Correct fix: stop reacting to the instantaneous ring level entirely.
+        // Average `avail` over many URBs (a true low-pass, not a per-sample
+        // proportional gain) and only nudge the bias, by the smallest possible
+        // step, at a capped rate of roughly once per second -- matching the
+        // spec's own stated cadence and the actual physics of the drift being
+        // corrected (a ~0.02%, ~20-second-scale mismatch has NO business being
+        // corrected by a controller that updates 1000x/sec). This is a slow
+        // step-corrector, not a continuous-time control loop, so it structurally
+        // cannot form a fast limit cycle regardless of the ring's own natural
+        // beat frequency.
         extern unsigned AudioOutputUSB_outAvail (void);
         static int s_outBias = 0;                              // Q16.16 added to feedback rate
+        static s32 s_availAccum = 0;                            // running sum since last correction
+        static u32 s_availAccumN = 0;                           // samples in the running sum
+        static u32 s_urbsSinceCorrect = 0;
         int avail = (int) AudioOutputUSB_outAvail ();
-        const int AVAIL_DEADBAND = 64;                          // ignore excursions inside +/-64 of target
-        // Only integrate when the OUT ring has data. At boot the DSP has not
-        // ticked yet so avail=0; integrating winds s_outBias toward -biasLim and
-        // causes DAC underruns before the first sample arrives. Hold s_outBias=0
-        // while the ring is empty so effRate stays nominal.
+        const unsigned URBS_PER_CORRECTION = 1000;              // ~1 correction/sec at the 1000 URB/s cadence
+        const int AVAIL_DEADBAND = 96;                          // ignore a mean excursion inside +/-96 of target
         if (avail > 0)
         {
-            int dev = avail - 256;
-            int banded = 0;
-            if (dev > AVAIL_DEADBAND)       banded = dev - AVAIL_DEADBAND;
-            else if (dev < -AVAIL_DEADBAND) banded = dev + AVAIL_DEADBAND;
-            s_outBias += banded >> 6;                           // 8x gentler than the original >>3
+            s_availAccum  += avail;
+            s_availAccumN += 1;
         }
-        else
-            s_outBias = 0;
+        s_urbsSinceCorrect++;
+        if (s_urbsSinceCorrect >= URBS_PER_CORRECTION)
+        {
+            if (s_availAccumN > 0)
+            {
+                int meanAvail = (int) (s_availAccum / (s32) s_availAccumN);
+                int dev = meanAvail - 256;
+                int banded = 0;
+                if (dev > AVAIL_DEADBAND)       banded = dev - AVAIL_DEADBAND;
+                else if (dev < -AVAIL_DEADBAND) banded = dev + AVAIL_DEADBAND;
+                // Single smallest-unit nudge per correction, sign-only -- the
+                // correction accumulates at MOST ~1000 (Q16.16 units)/sec,
+                // several orders of magnitude gentler than the original
+                // reactive loop, matching the ~20s-scale drift it exists to
+                // correct.
+                if (banded > 0)      s_outBias += 64;
+                else if (banded < 0) s_outBias -= 64;
+            }
+            else
+            {
+                s_outBias = 0;                                  // ring was empty all window -> hold nominal
+            }
+            s_availAccum = 0;
+            s_availAccumN = 0;
+            s_urbsSinceCorrect = 0;
+        }
         int biasLim = (int) (m_fbRate / 50);                   // clamp to ~2%
         // Telemetry: count clamp-hit events (s_outBias saturating at the
         // limit) -- a candidate cause of the AIR192's ~1.6s-periodic round-
