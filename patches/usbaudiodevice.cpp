@@ -61,6 +61,9 @@ unsigned CUSBAudioDevice_GetInPktsSubmitted0 (void)
 // case) -- see the comment at that call site for what this is measuring.
 volatile unsigned g_audioOutZeroPkts = 0;
 
+// Count of s_outBias integral clamp-hit events -- see StartOutRequest.
+volatile unsigned g_audioOutBiasClampHits = 0;
+
 // Live audio-IN status for the :4445 UAUD verb. These are EXTERNAL volatile
 // globals, written on the USB-enumeration/ISR cores and read on the Core-2
 // control plane. The class statics (s_pThis etc.) read stale across cores from
@@ -570,6 +573,15 @@ boolean CUSBAudioDevice::StartOutRequest (unsigned slot)
         else
             s_outBias = 0;
         int biasLim = (int) (m_fbRate / 50);                   // clamp to ~2%
+        // Telemetry: count clamp-hit events (s_outBias saturating at the
+        // limit) -- a candidate cause of the AIR192's ~1.6s-periodic round-
+        // trip glitch bursts (live-measured via WAV analysis; see memory
+        // mono-snore-glitch-uac2-specific). A slow integral hitting a hard
+        // clamp is a classic source of a periodic windup/snap-back cycle;
+        // exposed on :4445 UAUD to correlate clamp-hit timing against the
+        // measured 1.608s glitch period.
+        extern volatile unsigned g_audioOutBiasClampHits;
+        if (s_outBias > biasLim || s_outBias < -biasLim) g_audioOutBiasClampHits++;
         if (s_outBias >  biasLim) s_outBias =  biasLim;
         if (s_outBias < -biasLim) s_outBias = -biasLim;
         u32 effRate = (u32) ((int) m_fbRate + s_outBias);
