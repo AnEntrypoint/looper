@@ -15,6 +15,15 @@ extern apcEffectsProcessor *pEffectsProcessor;
 extern microRepeat *pMicroRepeat;
 extern sampler *pSampler;
 
+// Cross-TU telemetry accessor for the :4445 TIME verb (eng= field). Defined
+// here where RubberBandWrapper is a complete type; kernel_run.cpp (app-side,
+// no wrapper header) calls it as a plain extern function. Returns 1 iff the
+// live-pitch/SNAC engine is actually engaged -- must be 0 on clean passthrough.
+unsigned LivePitch_isEngaged (void)
+{
+    return (pLivePitchWrapper && pLivePitchWrapper->isEngaged()) ? 1u : 0u;
+}
+
 // Record-latch grid witnesses for the :4445 TIME verb. Published when a
 // deferred RECORD latches on the beat grid (Core 1), read by the verb (Core 2).
 volatile u32 g_lastGridStep   = 0;

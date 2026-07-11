@@ -316,8 +316,19 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 				extern volatile u32 g_microRepeatDiv;
 				extern volatile u32 g_samplerRec, g_samplerDrumMode, g_samplerLen,
 				                    g_samplerDrumCount, g_samplerVoices;
+				// Octaver engaged state -- witness whether the live-pitch/SNAC
+				// engine is running during plain passthrough. It MUST read 0 on a
+				// clean 440Hz passthrough (loopMachine gates feedAudio/retrieveAudio
+				// behind if(lp.liveEngaged)); a 1 here during passthrough would mean
+				// the bypass has a gap and the SNAC HOP burst (every 2048 samples =
+				// 23.44Hz) is running when it shouldn't -- a candidate source of the
+				// 2048-sample periodic tick. Free-function accessor (not the class
+				// type) since this app-side TU doesn't include RubberBandWrapper.h,
+				// matching every other cross-TU telemetry accessor here.
+				extern unsigned LivePitch_isEngaged (void);
+				unsigned engNow = LivePitch_isEngaged ();
 				CString s;
-				s.Format("backdate=%u latUs=%u clamped=%u extraLag=%u gridStep=%u latchPhase=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d monitor=%d loopGate=%d microRep=%u sampRec=%u drumMode=%u sampLen=%u drumLoaded=%u voices=%u",
+				s.Format("backdate=%u latUs=%u clamped=%u extraLag=%u gridStep=%u latchPhase=%u cbwr=%u started=%d ended=%d qbeats100=%d bpm=%d monitor=%d loopGate=%d microRep=%u sampRec=%u drumMode=%u sampLen=%u drumLoaded=%u voices=%u eng=%u",
 					(unsigned)g_cbLastBackdateSamples,
 					(unsigned)g_cbLastPressLatencyUs,
 					(unsigned)g_cbLastBackdateClamped,
@@ -336,7 +347,8 @@ TShutdownMode CKernel::pollSockets(CSocket *pReboot, CSocket *pDebug, CSocket *p
 					(unsigned)g_samplerDrumMode,
 					(unsigned)g_samplerLen,
 					(unsigned)g_samplerDrumCount,
-					(unsigned)g_samplerVoices);
+					(unsigned)g_samplerVoices,
+					engNow);
 				pDebug->SendTo((u8 *)(const char *)s, s.GetLength(), MSG_DONTWAIT, sender, port);
 			}
 			else if (buf[0]=='D' && buf[1]=='I' && buf[2]=='A' && buf[3]=='G')
