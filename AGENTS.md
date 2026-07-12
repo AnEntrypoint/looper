@@ -131,10 +131,11 @@ timeline, 20812)** for BIDIRECTIONAL tempo (either device sets the group tempo).
 - UAC2 host (Tascam US-2x2) + USB-enum-tolerate → `recall` (uac2 + usb-enum mems)
 - AIR192|4 round-trip crackle/comb → deposit IN-ring at the device's **native**
   rate (`nomRate = m_fbRate`, commit `53854a6`); the earlier comb was a
-  deposit-rate mismatch, not an interpolator bug (superseded `43b6aa9`). A
-  residual **2048-sample one-sample-dropout tick (~23.44Hz, ~6/sec)** persists
-  with **pitch OFF** — so it is NOT SNAC/octaver/loopMachine passthrough; it is
-  either USB-layer or the AIR192 device itself (open, HW-blocked on a live tone).
+  deposit-rate mismatch, not an interpolator bug (superseded `43b6aa9`). The
+  once-residual **2048-sample one-sample-dropout tick (~23.44Hz, ~6/sec)** is
+  **RESOLVED** on current firmware — user hardware-validated a live-tone analog
+  round-trip captures clean, no tick (2026-07-12). The native-rate deposit fix +
+  cubic-Hermite resync safety net (`43b6aa9`) round-trip is clean end-to-end.
   → `recall` **air192-native-rate-comb-fix**, **air192-2048-tick-open**.
 
 ## Logging
