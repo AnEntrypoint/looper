@@ -56,7 +56,15 @@ belongs in a memory; add the memory and link it here instead.
 - Probe live state with `:4445` UDP verbs via PowerShell `UdpClient` (bash
   `/dev/udp` gives false negatives). Verbs: `UAUD` (USB audio: outWr/outAvail/
   outPeak/outDeliv/outUR…), `DIAG` (graph tick: outWr/walkN/typeMask/nInUpd/
-  inResp…), `TIME`, `WLAN`, `LINK`, `CLIP`, `GPAD` (gamepad branch).
+  inResp…), `TIME` (backdate/grid/sampler state + `eng=` octaver-engine-running
+  flag — witnesses whether pitch/SNAC runs during passthrough), `WLAN`, `LINK`,
+  `CLIP`, `GPAD` (gamepad branch), `BUID` (running-kernel build id), `UDSC`.
+  Audio-capture/glitch-hunt verbs: `MRAW` (128-sample snapshot ring),
+  `MLONG`+`MDUMP` (one-shot long free-run capture, chunked readback — sized to
+  catch the ~50ms snore/tick that MRAW's ~2.7ms window misses), `MEVT` (live
+  glitch-event scanner, last 64 events), `UWAV` (continuous ring-WAV recorder
+  control). `:4444` has `REBOOT`/`WLAN`/`BUID`; `LTX`/`LMSG`/`TALV`/`RALV`/`RFRM`
+  are Link wire-format probes.
 
 ## HARD ARCHITECTURE RULES
 
@@ -71,8 +79,11 @@ belongs in a memory; add the memory and link it here instead.
   `AudioSystem::startUpdate`; the gate is `s_update_responsibility`, force-opened
   at IN device bind (`claimUpdateResponsibility`). An OUTPUT sink must run its
   `update()` every block even with `m_numConnections==0`.
-- Audio: USB 48000Hz, internal `AUDIO_SAMPLE_RATE=44100`, `AUDIO_BLOCK_SAMPLES=64`.
-  Detail: `recall` **looper-audio-architecture**.
+- Audio: USB **and** internal both 48000Hz (`AUDIO_SAMPLE_RATE=48000`,
+  `AUDIO_BLOCK_SAMPLES=64`) — the old 44100 internal rate is gone. The whole
+  pipeline is **MONO** (`LOOPER_NUM_CHANNELS=1`, commit `7bb789d`); rings,
+  blocks, and the continuous buffer are single-channel. Detail: `recall`
+  **looper-audio-architecture**.
 
 ## OPERATOR CONTROL MAPPING (must not change without intent — load-bearing UI)
 
@@ -118,6 +129,13 @@ timeline, 20812)** for BIDIRECTIONAL tempo (either device sets the group tempo).
 - MIDI mapping is data (`midiMap.h`) → `recall` **looper-midimap-profile**
 - Continuous USB ring-WAV recorder → `recall` **looper-usbwav-recorder**
 - UAC2 host (Tascam US-2x2) + USB-enum-tolerate → `recall` (uac2 + usb-enum mems)
+- AIR192|4 round-trip crackle/comb → deposit IN-ring at the device's **native**
+  rate (`nomRate = m_fbRate`, commit `53854a6`); the earlier comb was a
+  deposit-rate mismatch, not an interpolator bug (superseded `43b6aa9`). A
+  residual **2048-sample one-sample-dropout tick (~23.44Hz, ~6/sec)** persists
+  with **pitch OFF** — so it is NOT SNAC/octaver/loopMachine passthrough; it is
+  either USB-layer or the AIR192 device itself (open, HW-blocked on a live tone).
+  → `recall` **air192-native-rate-comb-fix**, **air192-2048-tick-open**.
 
 ## Logging
 
