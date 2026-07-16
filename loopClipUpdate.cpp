@@ -8,6 +8,15 @@
 #define FADE_BLOCK_INCREMENT (1.0/((double)CROSSFADE_BLOCKS))
 #define FADE_SAMPLE_INCREMENT (FADE_BLOCK_INCREMENT/((double)AUDIO_BLOCK_SAMPLES))
 
+// Varispeed per-loop phase chase (loopClip::update). The read rate = effectiveRate +
+// a trim proportional to the loop's phase error (fraction of the loop) times TRIM_GAIN,
+// hard-capped at TRIM_MAX. TRIM_MAX is the max fractional pitch deviation the chase can
+// apply — kept small so the correction is inaudible while still closing drift; the wrap
+// hard-snap does the heavy lifting so the trim only needs to hold between wraps. Tuned
+// live on hardware.
+#define VARISPEED_TRIM_GAIN 0.5
+#define VARISPEED_TRIM_MAX  0.04
+
 void loopClip::update(s32 *ip, s32 *op)
 {
     s16 *rp = 0;
@@ -301,27 +310,90 @@ void loopClip::update(s32 *ip, s32 *op)
         m_playPos = (double)m_play_block * (double)AUDIO_BLOCK_SAMPLES;
     }
 
-    // VARISPEED advance (runs whether muted or not, like the head above): advance the
-    // fractional position one block's worth at m_playRate and wrap at the loop end.
-    // After each natural loop wrap, quantise m_playPos to a block boundary so
-    // floating-point accumulation errors (AUDIO_BLOCK_SAMPLES*m_playRate iterated
-    // thousands of times) never compound into a sub-sample drift that shifts all
-    // subsequent reads.
+    // VARISPEED advance with PER-LOOP PHASE CHASE.
+    //
+    // The read head advances at effectiveRate (TRUE resample — pitch/duration follow the
+    // Link tempo so instruments can push AND pull the group tempo), PLUS a small bounded
+    // rate trim that chases this loop's phase toward the shared master grid. Each playing
+    // loop runs this INDEPENDENTLY against the common m_masterPhase, so they stay in
+    // RELATIVE sync with each other and every loop recovers on its own after a glitch.
+    //
+    // Why a rate trim and not a position snap: snapping the head to a masterPhase-derived
+    // block every block would force the playback speed to the master rate, destroying the
+    // resample (wrong pitch). A bounded rate trim keeps the average read rate == the pitch
+    // rate while continuously closing accumulated phase error. Loop lengths are quantised
+    // to power-of-two multiples/divisors of the phrase M (loopClipState.cpp _calcQuantize-
+    // Target), so a loop's resampled period already matches the grid — the trim only fights
+    // float/clock drift, never a whole phrase, so it locks to the UNIQUE recorded phrasing
+    // and cannot settle on the offbeat. The trim is capped (VARISPEED_TRIM_MAX) well below
+    // an audible pitch step. At the loop wrap we hard-snap to the exact grid target (masked
+    // by the wrap crossfade) so every repeat re-locks cleanly.
     if (varispeed)
     {
         u32 clipSamples = m_num_blocks * AUDIO_BLOCK_SAMPLES;
+        u32 masterLen   = pTheLoopMachine->m_masterLoopBlocks;
         if (clipSamples > 0)
         {
-            m_playPos += (double)AUDIO_BLOCK_SAMPLES * (double)effectiveRate;
+            // Does a stable phase target exist this block? L<=M every block; L>M only at a
+            // phrase downbeat (off the downbeat a long loop has no per-block grid anchor).
+            bool haveTarget = false;
+            double targetPos = 0.0;
+            if (masterLen > 0 && m_state == CS_PLAYING)
+            {
+                bool phraseDownbeat = (pTheLoopMachine->m_masterPhase % masterLen) == 0;
+                if (m_num_blocks <= masterLen)
+                {
+                    u32 tb = ((pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset) % m_num_blocks
+                              + m_num_blocks) % m_num_blocks;
+                    targetPos = (double)tb * (double)AUDIO_BLOCK_SAMPLES;
+                    haveTarget = true;
+                }
+                else if (phraseDownbeat)
+                {
+                    u32 tb = (u32)(pTheLoopMachine->m_masterPhase - m_recordStartPhaseOffset) % m_num_blocks;
+                    targetPos = (double)tb * (double)AUDIO_BLOCK_SAMPLES;
+                    haveTarget = true;
+                }
+            }
+
+            double rateTrim = 0.0;
+            if (haveTarget)
+            {
+                // Signed phase error toward the target, taking the shorter way around the
+                // loop. Because L|M and the trim is tiny, the head can never be pulled
+                // across a half-phrase in one step, so the lock is unique (no offbeat).
+                double err = targetPos - m_playPos;
+                double half = (double)clipSamples * 0.5;
+                if (err >  half) err -= (double)clipSamples;
+                if (err < -half) err += (double)clipSamples;
+                // Proportional trim as a fraction of a block, capped inaudibly.
+                rateTrim = (err / (double)clipSamples) * VARISPEED_TRIM_GAIN;
+                if (rateTrim >  VARISPEED_TRIM_MAX) rateTrim =  VARISPEED_TRIM_MAX;
+                if (rateTrim < -VARISPEED_TRIM_MAX) rateTrim = -VARISPEED_TRIM_MAX;
+            }
+
+            m_playPos += (double)AUDIO_BLOCK_SAMPLES * ((double)effectiveRate + rateTrim);
             bool wrapped = false;
             while (m_playPos >= (double)clipSamples) { m_playPos -= (double)clipSamples; wrapped = true; }
+            if (m_playPos < 0.0) m_playPos += (double)clipSamples;
+            if (m_playPos < 0.0) m_playPos = 0.0;
+
+            // On the natural wrap, hard-snap to the exact grid target so every repeat
+            // re-locks (the discontinuity is masked by the wrap crossfade). Without a
+            // target (L>M off downbeat / no master) just quantise to a block boundary so
+            // float drift resets each loop.
             if (wrapped)
             {
-                // Snap to the nearest block boundary so float drift resets each loop.
-                u32 blk = ((u32)m_playPos) / AUDIO_BLOCK_SAMPLES;
-                if (blk >= m_num_blocks) blk = 0;
-                m_playPos = (double)blk * (double)AUDIO_BLOCK_SAMPLES;
+                if (haveTarget)
+                    m_playPos = targetPos;
+                else
+                {
+                    u32 blk = ((u32)m_playPos) / AUDIO_BLOCK_SAMPLES;
+                    if (blk >= m_num_blocks) blk = 0;
+                    m_playPos = (double)blk * (double)AUDIO_BLOCK_SAMPLES;
+                }
             }
+
             if (m_playPos < 0.0) m_playPos = 0.0;
             m_play_block = ((u32)m_playPos) / AUDIO_BLOCK_SAMPLES;
             if (m_play_block >= m_num_blocks) m_play_block = 0;

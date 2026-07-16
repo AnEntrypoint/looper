@@ -20,6 +20,16 @@ loopClip::~loopClip()
 
 void loopClip::init()
 {
+    // Blank this clip's audio BEFORE publicClip::init() zeroes m_max_blocks, so a
+    // cleared slot is "like it was never there": no stale samples from the previous
+    // recording can bleed into the next loop recorded here (the loopBuffer is a bump
+    // arena that is never freed, and a re-record/crossfade can read not-yet-overwritten
+    // tail blocks). Guarded so construction-time init() (m_buffer still null) is a no-op.
+    if (m_buffer != 0 && m_max_blocks > 0)
+    {
+        memset(m_buffer, 0,
+               (size_t)m_max_blocks * AUDIO_BLOCK_SAMPLES * LOOPER_NUM_CHANNELS * sizeof(s16));
+    }
     publicClip::init();
     m_buffer = 0;
     m_mark_point = -1;
@@ -241,7 +251,15 @@ void loopClip::_startEndingRecording(u32 trimToBlocks, bool willPlay)
         // still retimes it to the session's tempo once linkEnd's proposal round-
         // trips, exactly as it does for every later loop.
         pTheLoopMachine->m_masterLoopBlocks = m_num_blocks;
-        pTheLoopMachine->m_masterPhase = m_recordStartPhaseOffset % m_num_blocks;
+        // The first loop of a (re)cleared bank DEFINES the grid, so it must start the
+        // phrase at ITS OWN start — block 0 == the record-start instant. masterPhase kept
+        // advancing during this recording, so m_recordStartPhaseOffset is non-zero; leaving
+        // masterPhase at (offset % num_blocks) made playback begin at a mid-loop phase
+        // (record→clear→record then started at ~3/4). Anchor the grid so
+        // (masterPhase - recordStartPhaseOffset) % L == 0 exactly at the downbeat: set
+        // masterPhase == recordStartPhaseOffset. Safe because on a cleared bank no other
+        // loop is running to be shifted by this re-anchor.
+        pTheLoopMachine->m_masterPhase = m_recordStartPhaseOffset;
     }
 
     // NO stop-time phase floor. Playback reads the CLIP BUFFER (getBlock(m_play_block)),

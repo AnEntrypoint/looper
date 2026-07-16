@@ -601,6 +601,20 @@ void loopMachine::update(void)
 
 	}
 
+	LiveParams lp = paramSnapshotLoad();
+
+	// The sampler records the EFFECTED/stuttered signal (like the loops do) whenever
+	// SHIFT is held (lp.monitorMode, which also routes loops into the effects) OR a
+	// glitch/microrepeat is running — otherwise it records the DRY live input. When the
+	// effected condition holds we DEFER captureBlock to the end of the chain (just before
+	// cbWriteBlock, the exact point loops record from). Exactly ONE captureBlock runs per
+	// audio block either way (captureBlock advances m_recPos, so a double call would
+	// double-speed/corrupt the take).
+	bool samplerRecordEffected =
+		lp.monitorMode ||
+		(lp.microRepeatDiv != 0) ||
+		(pMicroRepeat && pMicroRepeat->wet() > 0.0001f);
+
 	// --- SAMPLER (independent of the looper). Capture the DRY live input first
 	// (so a recording sample never records itself or the loops), then mix the
 	// sampler voices INTO m_input_buffer. This happens BEFORE the loop-fold /
@@ -609,15 +623,14 @@ void loopMachine::update(void)
 	// loop). The sampler touches NO loop/clip/masterPhase state.
 	if (pSampler)
 	{
-		pSampler->captureBlock(m_input_buffer, AUDIO_BLOCK_SAMPLES);
+		if (!samplerRecordEffected)
+			pSampler->captureBlock(m_input_buffer, AUDIO_BLOCK_SAMPLES);   // DRY capture
 		pSampler->renderInto(m_input_buffer, AUDIO_BLOCK_SAMPLES);
 		g_samplerRec       = pSampler->recording() ? 1u : 0u;
 		g_samplerLen       = (u32)pSampler->recLen();
 		g_samplerDrumCount = (u32)pSampler->drumLoadedCount();
 		g_samplerVoices    = (u32)pSampler->activeVoices();
 	}
-
-	LiveParams lp = paramSnapshotLoad();
 
 	// --- Loops computed FIRST (before the pitch/effects chain) so SHIFT can
 	// route them INTO the effects. updateState() + the track audio used to run
@@ -897,6 +910,13 @@ void loopMachine::update(void)
 		g_loopWetEnergyR += enR;
 		g_loopWetEnergyN += AUDIO_BLOCK_SAMPLES;
 	}
+
+	// Deferred EFFECTED sampler capture: when SHIFT is held or a glitch runs, the sampler
+	// records the SAME final wet/stuttered signal the loops record from (this exact point),
+	// instead of the dry input captured earlier. Exactly one captureBlock per block — the
+	// dry call above was skipped when samplerRecordEffected is true.
+	if (pSampler && samplerRecordEffected)
+		pSampler->captureBlock(m_input_buffer, AUDIO_BLOCK_SAMPLES);
 
 	cbWriteBlock(m_input_buffer);
 
