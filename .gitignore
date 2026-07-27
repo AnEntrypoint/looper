@@ -102,3 +102,6 @@ scripts/e2grain/
 scripts/candidates/
 scripts/sweep-out/
 .gm/pw-sock-*/
+
+# agentplug/gm daemon code-index KV store (transient runtime)
+.agentplug-kv/

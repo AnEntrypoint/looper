@@ -798,11 +798,26 @@ void loopMachine::update(void)
 		}
 	}
 
-	// EFFECTS SENDS (delay + reverb) only. The FILTERS (HP/LP) used to run here
-	// too (processFilterAndSends), but they are now moved to the END of the chain
-	// — AFTER the microrepeat glitch — so the filter acts on the stuttered
-	// result. Sends stay here (pre-glitch) so the delay/reverb tails feed the
-	// stutter as before.
+	// FILTERS (HP/LP) FIRST in the effects chain — BEFORE reverb/delay and the
+	// microrepeat glitch (user expectation). The filter shapes the DRY source, then
+	// the reverb/delay tails and the stutter are generated FROM the filtered signal.
+	// At default knobs (HP cutoff 0, LP cutoff 1) processFilters is a byte-exact
+	// pass-through, so this is inaudible until a filter knob is moved.
+	if (pEffectsProcessor)
+	{
+		// MONO: feed the same mono buffer as both channel args.
+		float fl[AUDIO_BLOCK_SAMPLES], fr_scratch[AUDIO_BLOCK_SAMPLES];
+		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+			fl[i] = (float)m_input_buffer[i] / 32768.0f;
+		memcpy(fr_scratch, fl, sizeof(fl));
+		pEffectsProcessor->processFilters(fl, fr_scratch, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
+		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
+			m_input_buffer[i] = (s32)(fl[i] * 32768.0f);
+	}
+
+	// EFFECTS SENDS (delay + reverb) — now AFTER the filters, so the delay/reverb
+	// tails are generated from the filtered signal, and BEFORE the microrepeat glitch
+	// so the stutter still captures the delay/reverb tails as before.
 	if (pEffectsProcessor)
 	{
 		// MONO: feed the same mono buffer as both channel args (matches the
@@ -843,23 +858,6 @@ void loopMachine::update(void)
 		}
 		pMicroRepeat->process(m_input_buffer, m_masterPhase, m_masterLoopBlocks,
 		                      lp.microRepeatDiv, AUDIO_BLOCK_SAMPLES);
-	}
-
-	// FILTERS (HP/LP) at the END of the chain — AFTER the microrepeat glitch — so
-	// the filter acts on the stuttered signal (user request). At default knobs
-	// (HP cutoff 0, LP cutoff 1) processFilters is a byte-exact pass-through, so
-	// this is inaudible until a filter knob is moved. cbWriteBlock below records
-	// the filtered result.
-	if (pEffectsProcessor)
-	{
-		// MONO: feed the same mono buffer as both channel args.
-		float fl[AUDIO_BLOCK_SAMPLES], fr_scratch[AUDIO_BLOCK_SAMPLES];
-		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-			fl[i] = (float)m_input_buffer[i] / 32768.0f;
-		memcpy(fr_scratch, fl, sizeof(fl));
-		pEffectsProcessor->processFilters(fl, fr_scratch, AUDIO_BLOCK_SAMPLES, AUDIO_SAMPLE_RATE);
-		for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++)
-			m_input_buffer[i] = (s32)(fl[i] * 32768.0f);
 	}
 
 	// ALWAYS-ON continuous record buffer (continuousBuffer.h): store the WET
