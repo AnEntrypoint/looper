@@ -135,43 +135,24 @@ function parseSyslog(raw){
   return msg.replace(/[^\x20-\x7e\n]/g,'').trim();
 }
 
-function buildDhcpReply(type,xid,mac,offeredIp,pxe,clientGuid){
+function buildDhcpReply(type,xid,mac,offeredIp){
   const buf=Buffer.alloc(576);
   buf[0]=2;buf[1]=1;buf[2]=6;buf.writeUInt32BE(xid,4);buf.writeUInt16BE(0x8000,10);
   ip2buf(offeredIp).copy(buf,16);ip2buf(SERVER_IP).copy(buf,20);mac.copy(buf,28);
-  // BOOTP legacy fields the Raspberry Pi bootloader also reads: sname (server host
-  // name, offset 44, 64 bytes) and file (boot filename, offset 108, 128 bytes). Some
-  // firmware revisions honor these before the option-67 bootfile.
-  Buffer.from(SERVER_IP+'\0').copy(buf,44);
-  Buffer.from('kernel7l.img\0').copy(buf,108);
   buf.writeUInt32BE(0x63825363,236);
   let o=240;
-  buf[o++]=53;buf[o++]=1;buf[o++]=type;                                   // 53 msg type
-  buf[o++]=54;buf[o++]=4;ip2buf(SERVER_IP).copy(buf,o);o+=4;              // 54 server id
-  buf[o++]=51;buf[o++]=4;buf.writeUInt32BE(LEASE_SECS,o);o+=4;            // 51 lease
-  buf[o++]=1;buf[o++]=4;Buffer.from(SUBNET).copy(buf,o);o+=4;             // 1  subnet mask
-  const ti=Buffer.from(SERVER_IP);buf[o++]=66;buf[o++]=ti.length;ti.copy(buf,o);o+=ti.length; // 66 tftp server
-  const boot=Buffer.from('kernel7l.img\0');buf[o++]=67;buf[o++]=boot.length;boot.copy(buf,o);o+=boot.length; // 67 bootfile
-  // Raspberry Pi 4 network boot is a PXE-style handshake: the bootloader sends option 60
-  // vendor-class "PXEClient..." and IGNORES any OFFER that does not echo option 60
-  // "PXEClient" AND carry a PXE option 43 — it just re-DISCOVERs (the observed DHCP loop
-  // with zero TFTP reads). Echo both so the Pi accepts the offer and proceeds to TFTP.
-  if(pxe){
-    const pc=Buffer.from('PXEClient');buf[o++]=60;buf[o++]=pc.length;pc.copy(buf,o);o+=pc.length; // 60 vendor class
-    // Echo option 97 (client machine identifier) verbatim — the Pi 4 bootloader
-    // validates that the server reflected its GUID before accepting the boot. This is
-    // safe/standard; option 43 was tried and did NOT help (the Pi accepts the offer
-    // either way but the discovery-control encoding it wants is version-specific), so it
-    // is left out — echoing 60 + 97 is the minimal reliable PXE acceptance.
-    if(clientGuid){buf[o++]=97;buf[o++]=clientGuid.length;clientGuid.copy(buf,o);o+=clientGuid.length;}
-  }
+  buf[o++]=53;buf[o++]=1;buf[o++]=type;
+  buf[o++]=54;buf[o++]=4;ip2buf(SERVER_IP).copy(buf,o);o+=4;
+  buf[o++]=51;buf[o++]=4;buf.writeUInt32BE(LEASE_SECS,o);o+=4;
+  buf[o++]=1;buf[o++]=4;Buffer.from(SUBNET).copy(buf,o);o+=4;
+  const ti=Buffer.from(SERVER_IP);buf[o++]=66;buf[o++]=ti.length;ti.copy(buf,o);o+=ti.length;
+  const boot=Buffer.from('kernel7l.img\0');buf[o++]=67;buf[o++]=boot.length;boot.copy(buf,o);o+=boot.length;
   buf[o++]=255;
   return buf.slice(0,o);
 }
 
 const tftp=dgram.createSocket('udp4');
 tftp.on('message',(msg,rinfo)=>{
-  if(process.env.DHCP_DEBUG&&msg.readUInt16BE(0)!==OP_RRQ)console.log('[TFTP-DBG] non-RRQ from',rinfo.address+':'+rinfo.port,'op='+msg.readUInt16BE(0));
   if(msg.readUInt16BE(0)!==OP_RRQ)return;
   let offset=2;const end=msg.indexOf(0,offset);
   const filename=msg.slice(offset,end).toString();offset=end+1;
@@ -187,20 +168,11 @@ dhcp.on('message',(msg,rinfo)=>{
   if(msg.length<240||msg[0]!==1||msg.readUInt32BE(236)!==0x63825363)return;
   const xid=msg.readUInt32BE(4),mac=msg.slice(28,34);
   const macStr=Array.from(mac).map(b=>b.toString(16).padStart(2,'0')).join(':');
-  let msgType=0,vendorClass='',clientGuid=null,o=240;const seenOpts=[];
-  while(o<msg.length){const opt=msg[o++];if(opt===255)break;if(opt===0)continue;const len=msg[o++];
-    if(opt===53)msgType=msg[o];
-    if(opt===60)vendorClass=msg.slice(o,o+len).toString('latin1');
-    if(opt===97)clientGuid=Buffer.from(msg.slice(o,o+len));   // client machine id — Pi 4 validates it echoed back
-    seenOpts.push(opt+':'+msg.slice(o,o+len).toString('hex'));
-    o+=len;}
-  if(process.env.DHCP_DEBUG)console.log('[DHCP-DBG] opts',seenOpts.join(' '));
-  // The Pi 4 bootloader identifies itself with a "PXEClient" vendor class (option 60).
-  // Echo the PXE options ONLY to such clients so a normal DHCP client isn't confused.
-  const pxe=vendorClass.startsWith('PXEClient');
+  let msgType=0,o=240;
+  while(o<msg.length){const opt=msg[o++];if(opt===255)break;if(opt===0)continue;const len=msg[o++];if(opt===53)msgType=msg[o];o+=len;}
   const offeredIp=allocate(macStr);
-  console.log('[DHCP]',msgType===1?'DISCOVER':msgType===3?'REQUEST':'type'+msgType,'from',macStr,'->',offeredIp,pxe?'(PXE)':(vendorClass?'('+vendorClass+')':''));
-  const reply=buildDhcpReply(msgType===1?2:5,xid,mac,offeredIp,pxe,clientGuid);
+  console.log('[DHCP]',msgType===1?'DISCOVER':msgType===3?'REQUEST':'type'+msgType,'from',macStr,'->',offeredIp);
+  const reply=buildDhcpReply(msgType===1?2:5,xid,mac,offeredIp);
   dhcp.send(reply,68,'255.255.255.255',err=>err&&console.error('[DHCP]',err.message));
 });
 dhcp.on('error',err=>{if(err.code==='EACCES'){console.error('[DHCP] need admin: port 67');process.exit(1);}console.error('[DHCP]',err.message);});
